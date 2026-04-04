@@ -4,7 +4,7 @@ Kwanza Folha é um software desktop de gestão de folha salarial e recursos huma
 
 O sistema foi criado para simplificar o processamento salarial, reduzir erros operacionais e centralizar num único ambiente as tarefas de RH, Administração e Finanças. Com o Kwanza Folha, a empresa pode gerir trabalhadores, processar salários, calcular impostos, emitir recibos, gerar relatórios e controlar assiduidade, férias, licenças e turnos com mais segurança e organização.
 
-## Principais funcionalidades
+## Principais funcionalidades.
 
 - Cadastro completo de trabalhadores
 - Gestão de utilizadores e controlo de acesso
