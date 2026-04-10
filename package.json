@@ -1,0 +1,95 @@
+{
+  "name": "kwanza-folha",
+  "version": "1.0.0",
+  "description": "Sistema desktop de processamento salarial empresarial para Windows.",
+  "main": "electron/main.js",
+  "author": "Adérito Alves / Alves Estúdio",
+  "license": "MIT",
+  "productName": "Kwanza Folha",
+  "scripts": {
+    "dev": "concurrently \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev:renderer": "vite",
+    "dev:electron": "wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .",
+    "integrity:generate": "node scripts\\generate-integrity-manifest.js",
+    "license:server": "node licensing-server/server.js",
+    "license:rotate-keys": "node scripts\\rotate-license-keys.js",
+    "brand:generate": "powershell -ExecutionPolicy Bypass -File scripts\\generate-brand-assets.ps1",
+    "build:signed": "powershell -ExecutionPolicy Bypass -File scripts\\build-signed.ps1 -Target all",
+    "build:signed:installer": "powershell -ExecutionPolicy Bypass -File scripts\\build-signed.ps1 -Target installer",
+    "release:artifacts": "node scripts\\release-artifacts.js --channel stable --target all",
+    "release:prepare": "powershell -ExecutionPolicy Bypass -File scripts\\prepare-release.ps1 -Channel stable -Target all",
+    "release:prepare:beta": "powershell -ExecutionPolicy Bypass -File scripts\\prepare-release.ps1 -Channel beta -Target all",
+    "test": "node tests\\run-tests.js",
+    "build": "npm run integrity:generate && vite build && electron-builder",
+    "build:installer": "npm run integrity:generate && vite build && electron-builder --win nsis",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^11.8.1",
+    "better-sqlite3-multiple-ciphers": "^12.8.0",
+    "electron-log": "^5.2.4",
+    "nodemailer": "^8.0.4",
+    "pdf-lib": "^1.17.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.4.1",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^35.1.5",
+    "electron-builder": "^25.1.8",
+    "vite": "^6.2.6",
+    "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "ao.kwanzafolha.desktop",
+    "productName": "Kwanza Folha",
+    "directories": {
+      "buildResources": "build",
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "shared/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "main": "electron/main.js"
+    },
+    "win": {
+      "icon": "assets/icon.ico",
+      "signtoolOptions": {
+        "publisherName": "KwanzaPro"
+      },
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Kwanza Folha",
+      "artifactName": "KwanzaFolha-Setup-${version}.${ext}",
+      "installerIcon": "assets/icons/installerIcon.ico",
+      "uninstallerIcon": "assets/icons/uninstallerIcon.ico",
+      "installerHeader": "assets/images/installerHeader.bmp",
+      "installerSidebar": "assets/images/installerSidebar.bmp",
+      "uninstallerSidebar": "assets/images/uninstallerSidebar.bmp",
+      "license": "build/installer-license.txt",
+      "packElevateHelper": true,
+      "runAfterFinish": true
+    }
+  }
+}

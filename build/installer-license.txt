@@ -1,0 +1,50 @@
+CONTRATO DE LICENÇA DE UTILIZAÇÃO DO SOFTWARE KWANZA FOLHA
+
+Leia atentamente este contrato antes de instalar ou utilizar o Kwanza Folha.
+
+Ao instalar, ativar ou utilizar o software, o utilizador declara que leu, compreendeu e aceitou os termos deste contrato.
+
+1. Objeto
+O Kwanza Folha é um software de gestão de folha salarial e recursos humanos, desenvolvido para utilização empresarial, com foco em empresas em Angola.
+
+2. Licença de uso
+O Kwanza Folha é licenciado, e não vendido. A licença concedida ao cliente é limitada, revogável, não exclusiva e intransmissível, destinando-se apenas ao uso interno da empresa licenciada.
+
+3. Período gratuito
+O software pode disponibilizar um período inicial de teste gratuito de 7 (sete) dias. Após o fim desse período, o acesso ao sistema poderá ser bloqueado até à ativação de uma licença válida.
+
+4. Assinatura e validade
+O Kwanza Folha opera por assinatura mensal. A licença ativa concede acesso ao sistema pelo prazo contratado, com validade de 30 (trinta) dias, renovável mediante pagamento.
+
+5. Ativação e funcionamento
+Após a ativação, o software pode funcionar offline durante o período de validade da licença. O sistema verifica localmente a data de expiração e poderá bloquear o acesso quando a licença expirar.
+
+6. Restrições
+É proibido:
+a) copiar, revender, sublicenciar ou distribuir o software sem autorização;
+b) alterar, remover ou contornar mecanismos de proteção, ativação ou licenciamento;
+c) tentar descompilar, desmontar, modificar ou fazer engenharia inversa do software, salvo quando permitido por lei;
+d) utilizar a mesma licença de forma indevida em ambiente não autorizado.
+
+7. Proteção e segurança
+O software pode utilizar mecanismos de validação, ativação, verificação de integridade e proteção contra uso indevido, alteração não autorizada ou tentativa de fraude.
+
+8. Atualizações
+O fornecedor poderá disponibilizar atualizações, melhorias e correções. Algumas atualizações podem exigir licença ativa e válida.
+
+9. Responsabilidade do utilizador
+O utilizador é responsável pela veracidade dos dados inseridos, pela guarda das credenciais de acesso e pela realização de cópias de segurança quando aplicável.
+
+10. Limitação de responsabilidade
+O software é fornecido como ferramenta de apoio à gestão. A responsabilidade pela conferência final dos dados salariais, fiscais, bancários e legais permanece com a empresa utilizadora.
+
+11. Suspensão ou revogação
+A licença pode ser suspensa ou revogada em caso de incumprimento deste contrato, uso fraudulento, violação das condições de licenciamento ou utilização não autorizada.
+
+12. Aceitação
+Ao instalar ou utilizar o Kwanza Folha, o utilizador concorda com todos os termos deste contrato.
+
+Kwanza Folha
+Software de Gestão Salarial e RH
+Criado por Adérito Alves e pela empresa Alves Estúdio.
+Todos os direitos reservados.

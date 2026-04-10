@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+dist-electron/
+
+# Runtime/temp
+.tmp-boot/
+.tmp-electron-boot/
+.tmp-secure-machine/
+.tmp-secure-user/
+*.log
+*.err.log
+*.out.log
+
+# Local databases and backups
+*.sqlite
+*.sqlite.enc
+*.db
+licensing-server/storage/
+
+# Secrets and local config
+licensing-server/config/license-private.pem
+licensing-server/config/settings.json
+*.pem
+*.p12
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+

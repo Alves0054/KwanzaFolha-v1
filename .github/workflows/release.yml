@@ -1,0 +1,53 @@
+name: Release Desktop
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve release channel
+        shell: pwsh
+        run: |
+          $channel = if ("${{ github.ref_name }}" -match "-beta") { "beta" } else { "stable" }
+          "KWANZA_RELEASE_CHANNEL=$channel" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Prepare signed release
+        shell: pwsh
+        env:
+          KWANZA_CERTIFICATE_BASE64: ${{ secrets.KWANZA_CERTIFICATE_BASE64 }}
+          KWANZA_CERTIFICATE_PASSWORD: ${{ secrets.KWANZA_CERTIFICATE_PASSWORD }}
+        run: |
+          powershell -ExecutionPolicy Bypass -File scripts\prepare-release.ps1 -Channel $env:KWANZA_RELEASE_CHANNEL -Target all
+
+      - name: Publish draft GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          prerelease: ${{ contains(github.ref_name, '-beta') }}
+          body_path: dist-electron/release-notes-template.md
+          files: |
+            dist-electron/KwanzaFolha-Setup-*.exe
+            dist-electron/KwanzaFolha-Setup-*.exe.blockmap
+            dist-electron/KwanzaFolha-Portable-*.exe
+            dist-electron/SHA256SUMS.txt
+            dist-electron/release-manifest.json

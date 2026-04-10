@@ -1,0 +1,232 @@
+/* === LISTAS E TABELAS === */
+.table-list {
+  display: grid;
+  gap: 10px;
+}
+
+.table-list.compact .table-row {
+  padding-block: 12px;
+}
+
+.table-row,
+.audit-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 0.5px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--surface-color);
+  transition: var(--transition-base);
+}
+
+.table-row:nth-child(even),
+.table-list.compact .table-row:nth-child(even) {
+  background: var(--blue-50);
+}
+
+[data-theme="dark"] .table-row:nth-child(even),
+[data-theme="dark"] .table-list.compact .table-row:nth-child(even) {
+  background: #0d1f33;
+}
+
+.table-row:hover,
+.audit-row:hover {
+  background: var(--surface-hover);
+  border-color: var(--blue-200);
+}
+
+[data-theme="dark"] .table-row:hover,
+[data-theme="dark"] .audit-row:hover {
+  background: var(--blue-800);
+}
+
+.table-row > div:first-child,
+.audit-row__content {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.table-row strong,
+.audit-row strong {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.table-row small,
+.audit-row small {
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.payroll-values,
+.state-payment-values,
+.audit-row__meta {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.audit-row__changes {
+  padding: 10px 12px;
+  border: 0.5px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+}
+
+/* === PROCESSAMENTO === */
+.processing-list {
+  gap: 14px;
+}
+
+.processing-card {
+  display: grid;
+  gap: 14px;
+}
+
+.processing-card__header,
+.processing-card__actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.processing-card__grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.processing-card__grid--deductions {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.processing-card__grid > div,
+.info-grid > div,
+.dashboard-context-card,
+.dashboard-inconsistency-card,
+.update-panel__summary > div,
+.update-panel__status {
+  padding: 12px 14px;
+  border: 0.5px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--surface-muted);
+}
+
+.processing-card__grid label,
+.info-grid label,
+.update-panel__summary label,
+.dashboard-context-card label,
+.dashboard-inconsistency-card label {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.processing-card__grid strong,
+.info-grid strong,
+.update-panel__summary strong,
+.dashboard-context-card strong,
+.dashboard-inconsistency-card strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.update-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.update-panel__summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+/* === RELATORIOS === */
+.reports-panel--summary {
+  max-width: none;
+}
+
+.reports-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.reports-summary-grid__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 64px;
+  padding: 12px 14px;
+  border: 0.5px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--surface-muted);
+}
+
+.reports-summary-grid__item label {
+  margin: 0;
+  max-width: 150px;
+}
+
+.reports-summary-grid__item strong {
+  margin-top: 0;
+  text-align: right;
+  white-space: nowrap;
+}
+
+@media (max-width: 1460px) {
+  .processing-card__grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .processing-card__grid--deductions {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 820px) {
+  .table-row,
+  .audit-row,
+  .processing-card__header,
+  .processing-card__actions {
+    flex-direction: column;
+  }
+
+  .payroll-values,
+  .state-payment-values,
+  .audit-row__meta {
+    align-items: flex-start;
+    justify-content: flex-start;
+  }
+
+  .processing-card__grid,
+  .processing-card__grid--deductions,
+  .update-panel__summary,
+  .reports-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .reports-summary-grid__item {
+    align-items: flex-start;
+    flex-direction: column;
+    justify-content: flex-start;
+  }
+
+  .reports-summary-grid__item strong {
+    text-align: left;
+    white-space: normal;
+  }
+}

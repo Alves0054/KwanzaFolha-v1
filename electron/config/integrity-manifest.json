@@ -1,0 +1,59 @@
+{
+  "generatedAt": "2026-04-10T20:00:43.445Z",
+  "files": [
+    {
+      "path": "electron/main.js",
+      "sha256": "4db70596deda4f64bc0991ed702b6c257fb12fb49d10934adcca9c5336703699",
+      "packaged": true,
+      "development": true
+    },
+    {
+      "path": "electron/services/licensing.js",
+      "sha256": "8f15feb2b836e81455af309a752e6a1f333869d03416bc27d4aa5c597de45108",
+      "packaged": true,
+      "development": true
+    },
+    {
+      "path": "electron/services/database.js",
+      "sha256": "441a6cc0729e8cce084d9e054018c3d7598590a3332302cf0bfc6f6eb3ab8c61",
+      "packaged": true,
+      "development": true
+    },
+    {
+      "path": "electron/services/secure-storage.js",
+      "sha256": "7ace3349cc6d37207ffc8cb6039a0d48f1998a0112dfe27a8b47847aff755899",
+      "packaged": true,
+      "development": true
+    },
+    {
+      "path": "electron/services/installation-identity.js",
+      "sha256": "d02dfd701fb9e79634d7e4db95f722576597235f9fae959a2b9487cff84e22a5",
+      "packaged": true,
+      "development": true
+    },
+    {
+      "path": "electron/services/anti-tamper.js",
+      "sha256": "86b098896eba685776076acb01d0d5e3012b1ebe9b15c41273825b578999e2ae",
+      "packaged": true,
+      "development": true
+    },
+    {
+      "path": "electron/services/core/create-app-services.js",
+      "sha256": "09809d4cf87316ddd88681982ec8be9f3f66d734bef18c548336633daf4432a3",
+      "packaged": true,
+      "development": true
+    },
+    {
+      "path": "licensing-server/server.js",
+      "sha256": "03eca6a26c07b522e8e397ae8ec22bc6029471f70c62f1d5871c26ec807c6f75",
+      "packaged": false,
+      "development": true
+    },
+    {
+      "path": "package.json",
+      "sha256": "74be49aa5bd5997c593aab08be3c660e3e4eb193577a96ea0db5091268013923",
+      "packaged": false,
+      "development": true
+    }
+  ]
+}
