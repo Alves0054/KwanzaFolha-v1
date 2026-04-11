@@ -26,7 +26,8 @@ Write-Host "A gerar a build assinada..." -ForegroundColor Cyan
   -Target $Target `
   -CertificatePath $CertificatePath `
   -CertificatePassword $CertificatePassword `
-  -TimestampServer $TimestampServer
+  -TimestampServer $TimestampServer `
+  -AllowUnsignedTimestamp:$false
 
 Write-Host "A gerar checksum e manifesto da release..." -ForegroundColor Cyan
 node (Join-Path $PSScriptRoot "release-artifacts.js") --channel $Channel --target $Target

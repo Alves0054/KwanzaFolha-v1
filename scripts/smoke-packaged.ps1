@@ -36,6 +36,9 @@ if (-not $SkipSignatureCheck) {
     if ($signature.Status -ne "Valid" -or -not $signature.SignerCertificate) {
       throw "Smoke falhou: assinatura invalida para '$PathToFile'. Estado: $($signature.Status)."
     }
+    if (-not $signature.TimeStamperCertificate) {
+      throw "Smoke falhou: '$PathToFile' esta assinado sem timestamp."
+    }
   }
 
   Assert-ValidSignature -PathToFile $installer.FullName

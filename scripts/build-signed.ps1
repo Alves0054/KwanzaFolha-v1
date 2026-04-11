@@ -4,7 +4,7 @@ param(
   [string]$CertificatePath = "",
   [string]$CertificatePassword = "",
   [string]$TimestampServer = "https://timestamp.digicert.com",
-  [bool]$AllowUnsignedTimestamp = $true
+  [bool]$AllowUnsignedTimestamp = $false
 )
 
 $ErrorActionPreference = "Stop"
