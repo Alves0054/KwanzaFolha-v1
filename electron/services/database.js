@@ -29,6 +29,13 @@ const {
   buildEmployeeDocumentsFilter
 } = require("./core/db/domains/employee-documents");
 const { buildAuditLogsFilter, mapAuditRows } = require("./core/db/domains/audit");
+const { mapEmployeeListRows } = require("./core/db/domains/employees");
+const { buildPayrollRunsFilter, mapPayrollRunRows } = require("./core/db/domains/payroll-runs");
+const {
+  ATTENDANCE_PERIODS_SELECT,
+  PAYROLL_PERIODS_SELECT,
+  buildDefaultAttendancePeriod
+} = require("./core/db/domains/periods");
 const {
   buildClosePayrollPeriodPayload,
   buildDefaultPayrollPeriod,
@@ -4820,7 +4827,7 @@ class DatabaseService {
   }
 
   listEmployees() {
-    return this.db.prepare(`
+    const rows = this.db.prepare(`
       SELECT
         employees.*,
         work_shifts.name AS shift_name,
@@ -4828,40 +4835,17 @@ class DatabaseService {
       FROM employees
       LEFT JOIN work_shifts ON work_shifts.id = employees.shift_id
       ORDER BY employees.full_name
-    `).all().map((employee) => ({
-      ...employee,
-      document_type: employee.document_type || "bi",
-      social_security_number: employee.social_security_number || "",
-      driver_license_number: employee.driver_license_number || "",
-      attendance_code: employee.attendance_code || "",
-      birth_date: employee.birth_date || "",
-      gender: employee.gender || "",
-      marital_status: employee.marital_status || "",
-      nationality: employee.nationality || "Angolana",
-      personal_phone: employee.personal_phone || "",
-      personal_email: employee.personal_email || "",
-      address: employee.address || "",
-      bank_code: employee.bank_code || resolveBankCodeFromRegistryCode(extractAngolaBankRegistryCode(employee.iban)) || "ATLANTICO",
-      bank_account: employee.bank_account || "",
-      shift_id: employee.shift_id || null,
-      shift_name: employee.shift_name || "",
-      shift_profile: employee.shift_profile || "",
-      notes: employee.notes || "",
-      recurring_allowances: JSON.parse(employee.recurring_allowances ?? "[]"),
-      recurring_bonuses: JSON.parse(employee.recurring_bonuses ?? "[]"),
-      special_payments: JSON.parse(employee.special_payments ?? "[]")
-    }));
+    `).all();
+
+    return mapEmployeeListRows(rows, {
+      resolveBankCodeFromRegistryCode,
+      extractAngolaBankRegistryCode
+    });
   }
 
   listPayrollPeriods() {
     return this.db.prepare(`
-      SELECT
-        payroll_periods.*,
-        closer.full_name AS closed_by_name,
-        reopener.full_name AS reopened_by_name
-      FROM payroll_periods
-      LEFT JOIN users AS closer ON closer.id = payroll_periods.closed_by_user_id
-      LEFT JOIN users AS reopener ON reopener.id = payroll_periods.reopened_by_user_id
+      ${PAYROLL_PERIODS_SELECT}
       ORDER BY payroll_periods.month_ref DESC
     `).all();
   }
@@ -4952,40 +4936,18 @@ class DatabaseService {
 
   listAttendancePeriods() {
     return this.db.prepare(`
-      SELECT
-        attendance_periods.*,
-        closer.full_name AS closed_by_name,
-        reopener.full_name AS reopened_by_name
-      FROM attendance_periods
-      LEFT JOIN users AS closer ON closer.id = attendance_periods.closed_by_user_id
-      LEFT JOIN users AS reopener ON reopener.id = attendance_periods.reopened_by_user_id
+      ${ATTENDANCE_PERIODS_SELECT}
       ORDER BY attendance_periods.month_ref DESC
     `).all();
   }
 
   getAttendancePeriod(monthRef) {
     const row = this.db.prepare(`
-      SELECT
-        attendance_periods.*,
-        closer.full_name AS closed_by_name,
-        reopener.full_name AS reopened_by_name
-      FROM attendance_periods
-      LEFT JOIN users AS closer ON closer.id = attendance_periods.closed_by_user_id
-      LEFT JOIN users AS reopener ON reopener.id = attendance_periods.reopened_by_user_id
+      ${ATTENDANCE_PERIODS_SELECT}
       WHERE attendance_periods.month_ref = ?
     `).get(monthRef);
 
-    return row || {
-      month_ref: monthRef,
-      status: "open",
-      closed_at: null,
-      closed_by_user_id: null,
-      closed_by_name: null,
-      reopened_at: null,
-      reopened_by_user_id: null,
-      reopened_by_name: null,
-      updated_at: null
-    };
+    return row || buildDefaultAttendancePeriod(monthRef);
   }
 
   ensureAttendancePeriodOpen(monthRef) {
@@ -5012,13 +4974,7 @@ class DatabaseService {
 
   getPayrollPeriod(monthRef) {
     const row = this.db.prepare(`
-      SELECT
-        payroll_periods.*,
-        closer.full_name AS closed_by_name,
-        reopener.full_name AS reopened_by_name
-      FROM payroll_periods
-      LEFT JOIN users AS closer ON closer.id = payroll_periods.closed_by_user_id
-      LEFT JOIN users AS reopener ON reopener.id = payroll_periods.reopened_by_user_id
+      ${PAYROLL_PERIODS_SELECT}
       WHERE payroll_periods.month_ref = ?
     `).get(monthRef);
 
@@ -6624,35 +6580,8 @@ class DatabaseService {
   }
 
   listPayrollRuns(filters = {}) {
-    const normalizedFilters = normalizeReportFilters(filters);
-    const conditions = [];
-    const values = {};
-
-    if (filters.id) {
-      conditions.push("payroll_runs.id = @id");
-      values.id = filters.id;
-    }
-    if (normalizedFilters.employeeId) {
-      conditions.push("payroll_runs.employee_id = @employeeId");
-      values.employeeId = normalizedFilters.employeeId;
-    }
-    if (normalizedFilters.monthRef) {
-      conditions.push("payroll_runs.month_ref = @monthRef");
-      values.monthRef = normalizedFilters.monthRef;
-    } else {
-      if (normalizedFilters.startMonthRef) {
-        conditions.push("payroll_runs.month_ref >= @startMonthRef");
-        values.startMonthRef = normalizedFilters.startMonthRef;
-      }
-      if (normalizedFilters.endMonthRef) {
-        conditions.push("payroll_runs.month_ref <= @endMonthRef");
-        values.endMonthRef = normalizedFilters.endMonthRef;
-      }
-    }
-
-    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-
-    return this.db.prepare(`
+    const query = buildPayrollRunsFilter(filters, normalizeReportFilters);
+    const rows = this.db.prepare(`
       SELECT
         payroll_runs.*,
         employees.full_name,
@@ -6664,9 +6593,10 @@ class DatabaseService {
         employees.social_security_number
       FROM payroll_runs
       INNER JOIN employees ON employees.id = payroll_runs.employee_id
-      ${whereClause}
+      ${query.whereClause}
       ORDER BY payroll_runs.month_ref DESC, employees.full_name ASC
-    `).all(values).map((row) => ({ ...row, summary_json: JSON.parse(row.summary_json) }));
+    `).all(query.values);
+    return mapPayrollRunRows(rows);
   }
 
   buildAttendanceReportData(filters, reportType = "presencas") {
