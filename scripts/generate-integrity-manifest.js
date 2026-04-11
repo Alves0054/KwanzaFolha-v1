@@ -3,6 +3,7 @@ const path = require("path");
 const crypto = require("crypto");
 
 const CRITICAL_FILES = [
+  { path: "electron/bootstrap.js", packaged: true, development: true },
   { path: "electron/main.js", packaged: true, development: true },
   { path: "electron/services/licensing.js", packaged: true, development: true },
   { path: "electron/services/database.js", packaged: true, development: true },
