@@ -127,7 +127,11 @@ function Get-ExpectedArtifacts {
 
   $files = @()
   foreach ($pattern in $patterns) {
-    $files += Get-ChildItem -Path (Join-Path $OutputDir $pattern) -File -ErrorAction SilentlyContinue
+    $matches = Get-ChildItem -Path (Join-Path $OutputDir $pattern) -File -ErrorAction SilentlyContinue
+    if (-not $matches -or $matches.Count -eq 0) {
+      throw "Nao encontrei artefactos esperados para o padrao '$pattern' em '$OutputDir'."
+    }
+    $files += $matches
   }
 
   if (-not $files.Count) {
