@@ -1,6 +1,7 @@
 param(
   [string]$OutputDir = "dist-electron",
   [int]$BootWaitSeconds = 12,
+  [int]$TimeoutSeconds = 90,
   [switch]$SkipSignatureCheck
 )
 
@@ -55,8 +56,28 @@ try {
   $process = Start-Process -FilePath $appExe -WorkingDirectory (Split-Path $appExe -Parent) -PassThru
   Start-Sleep -Seconds $BootWaitSeconds
 
+  $deadline = (Get-Date).AddSeconds([Math]::Max($TimeoutSeconds, $BootWaitSeconds))
+  $startupFinished = $false
+  while ((Get-Date) -lt $deadline) {
+    if ($process.HasExited) {
+      break
+    }
+    if (Test-Path $logPath) {
+      $logText = Get-Content -Path $logPath -Raw -ErrorAction SilentlyContinue
+      if ($logText -match "\[BOOT\] startup sequence finished") {
+        $startupFinished = $true
+        break
+      }
+    }
+    Start-Sleep -Milliseconds 700
+  }
+
   if ($process.HasExited -and $process.ExitCode -ne 0) {
     throw "Smoke falhou: executavel terminou cedo com exit code $($process.ExitCode)."
+  }
+
+  if (-not $startupFinished) {
+    throw "Smoke falhou: arranque nao concluiu dentro do timeout de ${TimeoutSeconds}s."
   }
 } finally {
   if ($process -and -not $process.HasExited) {
@@ -76,7 +97,7 @@ if (-not (Test-Path $logPath)) {
 
 $logText = Get-Content -Path $logPath -Raw -ErrorAction Stop
 if ($logText -notmatch "\[BOOT\] startup sequence finished") {
-  throw "Smoke falhou: arranque nao concluiu (marcador [BOOT] startup sequence finished ausente)."
+  throw "Smoke falhou: marcador [BOOT] startup sequence finished ausente no log final."
 }
 
 Write-Host "Smoke empacotado concluido com sucesso." -ForegroundColor Green
