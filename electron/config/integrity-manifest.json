@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-11T13:16:03.571Z",
+  "generatedAt": "2026-04-11T16:38:04.238Z",
   "files": [
     {
       "path": "electron/bootstrap.js",
@@ -9,19 +9,19 @@
     },
     {
       "path": "electron/main.js",
-      "sha256": "2751521db92dd7971012fe9a8d9b28f7f37839f16e8707c8b74183be4d317db6",
+      "sha256": "659974a7395a4e5627f12f31ae2f9a3ab080c0303350b57087033211d01711f4",
       "packaged": true,
       "development": true
     },
     {
       "path": "electron/services/licensing.js",
-      "sha256": "dbe50ef597da3c28c1bfb444f65dad62793b50aa4deb83970beee6125648b31e",
+      "sha256": "1d93b214faf0cd5a04ffd454d160e0989b016f445e640cf8829724c78fd3cb57",
       "packaged": true,
       "development": true
     },
     {
       "path": "electron/services/database.js",
-      "sha256": "b12ae573dd72e06eaa7fc8b7769a19ff4674e6935925bf05d3d58fbb7e988872",
+      "sha256": "310601088c4e2a87891329870c0c73d69bf6b14a9642688c2f1fa7fa12b20158",
       "packaged": true,
       "development": true
     },
