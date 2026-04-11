@@ -23,6 +23,33 @@ const {
   CURRENT_INSS_EMPLOYER_RATE_PERCENT,
   cloneFiscalBrackets
 } = require("./core/fiscal");
+const { buildAttendanceRecordsFilter } = require("./core/db/domains/attendance");
+const {
+  applyEmployeeDocumentClientFilters,
+  buildEmployeeDocumentsFilter
+} = require("./core/db/domains/employee-documents");
+const { buildAuditLogsFilter, mapAuditRows } = require("./core/db/domains/audit");
+const {
+  buildClosePayrollPeriodPayload,
+  buildDefaultPayrollPeriod,
+  buildReopenPayrollPeriodPayload
+} = require("./core/db/domains/payroll-periods");
+const {
+  saveAttendanceRecord: saveAttendanceRecordDomain,
+  deleteAttendanceRecord: deleteAttendanceRecordDomain,
+  approveAttendanceAdjustments: approveAttendanceAdjustmentsDomain,
+  closeAttendancePeriod: closeAttendancePeriodDomain,
+  reopenAttendancePeriod: reopenAttendancePeriodDomain
+} = require("./core/db/domains/attendance-write");
+const {
+  saveEmployeeDocument: saveEmployeeDocumentDomain,
+  deleteEmployeeDocument: deleteEmployeeDocumentDomain
+} = require("./core/db/domains/employee-documents-write");
+const { recordAudit: recordAuditDomain } = require("./core/db/domains/audit-write");
+const {
+  closePayrollPeriod: closePayrollPeriodDomain,
+  reopenPayrollPeriod: reopenPayrollPeriodDomain
+} = require("./core/db/domains/payroll-periods-write");
 
 const DEFAULT_IRT_BRACKETS = cloneFiscalBrackets(CURRENT_ANGOLA_IRT_GROUP_A_BRACKETS);
 
@@ -2660,47 +2687,15 @@ class DatabaseService {
   }
 
   listAuditLogs(filters = {}) {
-    const clauses = [];
-    const params = {};
-
-    if (filters.userName) {
-      clauses.push("LOWER(user_name) LIKE LOWER(@userName)");
-      params.userName = `%${String(filters.userName).trim()}%`;
-    }
-    if (filters.action) {
-      clauses.push("action = @action");
-      params.action = String(filters.action).trim();
-    }
-    if (filters.monthRef) {
-      clauses.push("month_ref = @monthRef");
-      params.monthRef = String(filters.monthRef).trim();
-    }
-    if (filters.startDate) {
-      clauses.push("substr(created_at, 1, 10) >= @startDate");
-      params.startDate = String(filters.startDate).trim();
-    }
-    if (filters.endDate) {
-      clauses.push("substr(created_at, 1, 10) <= @endDate");
-      params.endDate = String(filters.endDate).trim();
-    }
-    if (filters.search) {
-      clauses.push("(LOWER(entity_label) LIKE LOWER(@search) OR LOWER(entity_type) LIKE LOWER(@search) OR LOWER(action) LIKE LOWER(@search))");
-      params.search = `%${String(filters.search).trim()}%`;
-    }
-
-    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-    const limit = Number(filters.limit || 150);
-
-    return this.db.prepare(`
+    const query = buildAuditLogsFilter(filters);
+    const rows = this.db.prepare(`
       SELECT *
       FROM audit_logs
-      ${where}
+      ${query.whereClause}
       ORDER BY created_at DESC, id DESC
       LIMIT @limit
-    `).all({ ...params, limit }).map((row) => ({
-      ...row,
-      details_json: JSON.parse(row.details_json || "{}")
-    }));
+    `).all({ ...query.params, limit: query.limit });
+    return mapAuditRows(rows);
   }
 
   exportAuditCsv(filters = {}) {
@@ -2768,23 +2763,7 @@ class DatabaseService {
   }
 
   recordAudit(payload) {
-    this.db.prepare(`
-      INSERT INTO audit_logs (
-        user_id, user_name, action, entity_type, entity_id, entity_label, month_ref, details_json, created_at
-      ) VALUES (
-        @user_id, @user_name, @action, @entity_type, @entity_id, @entity_label, @month_ref, @details_json, @created_at
-      )
-    `).run({
-      user_id: payload.user_id ?? null,
-      user_name: payload.user_name || "Sistema",
-      action: payload.action,
-      entity_type: payload.entity_type || "system",
-      entity_id: payload.entity_id ?? null,
-      entity_label: payload.entity_label || "",
-      month_ref: payload.month_ref || null,
-      details_json: JSON.stringify(payload.details || {}),
-      created_at: nowIso()
-    });
+    return recordAuditDomain(this, payload, nowIso);
   }
 
   getCompanySnapshot() {
@@ -3797,23 +3776,7 @@ class DatabaseService {
   }
 
   listEmployeeDocuments(filters = {}) {
-    const conditions = [];
-    const values = {};
-
-    if (filters.id) {
-      conditions.push("employee_documents.id = @id");
-      values.id = Number(filters.id);
-    }
-    if (filters.employeeId) {
-      conditions.push("employee_documents.employee_id = @employeeId");
-      values.employeeId = Number(filters.employeeId);
-    }
-    if (filters.category && filters.category !== "todos") {
-      conditions.push("employee_documents.category = @category");
-      values.category = normalizeEmployeeDocumentCategory(filters.category);
-    }
-
-    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const query = buildEmployeeDocumentsFilter(filters, normalizeEmployeeDocumentCategory);
     const rows = this.db.prepare(`
       SELECT
         employee_documents.*,
@@ -3824,44 +3787,14 @@ class DatabaseService {
       FROM employee_documents
       INNER JOIN employees ON employees.id = employee_documents.employee_id
       LEFT JOIN users AS creator ON creator.id = employee_documents.created_by_user_id
-      ${whereClause}
+      ${query.whereClause}
       ORDER BY
         CASE WHEN employee_documents.expiry_date IS NULL OR employee_documents.expiry_date = '' THEN 1 ELSE 0 END,
         employee_documents.expiry_date ASC,
         employee_documents.created_at DESC,
         employee_documents.id DESC
-    `).all(values).map((row) => this.mapEmployeeDocumentRow(row));
-
-    const normalizedSearch = String(filters.search || "").trim().toLowerCase();
-    const normalizedStatus = String(filters.status || "todos").trim().toLowerCase();
-
-    return rows.filter((row) => {
-      if (normalizedSearch) {
-        const haystack = [
-          row.title,
-          row.document_number,
-          row.category,
-          row.file_name,
-          row.notes,
-          row.full_name,
-          row.department,
-          row.job_title
-        ].join(" ").toLowerCase();
-        if (!haystack.includes(normalizedSearch)) {
-          return false;
-        }
-      }
-
-      if (normalizedStatus !== "todos") {
-        const matchesLifecycle = row.lifecycle_status === normalizedStatus;
-        const matchesRecordStatus = String(row.status || "").toLowerCase() === normalizedStatus;
-        if (!matchesLifecycle && !matchesRecordStatus) {
-          return false;
-        }
-      }
-
-      return true;
-    });
+    `).all(query.values).map((row) => this.mapEmployeeDocumentRow(row));
+    return applyEmployeeDocumentClientFilters(rows, filters);
   }
 
   getEmployeeDocumentSnapshot(documentId) {
@@ -3910,110 +3843,11 @@ class DatabaseService {
   }
 
   saveEmployeeDocument(payload, userId = null) {
-    const validation = this.validateEmployeeDocumentPayload(payload);
-    if (!validation.ok) {
-      return validation;
-    }
-
-    const sanitized = validation.sanitized;
-    const current = payload?.id ? this.db.prepare("SELECT * FROM employee_documents WHERE id = ?").get(payload.id) : null;
-    if (payload?.id && !current) {
-      return { ok: false, message: "O documento laboral selecionado ja nao existe." };
-    }
-    if (!current && !sanitized.file_path) {
-      return { ok: false, message: "Selecione o ficheiro do documento para concluir o registo." };
-    }
-
-    let storedFile = {
-      file_name: current?.file_name || "",
-      stored_file_path: current?.stored_file_path || "",
-      file_size: Number(current?.file_size || 0)
-    };
-
-    if (sanitized.file_path) {
-      storedFile = this.storeEmployeeDocumentAttachment(validation.employee, sanitized.file_path, sanitized.title);
-      if (current?.stored_file_path && current.stored_file_path !== storedFile.stored_file_path && this.isManagedEmployeeDocumentPath(current.stored_file_path)) {
-        safeUnlink(current.stored_file_path);
-      }
-    }
-
-    const savedAt = nowIso();
-    const record = {
-      employee_id: sanitized.employee_id,
-      category: sanitized.category,
-      title: sanitized.title,
-      document_number: sanitized.document_number,
-      issuer: sanitized.issuer,
-      issue_date: sanitized.issue_date,
-      effective_date: sanitized.effective_date,
-      expiry_date: sanitized.expiry_date,
-      alert_days_before: sanitized.alert_days_before,
-      file_name: storedFile.file_name,
-      stored_file_path: storedFile.stored_file_path,
-      file_size: storedFile.file_size,
-      notes: sanitized.notes,
-      status: sanitized.status,
-      created_by_user_id: current?.created_by_user_id ?? userId ?? null,
-      created_at: current?.created_at || savedAt,
-      updated_at: savedAt
-    };
-
-    if (current) {
-      this.db.prepare(`
-        UPDATE employee_documents
-        SET employee_id = @employee_id,
-            category = @category,
-            title = @title,
-            document_number = @document_number,
-            issuer = @issuer,
-            issue_date = @issue_date,
-            effective_date = @effective_date,
-            expiry_date = @expiry_date,
-            alert_days_before = @alert_days_before,
-            file_name = @file_name,
-            stored_file_path = @stored_file_path,
-            file_size = @file_size,
-            notes = @notes,
-            status = @status,
-            updated_at = @updated_at
-        WHERE id = @id
-      `).run({ ...record, id: payload.id });
-    } else {
-      this.db.prepare(`
-        INSERT INTO employee_documents (
-          employee_id, category, title, document_number, issuer, issue_date, effective_date, expiry_date,
-          alert_days_before, file_name, stored_file_path, file_size, notes, status, created_by_user_id, created_at, updated_at
-        ) VALUES (
-          @employee_id, @category, @title, @document_number, @issuer, @issue_date, @effective_date, @expiry_date,
-          @alert_days_before, @file_name, @stored_file_path, @file_size, @notes, @status, @created_by_user_id, @created_at, @updated_at
-        )
-      `).run(record);
-    }
-
-    return {
-      ok: true,
-      document: this.listEmployeeDocuments({ id: payload?.id || this.db.prepare("SELECT last_insert_rowid() AS id").get().id })[0] || null,
-      items: this.listEmployeeDocuments({ employeeId: sanitized.employee_id }),
-      alerts: this.listEmployeeDocumentAlerts()
-    };
+    return saveEmployeeDocumentDomain(this, payload, userId, nowIso, safeUnlink);
   }
 
   deleteEmployeeDocument(documentId) {
-    const current = this.db.prepare("SELECT * FROM employee_documents WHERE id = ?").get(documentId);
-    if (!current) {
-      return { ok: false, message: "O documento laboral selecionado ja nao existe." };
-    }
-
-    this.db.prepare("DELETE FROM employee_documents WHERE id = ?").run(documentId);
-    if (current.stored_file_path && this.isManagedEmployeeDocumentPath(current.stored_file_path)) {
-      safeUnlink(current.stored_file_path);
-    }
-
-    return {
-      ok: true,
-      items: this.listEmployeeDocuments({ employeeId: current.employee_id }),
-      alerts: this.listEmployeeDocumentAlerts()
-    };
+    return deleteEmployeeDocumentDomain(this, documentId, safeUnlink);
   }
 
   listWorkShifts(filters = {}) {
@@ -5188,17 +5022,7 @@ class DatabaseService {
       WHERE payroll_periods.month_ref = ?
     `).get(monthRef);
 
-    return row || {
-      month_ref: monthRef,
-      status: "open",
-      closed_at: null,
-      closed_by_user_id: null,
-      closed_by_name: null,
-      reopened_at: null,
-      reopened_by_user_id: null,
-      reopened_by_name: null,
-      updated_at: null
-    };
+    return row || buildDefaultPayrollPeriod(monthRef);
   }
 
   ensurePeriodOpen(monthRef) {
@@ -5304,150 +5128,19 @@ class DatabaseService {
   }
 
   closeAttendancePeriod(monthRef, userId) {
-    if (!isValidMonthRef(monthRef)) {
-      return { ok: false, message: "O período de assiduidade é inválido." };
-    }
-
-    const payrollState = this.ensurePeriodOpen(monthRef);
-    if (!payrollState.ok) {
-      return {
-        ok: false,
-        message: `O período salarial ${monthRef} está fechado. Reabra-o antes de alterar o fecho da assiduidade.`
-      };
-    }
-
-    const current = this.getAttendancePeriod(monthRef);
-    if (current.status === "closed") {
-      return { ok: false, message: "A assiduidade deste mês já está fechada." };
-    }
-
-    const summary = this.buildAttendanceClosureSummary(monthRef);
-    if (summary.pendingAdjustments) {
-      return {
-        ok: false,
-        message: `Ainda existem ${summary.pendingAdjustments} ajuste(s) de assiduidade pendente(s) de aprovação neste mês.`
-      };
-    }
-    if (summary.entryWithoutExit || summary.exitWithoutEntry || summary.duplicateMarks || summary.sameDayConflicts) {
-      return {
-        ok: false,
-        message: `Existem inconsistências operacionais por resolver: ${summary.entryWithoutExit} entrada(s) sem saída, ${summary.exitWithoutEntry} saída(s) sem entrada, ${summary.duplicateMarks} marcação(ões) duplicada(s) e ${summary.sameDayConflicts} conflito(s) de férias/licença.`
-      };
-    }
-
-    this.db.prepare(`
-      INSERT INTO attendance_periods (month_ref, status, closed_at, closed_by_user_id, reopened_at, reopened_by_user_id, updated_at)
-      VALUES (@month_ref, 'closed', @closed_at, @closed_by_user_id, NULL, NULL, @updated_at)
-      ON CONFLICT(month_ref) DO UPDATE SET
-        status = 'closed',
-        closed_at = excluded.closed_at,
-        closed_by_user_id = excluded.closed_by_user_id,
-        reopened_at = NULL,
-        reopened_by_user_id = NULL,
-        updated_at = excluded.updated_at
-    `).run({
-      month_ref: monthRef,
-      closed_at: nowIso(),
-      closed_by_user_id: userId,
-      updated_at: nowIso()
-    });
-
-    return {
-      ok: true,
-      period: this.getAttendancePeriod(monthRef),
-      summary
-    };
+    return closeAttendancePeriodDomain(this, monthRef, userId, isValidMonthRef, nowIso);
   }
 
   reopenAttendancePeriod(monthRef, userId) {
-    if (!isValidMonthRef(monthRef)) {
-      return { ok: false, message: "O período de assiduidade é inválido." };
-    }
-
-    const payrollState = this.ensurePeriodOpen(monthRef);
-    if (!payrollState.ok) {
-      return {
-        ok: false,
-        message: `O período salarial ${monthRef} está fechado. Reabra-o antes de reabrir a assiduidade.`
-      };
-    }
-
-    const current = this.getAttendancePeriod(monthRef);
-    if (current.status !== "closed") {
-      return { ok: false, message: "A assiduidade deste mês já está aberta." };
-    }
-
-    this.db.prepare(`
-      INSERT INTO attendance_periods (month_ref, status, closed_at, closed_by_user_id, reopened_at, reopened_by_user_id, updated_at)
-      VALUES (@month_ref, 'open', NULL, NULL, @reopened_at, @reopened_by_user_id, @updated_at)
-      ON CONFLICT(month_ref) DO UPDATE SET
-        status = 'open',
-        reopened_at = excluded.reopened_at,
-        reopened_by_user_id = excluded.reopened_by_user_id,
-        updated_at = excluded.updated_at
-    `).run({
-      month_ref: monthRef,
-      reopened_at: nowIso(),
-      reopened_by_user_id: userId,
-      updated_at: nowIso()
-    });
-
-    return { ok: true, period: this.getAttendancePeriod(monthRef) };
+    return reopenAttendancePeriodDomain(this, monthRef, userId, isValidMonthRef, nowIso);
   }
 
   closePayrollPeriod(monthRef, userId) {
-    const runsCount = this.db.prepare("SELECT COUNT(*) AS total FROM payroll_runs WHERE month_ref = ?").get(monthRef).total;
-    if (!runsCount) {
-      return { ok: false, message: "Não existem pagamentos processados para fechar este período." };
-    }
-
-    const current = this.getPayrollPeriod(monthRef);
-    if (current.status === "closed") {
-      return { ok: false, message: "Este período já está fechado." };
-    }
-
-    this.db.prepare(`
-      INSERT INTO payroll_periods (month_ref, status, closed_at, closed_by_user_id, reopened_at, reopened_by_user_id, updated_at)
-      VALUES (@month_ref, 'closed', @closed_at, @closed_by_user_id, NULL, NULL, @updated_at)
-      ON CONFLICT(month_ref) DO UPDATE SET
-        status = 'closed',
-        closed_at = excluded.closed_at,
-        closed_by_user_id = excluded.closed_by_user_id,
-        reopened_at = NULL,
-        reopened_by_user_id = NULL,
-        updated_at = excluded.updated_at
-    `).run({
-      month_ref: monthRef,
-      closed_at: nowIso(),
-      closed_by_user_id: userId,
-      updated_at: nowIso()
-    });
-
-    return { ok: true, period: this.getPayrollPeriod(monthRef) };
+    return closePayrollPeriodDomain(this, monthRef, userId, (ref, uid) => buildClosePayrollPeriodPayload(ref, uid, nowIso));
   }
 
   reopenPayrollPeriod(monthRef, userId) {
-    const current = this.getPayrollPeriod(monthRef);
-    if (current.status !== "closed") {
-      return { ok: false, message: "Este período já está aberto." };
-    }
-
-    this.db.prepare(`
-      INSERT INTO payroll_periods (month_ref, status, closed_at, closed_by_user_id, reopened_at, reopened_by_user_id, updated_at)
-      VALUES (@month_ref, 'open', NULL, NULL, @reopened_at, @reopened_by_user_id, @updated_at)
-      ON CONFLICT(month_ref) DO UPDATE SET
-        status = 'open',
-        reopened_at = excluded.reopened_at,
-        reopened_by_user_id = excluded.reopened_by_user_id,
-        updated_at = excluded.updated_at
-    `).run({
-      month_ref: monthRef,
-      reopened_at: nowIso(),
-      reopened_by_user_id: userId,
-      updated_at: nowIso()
-    });
-
-    return { ok: true, period: this.getPayrollPeriod(monthRef) };
+    return reopenPayrollPeriodDomain(this, monthRef, userId, (ref, uid) => buildReopenPayrollPeriodPayload(ref, uid, nowIso));
   }
 
   saveEmployee(payload) {
@@ -5995,47 +5688,7 @@ class DatabaseService {
   }
 
   listAttendanceRecords(filters = {}) {
-    const conditions = [];
-    const values = {};
-
-    if (filters.id) {
-      conditions.push("attendance_records.id = @id");
-      values.id = filters.id;
-    }
-    if (filters.employeeId) {
-      conditions.push("attendance_records.employee_id = @employeeId");
-      values.employeeId = filters.employeeId;
-    }
-    if (filters.monthRef) {
-      conditions.push("substr(attendance_records.attendance_date, 1, 7) = @monthRef");
-      values.monthRef = filters.monthRef;
-    }
-    if (filters.startDate) {
-      conditions.push("attendance_records.attendance_date >= @startDate");
-      values.startDate = filters.startDate;
-    }
-    if (filters.endDate) {
-      conditions.push("attendance_records.attendance_date <= @endDate");
-      values.endDate = filters.endDate;
-    }
-    if (filters.status) {
-      conditions.push("attendance_records.status = @status");
-      values.status = filters.status;
-    }
-    if (filters.source) {
-      conditions.push("attendance_records.source = @source");
-      values.source = filters.source;
-    }
-    if (filters.batchId) {
-      conditions.push("attendance_records.batch_id = @batchId");
-      values.batchId = filters.batchId;
-    }
-    if (filters.approvalStatus) {
-      conditions.push("attendance_records.approval_status = @approvalStatus");
-      values.approvalStatus = String(filters.approvalStatus).trim().toLowerCase();
-    }
-
-    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const query = buildAttendanceRecordsFilter(filters);
     return this.db.prepare(`
       SELECT
         attendance_records.*,
@@ -6051,9 +5704,9 @@ class DatabaseService {
       LEFT JOIN work_shifts ON work_shifts.id = attendance_records.shift_id
       LEFT JOIN attendance_import_batches ON attendance_import_batches.id = attendance_records.batch_id
       LEFT JOIN users AS approver ON approver.id = attendance_records.approved_by_user_id
-      ${whereClause}
+      ${query.whereClause}
       ORDER BY attendance_records.attendance_date DESC, attendance_records.id DESC
-    `).all(values);
+    `).all(query.values);
   }
 
   listFinancialObligations(filters = {}) {
@@ -6187,157 +5840,15 @@ class DatabaseService {
   }
 
   saveAttendanceRecord(payload) {
-    const validation = this.validateAttendancePayload(payload);
-    if (!validation.ok) {
-      return validation;
-    }
-
-    const monthRef = String(validation.sanitized.attendance_date).slice(0, 7);
-    let periodState = this.ensurePeriodOpen(monthRef);
-    if (!periodState.ok) {
-      return periodState;
-    }
-    periodState = this.ensureAttendancePeriodOpen(monthRef);
-    if (!periodState.ok) {
-      return periodState;
-    }
-
-    const record = {
-      ...validation.sanitized,
-      approved_by_user_id: validation.sanitized.approval_status === "approved" ? payload.approved_by_user_id ?? null : null,
-      approved_at: validation.sanitized.approval_status === "approved" ? payload.approved_at || nowIso() : null,
-      updated_at: nowIso()
-    };
-
-    if (payload.id) {
-      this.db.prepare(`
-        UPDATE attendance_records
-        SET employee_id = @employee_id,
-            attendance_date = @attendance_date,
-            status = @status,
-            shift_id = @shift_id,
-            check_in_time = @check_in_time,
-            check_out_time = @check_out_time,
-            punch_count = @punch_count,
-            approval_status = @approval_status,
-            approved_by_user_id = @approved_by_user_id,
-            approved_at = @approved_at,
-            hours_worked = @hours_worked,
-            delay_minutes = @delay_minutes,
-            source = @source,
-            device_label = @device_label,
-            batch_id = @batch_id,
-            notes = @notes,
-            updated_at = @updated_at
-        WHERE id = @id
-      `).run({ ...record, batch_id: payload.batch_id ?? null, id: payload.id });
-    } else {
-      this.db.prepare(`
-        INSERT INTO attendance_records (
-          employee_id, attendance_date, status, shift_id, check_in_time, check_out_time,
-          punch_count, approval_status, approved_by_user_id, approved_at,
-          hours_worked, delay_minutes, source, device_label, batch_id, notes, created_at, updated_at
-        ) VALUES (
-          @employee_id, @attendance_date, @status, @shift_id, @check_in_time, @check_out_time,
-          @punch_count, @approval_status, @approved_by_user_id, @approved_at,
-          @hours_worked, @delay_minutes, @source, @device_label, @batch_id, @notes, @created_at, @updated_at
-        )
-        ON CONFLICT(employee_id, attendance_date) DO UPDATE SET
-          status = excluded.status,
-          shift_id = excluded.shift_id,
-          check_in_time = excluded.check_in_time,
-          check_out_time = excluded.check_out_time,
-          punch_count = excluded.punch_count,
-          approval_status = excluded.approval_status,
-          approved_by_user_id = excluded.approved_by_user_id,
-          approved_at = excluded.approved_at,
-          hours_worked = excluded.hours_worked,
-          delay_minutes = excluded.delay_minutes,
-          source = excluded.source,
-          device_label = excluded.device_label,
-          batch_id = excluded.batch_id,
-          notes = excluded.notes,
-          updated_at = excluded.updated_at
-      `).run({ ...record, batch_id: payload.batch_id ?? null, created_at: nowIso() });
-    }
-
-    return { ok: true, items: this.listAttendanceRecords({ employeeId: validation.sanitized.employee_id }) };
+    return saveAttendanceRecordDomain(this, payload, nowIso);
   }
 
   deleteAttendanceRecord(attendanceId) {
-    const current = this.db.prepare("SELECT * FROM attendance_records WHERE id = ?").get(attendanceId);
-    if (!current) {
-      return { ok: false, message: "Registo de assiduidade não encontrado." };
-    }
-
-    const monthRef = String(current.attendance_date || "").slice(0, 7);
-    let periodState = this.ensurePeriodOpen(monthRef);
-    if (!periodState.ok) {
-      return periodState;
-    }
-    periodState = this.ensureAttendancePeriodOpen(monthRef);
-    if (!periodState.ok) {
-      return periodState;
-    }
-
-    this.db.prepare("DELETE FROM attendance_records WHERE id = ?").run(attendanceId);
-    return { ok: true, items: this.listAttendanceRecords({ employeeId: current.employee_id }) };
+    return deleteAttendanceRecordDomain(this, attendanceId);
   }
 
   approveAttendanceAdjustments(monthRef, userId, filters = {}) {
-    if (!isValidMonthRef(monthRef)) {
-      return { ok: false, message: "O período da assiduidade é inválido." };
-    }
-
-    let periodState = this.ensurePeriodOpen(monthRef);
-    if (!periodState.ok) {
-      return periodState;
-    }
-    periodState = this.ensureAttendancePeriodOpen(monthRef);
-    if (!periodState.ok) {
-      return periodState;
-    }
-
-    const employeeId = Number(filters.employeeId || 0) || null;
-    const pendingItems = this.listAttendanceRecords({
-      monthRef,
-      employeeId,
-      approvalStatus: "pending"
-    });
-
-    if (!pendingItems.length) {
-      return { ok: false, message: "Não existem ajustes pendentes de aprovação para este critério." };
-    }
-
-    if (employeeId) {
-      this.db.prepare(`
-        UPDATE attendance_records
-        SET approval_status = 'approved',
-            approved_by_user_id = ?,
-            approved_at = ?,
-            updated_at = ?
-        WHERE employee_id = ?
-          AND substr(attendance_date, 1, 7) = ?
-          AND approval_status = 'pending'
-      `).run(userId, nowIso(), nowIso(), employeeId, monthRef);
-    } else {
-      this.db.prepare(`
-        UPDATE attendance_records
-        SET approval_status = 'approved',
-            approved_by_user_id = ?,
-            approved_at = ?,
-            updated_at = ?
-        WHERE substr(attendance_date, 1, 7) = ?
-          AND approval_status = 'pending'
-      `).run(userId, nowIso(), nowIso(), monthRef);
-    }
-
-    return {
-      ok: true,
-      approvedCount: pendingItems.length,
-      items: this.listAttendanceRecords({ monthRef, employeeId }),
-      period: this.getAttendancePeriod(monthRef)
-    };
+    return approveAttendanceAdjustmentsDomain(this, monthRef, userId, filters, isValidMonthRef, nowIso);
   }
 
   saveWorkShift(payload) {
