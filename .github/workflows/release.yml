@@ -4,12 +4,72 @@ on:
   push:
     tags:
       - "v*"
+  pull_request:
+    branches:
+      - main
+      - "release/**"
 
 permissions:
   contents: write
 
 jobs:
+  pr-release-readiness:
+    if: github.event_name == 'pull_request'
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Node test suite
+        run: npm test
+
+      - name: Build unsigned installer (PR readiness)
+        shell: pwsh
+        run: |
+          npm run build:installer
+
+      - name: Verify packaged main syntax
+        shell: pwsh
+        run: |
+          npm run verify:packaged:main
+
+      - name: Smoke packaged boot (PR readiness)
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File scripts\smoke-packaged.ps1 -OutputDir dist-electron -SkipSignatureCheck
+
+      - name: Smoke packaged functional e2e (PR readiness)
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File scripts\smoke-packaged-e2e.ps1 -OutputDir dist-electron -TimeoutSeconds 180 -SkipSignatureCheck
+
+      - name: Collect boot/integrity report (PR readiness)
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File scripts\collect-boot-integrity-report.ps1 -OutputDir dist-electron -LocalAppDataRoot dist-electron/.smoke-localappdata
+
+      - name: Upload PR readiness diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-readiness-pr-${{ github.run_id }}
+          if-no-files-found: warn
+          path: |
+            dist-electron/boot-integrity-report.json
+            dist-electron/smoke-e2e-result.json
+            dist-electron/diagnostics-logs/*.log
+
   build-release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
 
     steps:
@@ -31,6 +91,19 @@ jobs:
           $channel = if ("${{ github.ref_name }}" -match "-beta") { "beta" } else { "stable" }
           "KWANZA_RELEASE_CHANNEL=$channel" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      - name: Validate signing secrets
+        shell: pwsh
+        env:
+          KWANZA_CERTIFICATE_BASE64: ${{ secrets.KWANZA_CERTIFICATE_BASE64 }}
+          KWANZA_CERTIFICATE_PASSWORD: ${{ secrets.KWANZA_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:KWANZA_CERTIFICATE_BASE64)) {
+            throw "KWANZA_CERTIFICATE_BASE64 nao definido. A release assinada e obrigatoria."
+          }
+          if ([string]::IsNullOrWhiteSpace($env:KWANZA_CERTIFICATE_PASSWORD)) {
+            throw "KWANZA_CERTIFICATE_PASSWORD nao definido. A release assinada e obrigatoria."
+          }
+
       - name: Prepare signed release
         shell: pwsh
         env:
@@ -38,6 +111,36 @@ jobs:
           KWANZA_CERTIFICATE_PASSWORD: ${{ secrets.KWANZA_CERTIFICATE_PASSWORD }}
         run: |
           powershell -ExecutionPolicy Bypass -File scripts\prepare-release.ps1 -Channel $env:KWANZA_RELEASE_CHANNEL -Target all
+
+      - name: Verify packaged main syntax
+        shell: pwsh
+        run: |
+          npm run verify:packaged:main
+
+      - name: Smoke packaged release (signed + boot)
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File scripts\smoke-packaged.ps1 -OutputDir dist-electron
+
+      - name: Smoke packaged release (functional e2e)
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File scripts\smoke-packaged-e2e.ps1 -OutputDir dist-electron -TimeoutSeconds 180
+
+      - name: Collect boot/integrity report
+        shell: pwsh
+        run: |
+          npm run report:boot-integrity
+
+      - name: Upload release diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-diagnostics-${{ github.ref_name }}
+          if-no-files-found: warn
+          path: |
+            dist-electron/boot-integrity-report.json
+            dist-electron/smoke-e2e-result.json
+            dist-electron/diagnostics-logs/*.log
 
       - name: Publish draft GitHub Release
         uses: softprops/action-gh-release@v2
@@ -48,6 +151,5 @@ jobs:
           files: |
             dist-electron/KwanzaFolha-Setup-*.exe
             dist-electron/KwanzaFolha-Setup-*.exe.blockmap
-            dist-electron/KwanzaFolha-Portable-*.exe
             dist-electron/SHA256SUMS.txt
             dist-electron/release-manifest.json

@@ -3,7 +3,8 @@ param(
   [string]$Target = "all",
   [string]$CertificatePath = "",
   [string]$CertificatePassword = "",
-  [string]$TimestampServer = "https://timestamp.digicert.com"
+  [string]$TimestampServer = "https://timestamp.digicert.com",
+  [bool]$AllowUnsignedTimestamp = $true
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,7 +20,7 @@ function Resolve-CertificatePath {
   }
 
   foreach ($candidate in @($env:KWANZA_CERTIFICATE_PATH, $env:WIN_CSC_LINK, $env:CSC_LINK)) {
-    if ($candidate -and -not ($candidate -match '^(https?|data):') -and (Test-Path $candidate)) {
+    if ($candidate -and -not ($candidate -match "^(https?|data):") -and (Test-Path $candidate)) {
       return @{
         Path = (Resolve-Path $candidate).Path
         IsTemporary = $false
@@ -55,6 +56,64 @@ function Resolve-CertificatePassword {
   throw "Indique a palavra-passe do certificado com -CertificatePassword ou defina KWANZA_CERTIFICATE_PASSWORD."
 }
 
+function Resolve-CertificateThumbprint {
+  param([string]$CertPath)
+
+  try {
+    $cert = Get-PfxCertificate -FilePath $CertPath -ErrorAction Stop
+    if ($cert -and $cert.Thumbprint) {
+      return ($cert.Thumbprint -replace "\s", "").ToUpperInvariant()
+    }
+  } catch {}
+
+  try {
+    $match = Get-ChildItem Cert:\CurrentUser\My -ErrorAction SilentlyContinue |
+      Where-Object { $_.Subject -match "CN=KwanzaPro" } |
+      Sort-Object NotAfter -Descending |
+      Select-Object -First 1
+    if ($match -and $match.Thumbprint) {
+      return ($match.Thumbprint -replace "\s", "").ToUpperInvariant()
+    }
+  } catch {}
+
+  return ""
+}
+
+function Resolve-TimestampServers {
+  param([string]$PrimaryServer)
+
+  $servers = @(
+    $PrimaryServer,
+    "https://timestamp.digicert.com",
+    "http://timestamp.sectigo.com",
+    "http://timestamp.globalsign.com/tsa/r6advanced1"
+  ) | Where-Object { $_ -and $_.Trim() } | ForEach-Object { $_.Trim() }
+
+  $unique = New-Object System.Collections.Generic.List[string]
+  foreach ($server in $servers) {
+    if (-not $unique.Contains($server)) {
+      $null = $unique.Add($server)
+    }
+  }
+
+  return $unique
+}
+
+function Get-SignToolPath {
+  $candidates = @(
+    "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe",
+    "$env:LOCALAPPDATA\electron-builder\Cache\winCodeSign\winCodeSign-2.6.0\windows-10\x64\signtool.exe"
+  )
+
+  foreach ($candidate in $candidates) {
+    if ($candidate -and (Test-Path $candidate)) {
+      return $candidate
+    }
+  }
+
+  throw "Nao encontrei signtool.exe para assinatura manual."
+}
+
 function Get-ExpectedArtifacts {
   param(
     [string]$OutputDir,
@@ -62,8 +121,8 @@ function Get-ExpectedArtifacts {
   )
 
   $patterns = switch ($TargetName) {
-    "installer" { @("KwanzaFolha-Setup-*.exe", "win-unpacked\\Kwanza Folha.exe") }
-    default { @("KwanzaFolha-Setup-*.exe", "win-unpacked\\Kwanza Folha.exe") }
+    "installer" { @("KwanzaFolha-Setup-*.exe", "win-unpacked\Kwanza Folha.exe") }
+    default { @("KwanzaFolha-Setup-*.exe", "win-unpacked\Kwanza Folha.exe") }
   }
 
   $files = @()
@@ -78,12 +137,85 @@ function Get-ExpectedArtifacts {
   return $files | Sort-Object FullName -Unique
 }
 
+function Get-SigningTargets {
+  param(
+    [array]$ExpectedArtifacts,
+    [string]$OutputDir
+  )
+
+  $targets = New-Object System.Collections.Generic.List[string]
+  foreach ($artifact in $ExpectedArtifacts) {
+    if (-not $targets.Contains($artifact.FullName)) {
+      $null = $targets.Add($artifact.FullName)
+    }
+  }
+
+  foreach ($extra in @(
+    (Join-Path $OutputDir "__uninstaller-nsis-kwanza-folha.exe"),
+    (Join-Path $OutputDir "win-unpacked\resources\elevate.exe")
+  )) {
+    if ((Test-Path $extra) -and -not $targets.Contains($extra)) {
+      $null = $targets.Add($extra)
+    }
+  }
+
+  return $targets
+}
+
+function Sign-WithFallback {
+  param(
+    [string]$SignToolPath,
+    [string]$FilePath,
+    [string]$CertPath,
+    [string]$CertPassword,
+    [string]$CertThumbprint,
+    [System.Collections.Generic.List[string]]$TimestampServers,
+    [bool]$AllowMissingTimestamp
+  )
+
+  foreach ($server in $TimestampServers) {
+    & $SignToolPath sign /fd SHA256 /t $server /f $CertPath /p $CertPassword /d "Kwanza Folha" /du "https://github.com/Alves0054/KwanzaFolha" $FilePath
+    if ($LASTEXITCODE -eq 0) {
+      return @{ Signed = $true; Timestamped = $true; TimestampServer = $server }
+    }
+
+    if ($CertThumbprint) {
+      & $SignToolPath sign /fd SHA256 /t $server /sha1 $CertThumbprint /d "Kwanza Folha" /du "https://github.com/Alves0054/KwanzaFolha" $FilePath
+      if ($LASTEXITCODE -eq 0) {
+        return @{ Signed = $true; Timestamped = $true; TimestampServer = $server }
+      }
+    }
+  }
+
+  if ($AllowMissingTimestamp) {
+    & $SignToolPath sign /fd SHA256 /f $CertPath /p $CertPassword /d "Kwanza Folha" /du "https://github.com/Alves0054/KwanzaFolha" $FilePath
+    if ($LASTEXITCODE -eq 0) {
+      return @{ Signed = $true; Timestamped = $false; TimestampServer = "" }
+    }
+
+    if ($CertThumbprint) {
+      & $SignToolPath sign /fd SHA256 /sha1 $CertThumbprint /d "Kwanza Folha" /du "https://github.com/Alves0054/KwanzaFolha" $FilePath
+      if ($LASTEXITCODE -eq 0) {
+        return @{ Signed = $true; Timestamped = $false; TimestampServer = "" }
+      }
+    }
+  }
+
+  return @{ Signed = $false; Timestamped = $false; TimestampServer = "" }
+}
+
 function Assert-SignedArtifact {
-  param([string]$ArtifactPath)
+  param(
+    [string]$ArtifactPath,
+    [bool]$RequireTimestamp
+  )
 
   $signature = Get-AuthenticodeSignature -FilePath $ArtifactPath
   if ($signature.Status -ne "Valid" -or -not $signature.SignerCertificate) {
     throw "A assinatura digital do artefacto '$ArtifactPath' nao esta valida. Estado: $($signature.Status)."
+  }
+  if ($RequireTimestamp -and -not $signature.TimeStamperCertificate) {
+    throw "O artefacto '$ArtifactPath' esta assinado mas sem timestamp."
   }
 }
 
@@ -91,6 +223,9 @@ $root = Split-Path -Parent $PSScriptRoot
 $outputDir = Join-Path $root "dist-electron"
 $certificate = Resolve-CertificatePath -PreferredPath $CertificatePath
 $resolvedPassword = Resolve-CertificatePassword -PreferredPassword $CertificatePassword
+$certificateThumbprint = Resolve-CertificateThumbprint -CertPath $certificate.Path
+$timestampServers = Resolve-TimestampServers -PrimaryServer $TimestampServer
+$signToolPath = Get-SignToolPath
 
 Set-Location $root
 
@@ -103,23 +238,52 @@ try {
   $env:USE_HARD_LINKS = "false"
   $env:ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES = "true"
   $env:WIN_SIGNING_HASH_ALGORITHMS = "sha256"
-  $env:CSC_TIMESTAMP_URL = $TimestampServer
+  $env:CSC_TIMESTAMP_URL = $timestampServers[0]
 
-  switch ($Target) {
-    "installer" {
-      npm run build:installer
+  $buildError = $null
+  try {
+    switch ($Target) {
+      "installer" { npm run build:installer }
+      default { npm run build:installer }
     }
-    default {
-      npm run build:installer
+  } catch {
+    $buildError = $_
+    Write-Warning "A build reportou falha durante assinatura automatica. Vou aplicar assinatura manual com fallback."
+  }
+
+  $expectedArtifacts = Get-ExpectedArtifacts -OutputDir $outputDir -TargetName $Target
+  $signingTargets = Get-SigningTargets -ExpectedArtifacts $expectedArtifacts -OutputDir $outputDir
+
+  foreach ($targetPath in $signingTargets) {
+    $result = Sign-WithFallback `
+      -SignToolPath $signToolPath `
+      -FilePath $targetPath `
+      -CertPath $certificate.Path `
+      -CertPassword $resolvedPassword `
+      -CertThumbprint $certificateThumbprint `
+      -TimestampServers $timestampServers `
+      -AllowMissingTimestamp $AllowUnsignedTimestamp
+
+    if (-not $result.Signed) {
+      throw "Falhou a assinatura manual do artefacto '$targetPath'."
+    }
+
+    if ($result.Timestamped) {
+      Write-Host "Assinado com timestamp em '$targetPath' via $($result.TimestampServer)." -ForegroundColor Green
+    } else {
+      Write-Warning "Assinado sem timestamp em '$targetPath'."
     }
   }
 
-  $artifacts = Get-ExpectedArtifacts -OutputDir $outputDir -TargetName $Target
-  foreach ($artifact in $artifacts) {
-    Assert-SignedArtifact -ArtifactPath $artifact.FullName
+  foreach ($artifact in $expectedArtifacts) {
+    Assert-SignedArtifact -ArtifactPath $artifact.FullName -RequireTimestamp (-not $AllowUnsignedTimestamp)
   }
 
-  Write-Host "Assinatura validada em $($artifacts.Count) artefacto(s)." -ForegroundColor Green
+  if ($buildError) {
+    Write-Warning "A build terminou com fallback manual de assinatura. Verifique os logs se precisar de diagnostico adicional."
+  }
+
+  Write-Host "Assinatura validada em $($expectedArtifacts.Count) artefacto(s)." -ForegroundColor Green
 } finally {
   foreach ($envName in @(
     "CSC_LINK",

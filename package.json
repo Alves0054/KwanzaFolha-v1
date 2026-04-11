@@ -2,7 +2,7 @@
   "name": "kwanza-folha",
   "version": "1.0.0",
   "description": "Sistema desktop de processamento salarial empresarial para Windows.",
-  "main": "electron/main.js",
+  "main": "electron/bootstrap.js",
   "author": "Adérito Alves / Alves Estúdio",
   "license": "MIT",
   "productName": "Kwanza Folha",
@@ -11,6 +11,10 @@
     "dev:renderer": "vite",
     "dev:electron": "wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .",
     "integrity:generate": "node scripts\\generate-integrity-manifest.js",
+    "native:rebuild:node": "npm rebuild better-sqlite3-multiple-ciphers better-sqlite3",
+    "native:rebuild:electron": "npm rebuild better-sqlite3-multiple-ciphers better-sqlite3 --runtime=electron --target=35.7.5 --dist-url=https://electronjs.org/headers",
+    "prebuild": "npm run native:rebuild:electron && powershell -ExecutionPolicy Bypass -File scripts\\sync-folha-icon.ps1",
+    "prebuild:installer": "npm run native:rebuild:electron && powershell -ExecutionPolicy Bypass -File scripts\\sync-folha-icon.ps1",
     "license:server": "node licensing-server/server.js",
     "license:rotate-keys": "node scripts\\rotate-license-keys.js",
     "brand:generate": "powershell -ExecutionPolicy Bypass -File scripts\\generate-brand-assets.ps1",
@@ -19,7 +23,12 @@
     "release:artifacts": "node scripts\\release-artifacts.js --channel stable --target all",
     "release:prepare": "powershell -ExecutionPolicy Bypass -File scripts\\prepare-release.ps1 -Channel stable -Target all",
     "release:prepare:beta": "powershell -ExecutionPolicy Bypass -File scripts\\prepare-release.ps1 -Channel beta -Target all",
-    "test": "node tests\\run-tests.js",
+    "report:boot-integrity": "powershell -ExecutionPolicy Bypass -File scripts\\collect-boot-integrity-report.ps1 -OutputDir dist-electron",
+    "smoke:packaged": "powershell -ExecutionPolicy Bypass -File scripts\\smoke-packaged.ps1",
+    "smoke:packaged:e2e": "powershell -ExecutionPolicy Bypass -File scripts\\smoke-packaged-e2e.ps1",
+    "verify:packaged:main": "node scripts\\verify-packaged-main-syntax.js --output dist-electron",
+    "test": "npm run test:node",
+    "test:node": "npm run native:rebuild:node && node tests\\run-tests.js",
     "build": "npm run integrity:generate && vite build && electron-builder",
     "build:installer": "npm run integrity:generate && vite build && electron-builder --win nsis",
     "preview": "vite preview"
@@ -57,11 +66,17 @@
       "assets/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "build/Folha.png",
+        "to": "Folha.png"
+      }
+    ],
     "extraMetadata": {
-      "main": "electron/main.js"
+      "main": "electron/bootstrap.js"
     },
     "win": {
-      "icon": "assets/icon.ico",
+      "icon": "build/icon.ico",
       "signtoolOptions": {
         "publisherName": "KwanzaPro"
       },
@@ -82,8 +97,8 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Kwanza Folha",
       "artifactName": "KwanzaFolha-Setup-${version}.${ext}",
-      "installerIcon": "assets/icons/installerIcon.ico",
-      "uninstallerIcon": "assets/icons/uninstallerIcon.ico",
+      "installerIcon": "build/installerIcon.ico",
+      "uninstallerIcon": "build/uninstallerIcon.ico",
       "installerHeader": "assets/images/installerHeader.bmp",
       "installerSidebar": "assets/images/installerSidebar.bmp",
       "uninstallerSidebar": "assets/images/uninstallerSidebar.bmp",
