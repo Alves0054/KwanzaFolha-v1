@@ -30,7 +30,11 @@ function Resolve-CertificatePath {
 
   if ($env:KWANZA_CERTIFICATE_BASE64) {
     $tempPath = Join-Path $env:TEMP "kwanza-code-signing-$([guid]::NewGuid().ToString('N')).p12"
-    [System.IO.File]::WriteAllBytes($tempPath, [Convert]::FromBase64String($env:KWANZA_CERTIFICATE_BASE64))
+    try {
+      [System.IO.File]::WriteAllBytes($tempPath, [Convert]::FromBase64String($env:KWANZA_CERTIFICATE_BASE64))
+    } catch {
+      throw "KWANZA_CERTIFICATE_BASE64 invalido ou corrompido. Grave no secret apenas o conteudo Base64 puro do .p12."
+    }
     return @{
       Path = $tempPath
       IsTemporary = $true

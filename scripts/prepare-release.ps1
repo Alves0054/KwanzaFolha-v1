@@ -22,14 +22,11 @@ if (-not $SkipTests) {
 }
 
 Write-Host "A gerar a build assinada..." -ForegroundColor Cyan
-powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build-signed.ps1") `
+& (Join-Path $PSScriptRoot "build-signed.ps1") `
   -Target $Target `
   -CertificatePath $CertificatePath `
   -CertificatePassword $CertificatePassword `
   -TimestampServer $TimestampServer
-if ($LASTEXITCODE -ne 0) {
-  throw "A build assinada falhou com exit code $LASTEXITCODE."
-}
 
 Write-Host "A gerar checksum e manifesto da release..." -ForegroundColor Cyan
 node (Join-Path $PSScriptRoot "release-artifacts.js") --channel $Channel --target $Target
