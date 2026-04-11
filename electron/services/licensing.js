@@ -194,11 +194,7 @@ class LicensingService {
       throw new Error("Configure a URL do servidor de licenciamento antes de continuar.");
     }
 
-    if (
-      this.app?.isPackaged &&
-      !apiBaseUrl.startsWith("https://") &&
-      process.env.KWANZA_ALLOW_INSECURE_LICENSE_API !== "1"
-    ) {
+    if (this.app?.isPackaged && !apiBaseUrl.startsWith("https://")) {
       throw new Error("A aplicacao empacotada so permite servidores de licenciamento com HTTPS.");
     }
 

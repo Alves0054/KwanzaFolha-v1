@@ -140,6 +140,16 @@ function setStartupIntegrityIssue(stage, message, details = {}) {
   });
 }
 
+function summarizeAnchorVerification(result = {}) {
+  return {
+    ok: Boolean(result?.ok),
+    createdFresh: Boolean(result?.createdFresh),
+    suspiciousReinstall: Boolean(result?.suspiciousReinstall),
+    restoredAnchorCount: Array.isArray(result?.restoredAnchors) ? result.restoredAnchors.length : 0,
+    riskFlagCount: Array.isArray(result?.identity?.riskFlags) ? result.identity.riskFlags.length : 0
+  };
+}
+
 function cleanupLegacyData() {
   const oldPath = path.join(process.env.APPDATA || "", "Kwanza Folha");
   if (!oldPath || !fs.existsSync(oldPath)) {
@@ -1682,7 +1692,7 @@ app.whenReady().then(() => {
     installationIdentity.migrateLegacyInstallation();
     log.info("[BOOT] verifying installation anchors");
     const anchors = installationIdentity.verifyInstallationAnchors();
-    log.info("[BOOT] installation anchors verified", anchors);
+    log.info("[BOOT] installation anchors verified", summarizeAnchorVerification(anchors));
     if (!anchors.ok) {
       setStartupIntegrityIssue("installation-identity", "Nao foi possivel validar as ancoras de seguranca da instalacao.");
     }
@@ -1730,34 +1740,53 @@ app.whenReady().then(() => {
     setStartupIntegrityIssue("debug-environment", debugCheck.message || "Ambiente de debug detetado.");
   }
 
-  try {
-    log.info("[BOOT] initializing application services");
-    services = createAppServices({ userDataPath, documentsPath, programDataPath, secureStorage, installationIdentity });
-    log.info("[BOOT] application services ready");
-    log.info("[BOOT] initializing database backup");
-    services.database.performAutomaticBackup();
-    log.info("[BOOT] database backup initialization finished");
-    log.info("[BOOT] registering ipc");
-    registerIpc();
-    log.info("[BOOT] ipc registered");
-  } catch (error) {
-    setStartupIntegrityIssue(
-      "services-init",
-      resolveStartupFailureMessage(error),
-      { error: String(error?.stack || error?.message || error) }
-    );
-    log.error("Falha ao inicializar os servicos da aplicacao", error);
+  const allowPackagedSmokeBoot = isPackagedSmokeE2EMode();
+  const blockCommercialStartup = app.isPackaged && !startupIntegrityState.ok && !allowPackagedSmokeBoot;
+  if (allowPackagedSmokeBoot && !startupIntegrityState.ok) {
+    log.warn("[BOOT][SMOKE-E2E] integrity issue detected, but commercial services are allowed for packaged smoke validation only.", {
+      stage: startupIntegrityState.stage || "startup",
+      message: startupIntegrityState.message || "Falha de integridade no arranque."
+    });
+  }
+  if (blockCommercialStartup) {
+    log.error("[BOOT][BLOCKED] startup integrity failed in packaged mode. Commercial services were not initialized.", {
+      stage: startupIntegrityState.stage || "startup",
+      message: startupIntegrityState.message || "Falha de integridade no arranque."
+    });
+  } else {
+    try {
+      log.info("[BOOT] initializing application services");
+      services = createAppServices({ userDataPath, documentsPath, programDataPath, secureStorage, installationIdentity });
+      log.info("[BOOT] application services ready");
+      log.info("[BOOT] initializing database backup");
+      services.database.performAutomaticBackup();
+      log.info("[BOOT] database backup initialization finished");
+      log.info("[BOOT] registering ipc");
+      registerIpc();
+      log.info("[BOOT] ipc registered");
+    } catch (error) {
+      setStartupIntegrityIssue(
+        "services-init",
+        resolveStartupFailureMessage(error),
+        { error: String(error?.stack || error?.message || error) }
+      );
+      log.error("Falha ao inicializar os servicos da aplicacao", error);
+    }
   }
   log.info("[BOOT] creating window");
   createWindow();
   log.info("[BOOT] window creation requested");
   notifyStartupIntegrityIssue();
-  refreshAttendanceWatcher();
-  log.info("[BOOT] priming installation license state");
-  if (services?.licensingCore?.primeInstallation) {
-    void services.licensingCore.primeInstallation().catch((error) => {
-      log.error("Falha ao preparar o estado inicial de licenciamento", error);
-    });
+  if (services) {
+    refreshAttendanceWatcher();
+    log.info("[BOOT] priming installation license state");
+    if (services?.licensingCore?.primeInstallation) {
+      void services.licensingCore.primeInstallation().catch((error) => {
+        log.error("Falha ao preparar o estado inicial de licenciamento", error);
+      });
+    }
+  } else {
+    log.warn("[BOOT][FALLBACK] commercial services unavailable; startup kept in degraded mode.");
   }
   log.info("[BOOT] startup sequence finished");
   if (isPackagedSmokeE2EMode()) {
