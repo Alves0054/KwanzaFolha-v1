@@ -100,10 +100,30 @@ function Resolve-TimestampServers {
 }
 
 function Get-SignToolPath {
-  $candidates = @(
-    "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe",
-    "$env:LOCALAPPDATA\electron-builder\Cache\winCodeSign\winCodeSign-2.6.0\windows-10\x64\signtool.exe"
+  $candidates = New-Object System.Collections.Generic.List[string]
+  $staticCandidates = @(
+    "$env:LOCALAPPDATA\electron-builder\Cache\winCodeSign\winCodeSign-2.6.0\windows-10\x64\signtool.exe",
+    "C:\Program Files (x86)\Windows Kits\10\App Certification Kit\signtool.exe"
   )
+  foreach ($candidate in $staticCandidates) {
+    if ($candidate -and -not $candidates.Contains($candidate)) {
+      $null = $candidates.Add($candidate)
+    }
+  }
+
+  $sdkMatches = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" -File -ErrorAction SilentlyContinue |
+    Sort-Object FullName -Descending |
+    Select-Object -ExpandProperty FullName
+  foreach ($candidate in $sdkMatches) {
+    if ($candidate -and -not $candidates.Contains($candidate)) {
+      $null = $candidates.Add($candidate)
+    }
+  }
+
+  $pathCommand = Get-Command signtool.exe -ErrorAction SilentlyContinue
+  if ($pathCommand -and $pathCommand.Source -and -not $candidates.Contains($pathCommand.Source)) {
+    $null = $candidates.Add($pathCommand.Source)
+  }
 
   foreach ($candidate in $candidates) {
     if ($candidate -and (Test-Path $candidate)) {
@@ -229,7 +249,6 @@ $certificate = Resolve-CertificatePath -PreferredPath $CertificatePath
 $resolvedPassword = Resolve-CertificatePassword -PreferredPassword $CertificatePassword
 $certificateThumbprint = Resolve-CertificateThumbprint -CertPath $certificate.Path
 $timestampServers = Resolve-TimestampServers -PrimaryServer $TimestampServer
-$signToolPath = Get-SignToolPath
 
 Set-Location $root
 
@@ -257,6 +276,7 @@ try {
 
   $expectedArtifacts = Get-ExpectedArtifacts -OutputDir $outputDir -TargetName $Target
   $signingTargets = Get-SigningTargets -ExpectedArtifacts $expectedArtifacts -OutputDir $outputDir
+  $signToolPath = Get-SignToolPath
 
   foreach ($targetPath in $signingTargets) {
     $result = Sign-WithFallback `
