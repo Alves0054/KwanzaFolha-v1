@@ -128,22 +128,27 @@ class LicensingService {
   }
 
   isLocalDevelopmentRuntime() {
-    const execPath = String(process.execPath || "");
-    const appPath = String(this.app?.getAppPath?.() || "");
+    if (this.app?.isPackaged) {
+      return false;
+    }
+
     return (
-      /dist-electron[\\/](win-unpacked|electron)/i.test(execPath) ||
-      /Documents[\\/]Pagamentos/i.test(execPath) ||
-      /Documents[\\/]Pagamentos/i.test(appPath)
+      process.env.NODE_ENV !== "production" ||
+      Boolean(process.env.VITE_DEV_SERVER_URL) ||
+      Boolean(process.defaultApp)
     );
   }
 
   isDevelopmentLicenseMode() {
-    const isLocalRuntime = this.isLocalDevelopmentRuntime();
     const marker = this.readDeveloperLicenseMarker();
+    const isLocalRuntime = this.isLocalDevelopmentRuntime();
+    if (!isLocalRuntime) {
+      return false;
+    }
+
     return (
       process.env.KWANZA_DEV_LICENSE_MODE === "1" ||
-      (Boolean(marker?.enabled) && isLocalRuntime) ||
-      isLocalRuntime
+      Boolean(marker?.enabled)
     );
   }
 
@@ -742,7 +747,9 @@ class LicensingService {
     }
     return {
       ok: false,
-      message: status.message || "A licenca do Kwanza Folha e invalida ou expirou. Ative ou renove para continuar."
+      code: String(status.status || "invalid").trim().toLowerCase() || "invalid",
+      message: status.message || "A licenca do Kwanza Folha e invalida ou expirou. Ative ou renove para continuar.",
+      license: status
     };
   }
 

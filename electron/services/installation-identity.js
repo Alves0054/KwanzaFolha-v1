@@ -391,9 +391,17 @@ foreach ($path in $paths) {
     };
   }
 
-  verifyExecutableSignature(executablePath, expectedThumbprint = "") {
+  verifyExecutableSignature(executablePath, expectedThumbprint = "", options = {}) {
+    const isDevelopmentMode = Boolean(options?.developmentMode);
     if (!executablePath || !fs.existsSync(executablePath)) {
-      return { ok: false, message: "Executavel nao encontrado para validacao de assinatura." };
+      return isDevelopmentMode
+        ? {
+            ok: true,
+            warning: true,
+            code: "dev_signature_target_missing",
+            message: "Executavel nao encontrado para validacao de assinatura em modo de desenvolvimento."
+          }
+        : { ok: false, code: "signature_target_missing", message: "Executavel nao encontrado para validacao de assinatura." };
     }
 
     try {
@@ -413,6 +421,15 @@ if ($signature.SignerCertificate) { $thumbprint = $signature.SignerCertificate.T
       const expected = safeString(expectedThumbprint).toUpperCase();
       const status = String(result.status || "").toLowerCase();
       if (status !== "valid") {
+        if (isDevelopmentMode) {
+          return {
+            ok: true,
+            warning: true,
+            code: status === "notsigned" ? "dev_unsigned" : "dev_invalid_signature",
+            message: "Assinatura digital nao valida em modo de desenvolvimento local.",
+            result
+          };
+        }
         return {
           ok: false,
           code: status === "notsigned" ? "unsigned" : "invalid_signature",
@@ -425,7 +442,15 @@ if ($signature.SignerCertificate) { $thumbprint = $signature.SignerCertificate.T
       }
       return { ok: true, code: "valid", result };
     } catch (error) {
-      return { ok: false, code: "signature_check_failed", message: "Nao foi possivel validar a assinatura do executavel.", error: error.message };
+      return isDevelopmentMode
+        ? {
+            ok: true,
+            warning: true,
+            code: "dev_signature_check_failed",
+            message: "Nao foi possivel validar a assinatura no modo de desenvolvimento local.",
+            error: error.message
+          }
+        : { ok: false, code: "signature_check_failed", message: "Nao foi possivel validar a assinatura do executavel.", error: error.message };
     }
   }
 }

@@ -1236,8 +1236,11 @@ runTest("Licenciamento bloqueia o aplicativo quando os 7 dias gratuitos terminam
 });
 
 runTest("Licenciamento tecnico de desenvolvimento libera a edicao local por 1 ano", () => {
+  const previousDevMode = process.env.KWANZA_DEV_LICENSE_MODE;
+  process.env.KWANZA_DEV_LICENSE_MODE = "1";
+
   const service = new LicensingService({
-    app: { isPackaged: true, getAppPath: () => "C:\\Users\\nunes\\Documents\\Pagamentos\\dist-electron\\win-unpacked\\resources\\app.asar" },
+    app: { isPackaged: false, getAppPath: () => "C:\\Users\\nunes\\Documents\\Pagamentos" },
     userDataPath: makeTempDir("kwanza-license-dev-"),
     currentVersion: "1.0.0",
     productName: "Kwanza Folha",
@@ -1260,15 +1263,26 @@ runTest("Licenciamento tecnico de desenvolvimento libera a edicao local por 1 an
     }
   });
 
-  const status = service.getLicenseStatus(true);
-  assert.equal(status.status, "developer_active");
-  assert.equal(status.canUseApp, true);
-  assert.equal(status.requiresLicense, false);
-  assert.equal(status.trialDaysTotal, 365);
-  assert.match(status.message, /Licença técnica de desenvolvimento ativa/i);
+  try {
+    const status = service.getLicenseStatus(true);
+    assert.equal(status.status, "developer_active");
+    assert.equal(status.canUseApp, true);
+    assert.equal(status.requiresLicense, false);
+    assert.equal(status.trialDaysTotal, 365);
+    assert.match(status.message, /Licença técnica de desenvolvimento ativa/i);
+  } finally {
+    if (previousDevMode === undefined) {
+      delete process.env.KWANZA_DEV_LICENSE_MODE;
+    } else {
+      process.env.KWANZA_DEV_LICENSE_MODE = previousDevMode;
+    }
+  }
 });
 
 runTest("Licenciamento tecnico nao entra em producao instalada fora do ambiente local", () => {
+  const previousDevMode = process.env.KWANZA_DEV_LICENSE_MODE;
+  process.env.KWANZA_DEV_LICENSE_MODE = "1";
+
   const service = new LicensingService({
     app: { isPackaged: true, getAppPath: () => "C:\\Program Files\\Kwanza Folha\\resources\\app.asar" },
     userDataPath: makeTempDir("kwanza-license-prod-"),
@@ -1281,7 +1295,15 @@ runTest("Licenciamento tecnico nao entra em producao instalada fora do ambiente 
     }
   });
 
-  assert.equal(service.isDevelopmentLicenseMode(), false);
+  try {
+    assert.equal(service.isDevelopmentLicenseMode(), false);
+  } finally {
+    if (previousDevMode === undefined) {
+      delete process.env.KWANZA_DEV_LICENSE_MODE;
+    } else {
+      process.env.KWANZA_DEV_LICENSE_MODE = previousDevMode;
+    }
+  }
 });
 
 runTest("Marcador tecnico local nao ativa licenciamento em instalacao de producao", () => {

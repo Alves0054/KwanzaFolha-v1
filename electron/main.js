@@ -41,15 +41,103 @@ let startupIntegrityState = {
   message: ""
 };
 
-function isLocalDevelopmentRuntime() {
-  const execPath = String(process.execPath || "");
-  const appPath = String(app.getAppPath?.() || "");
+function isPackagedSmokeE2EMode() {
   return (
-    process.env.KWANZA_DEV_LICENSE_MODE === "1" ||
-    /dist-electron[\\/](win-unpacked|electron)/i.test(execPath) ||
-    /Documents[\\/]Pagamentos/i.test(execPath) ||
-    /Documents[\\/]Pagamentos/i.test(appPath)
+    app.isPackaged &&
+    (
+      process.env.KWANZA_SMOKE_E2E === "1" ||
+      process.argv.includes("--smoke-e2e") ||
+      process.argv.includes("/smoke-e2e")
+    )
   );
+}
+
+function formatMonthRef(referenceDate = new Date()) {
+  const date = referenceDate instanceof Date ? referenceDate : new Date(referenceDate);
+  if (Number.isNaN(date.getTime())) {
+    return new Date().toISOString().slice(0, 7);
+  }
+  return date.toISOString().slice(0, 7);
+}
+
+function buildAoIban(bankRegistryCode, accountDigits = "") {
+  const countryCode = "AO";
+  const registryCode = String(bankRegistryCode || "").replace(/\D/g, "").padStart(4, "0").slice(-4);
+  const domesticAccount = String(accountDigits || "").replace(/\D/g, "").padStart(17, "0").slice(-17);
+  const bban = `${registryCode}${domesticAccount}`;
+  const candidate = `${bban}${countryCode}00`;
+  let remainder = 0;
+
+  for (const character of candidate) {
+    const fragment = /[A-Z]/.test(character) ? String(character.charCodeAt(0) - 55) : character;
+    for (const digit of fragment) {
+      remainder = (remainder * 10 + Number(digit)) % 97;
+    }
+  }
+
+  const checksum = String(98 - remainder).padStart(2, "0");
+  return `${countryCode}${checksum}${bban}`;
+}
+
+function addSmokeStep(report, step, ok, details = {}) {
+  report.steps.push({
+    step,
+    ok: Boolean(ok),
+    details,
+    at: new Date().toISOString()
+  });
+}
+
+function resolveSmokeE2EOutputPath() {
+  const configuredPath = String(process.env.KWANZA_SMOKE_OUTPUT_PATH || "").trim();
+  if (configuredPath) {
+    return configuredPath;
+  }
+  return path.join(app.getPath("logs"), "smoke-e2e-result.json");
+}
+
+function writeSmokeE2EReport(report) {
+  const outputPath = resolveSmokeE2EOutputPath();
+  const parentDir = path.dirname(outputPath);
+  ensureDir(parentDir);
+  fs.writeFileSync(outputPath, JSON.stringify(report, null, 2), "utf8");
+  return outputPath;
+}
+
+function assertSmokeResult(result, fallbackMessage) {
+  if (result?.ok) {
+    return result;
+  }
+  throw new Error(String(result?.message || fallbackMessage || "Falha no smoke E2E empacotado."));
+}
+
+function isAlreadyClosedPeriodMessage(message) {
+  return /ja esta fechad|já está fechad/i.test(String(message || ""));
+}
+
+function isLocalDevelopmentRuntime() {
+  if (app.isPackaged) {
+    return false;
+  }
+  return (
+    process.env.NODE_ENV !== "production" ||
+    Boolean(process.env.VITE_DEV_SERVER_URL) ||
+    Boolean(process.defaultApp) ||
+    process.env.KWANZA_DEV_LICENSE_MODE === "1"
+  );
+}
+
+function setStartupIntegrityIssue(stage, message, details = {}) {
+  startupIntegrityState = {
+    ok: false,
+    stage: String(stage || "").trim() || "startup",
+    message: String(message || "Falha de integridade detetada durante o arranque.")
+  };
+  log.warn("[BOOT][FALLBACK]", {
+    stage: startupIntegrityState.stage,
+    message: startupIntegrityState.message,
+    ...details
+  });
 }
 
 function cleanupLegacyData() {
@@ -65,10 +153,11 @@ function cleanupLegacyData() {
 
   try {
     fs.renameSync(oldPath, backupPath);
-    startupIntegrityState = {
-      ok: false,
-      message: "Foram encontrados dados locais legados. A aplicacao isolou esses ficheiros para evitar conflitos no arranque."
-    };
+    setStartupIntegrityIssue(
+      "legacy-data-cleanup",
+      "Foram encontrados dados locais legados. A aplicacao isolou esses ficheiros para evitar conflitos no arranque.",
+      { oldPath, backupPath }
+    );
   } catch (error) {
     console.warn("legacy cleanup failed", error);
   }
@@ -92,14 +181,23 @@ function withAuth(handler) {
     }
     const licenseGuard = services.licensingCore.getGuardResult();
     if (!licenseGuard.ok) {
-      return licenseGuard;
+      log.warn("[BOOT][FALLBACK]", {
+        stage: "license-guard",
+        code: licenseGuard.code || "invalid",
+        message: licenseGuard.message || "Licenciamento invalido ou expirado."
+      });
+      return {
+        ok: false,
+        message: licenseGuard.message || "Licenciamento invalido ou expirado. Ative ou renove para continuar."
+      };
     }
     return handler(user, ...args);
   };
 }
 
 function registerStartupIpcFallbacks() {
-  const degradedMessage = startupIntegrityState?.message || "Os servicos principais ainda nao ficaram disponiveis.";
+  const stagePrefix = startupIntegrityState?.stage ? `[${startupIntegrityState.stage}] ` : "";
+  const degradedMessage = `${stagePrefix}${startupIntegrityState?.message || "Os servicos principais ainda nao ficaram disponiveis."}`;
   const safeHandle = (channel, handler) => {
     ipcMain.removeHandler(channel);
     ipcMain.handle(channel, handler);
@@ -173,13 +271,18 @@ function buildDiff(beforeState = null, afterState = null) {
 }
 
 function resolveWindowIcon() {
-  const icoPath = path.join(__dirname, "..", "assets", "icon.ico");
-  const pngPath = path.join(__dirname, "..", "src", "assets", "brand-icon.png");
-  if (fs.existsSync(icoPath)) {
-    return icoPath;
-  }
-  if (fs.existsSync(pngPath)) {
-    return pngPath;
+  const candidates = [
+    path.join(process.resourcesPath || "", "Folha.png"),
+    path.join(__dirname, "..", "build", "Folha.png"),
+    path.join(__dirname, "..", "build", "icon.ico"),
+    path.join(__dirname, "..", "assets", "icon.ico"),
+    path.join(__dirname, "..", "src", "assets", "brand-icon.png")
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) {
+      return candidate;
+    }
   }
   return undefined;
 }
@@ -312,6 +415,233 @@ function refreshAttendanceWatcher() {
   }
 }
 
+async function runPackagedSmokeE2EScenario() {
+  const report = {
+    ok: false,
+    startedAt: new Date().toISOString(),
+    steps: [],
+    artifacts: {},
+    error: null
+  };
+
+  try {
+    if (!services?.database || !services?.auth || !services?.payroll || !services?.licensingCore) {
+      throw new Error("Servicos principais indisponiveis para o smoke E2E empacotado.");
+    }
+
+    const primeResult = services.licensingCore.primeInstallation
+      ? await services.licensingCore.primeInstallation().catch(() => ({ ok: false }))
+      : { ok: false, skipped: true };
+    addSmokeStep(report, "license-prime", true, {
+      ok: Boolean(primeResult?.ok),
+      skipped: Boolean(primeResult?.skipped)
+    });
+
+    const licenseStatus = services.licensingCore.getStatus(true);
+    if (!licenseStatus?.canUseApp) {
+      throw new Error(licenseStatus?.message || "Licenca invalida para smoke E2E.");
+    }
+    addSmokeStep(report, "license", true, {
+      status: licenseStatus.status || "unknown",
+      requiresLicense: Boolean(licenseStatus.requiresLicense),
+      canUseApp: Boolean(licenseStatus.canUseApp)
+    });
+
+    const authState = services.auth.getState();
+    const uniqueToken = `${Date.now()}${Math.floor(Math.random() * 900 + 100)}`.slice(-6);
+    const credentials = {
+      username: `smoke${uniqueToken}`,
+      password: "Smoke1234!"
+    };
+
+    if (authState?.setupRequired) {
+      const registerResult = services.auth.registerInitialAccount({
+        company_name: "Kwanza Folha Smoke CI",
+        company_nif: `500${uniqueToken}21`,
+        company_email: "smoke-ci@kwanzafolha.ao",
+        company_phone: "222000111",
+        company_address: "Luanda",
+        full_name: "Administrador Smoke",
+        admin_email: "smoke-admin@kwanzafolha.ao",
+        username: credentials.username,
+        password: credentials.password
+      });
+      assertSmokeResult(registerResult, "Nao foi possivel concluir o registo inicial para o smoke E2E.");
+      addSmokeStep(report, "register-initial", true, {
+        setupRequired: true,
+        username: credentials.username
+      });
+    } else {
+      addSmokeStep(report, "register-initial", true, {
+        setupRequired: false,
+        skipped: true
+      });
+    }
+
+    const loginAttempts = [
+      credentials,
+      { username: "admin", password: "admin123" },
+      { username: "administrador", password: "admin123" }
+    ];
+
+    let loginResult = null;
+    let loginAttemptedAs = "";
+    for (const attempt of loginAttempts) {
+      const candidate = services.auth.login(attempt);
+      if (candidate?.ok) {
+        loginResult = candidate;
+        loginAttemptedAs = attempt.username;
+        break;
+      }
+    }
+
+    if (!loginResult) {
+      const createSmokeUserResult = services.database.saveUser({
+        full_name: "Administrador Smoke",
+        email: "smoke-admin@kwanzafolha.ao",
+        username: credentials.username,
+        password: credentials.password,
+        role: "admin",
+        active: true
+      });
+      if (createSmokeUserResult?.ok) {
+        const createdUserLogin = services.auth.login(credentials);
+        if (createdUserLogin?.ok) {
+          loginResult = createdUserLogin;
+          loginAttemptedAs = credentials.username;
+        }
+      }
+    }
+
+    assertSmokeResult(loginResult, "Nao foi possivel autenticar no smoke E2E empacotado.");
+    if (loginResult?.user?.id) {
+      services.auth.persistSession(loginResult.user.id);
+    }
+    addSmokeStep(report, "login", true, {
+      username: loginAttemptedAs,
+      userId: loginResult?.user?.id || null
+    });
+
+    const monthRef = formatMonthRef();
+    const employeeToken = `${Date.now()}${Math.floor(Math.random() * 90 + 10)}`.slice(-6);
+    const bankRegistryCode = "0040";
+    const domesticAccount = `${employeeToken}${String(Math.floor(Math.random() * 1_000_000_000_000)).padStart(11, "0")}`;
+    const employeeIban = buildAoIban(bankRegistryCode, domesticAccount);
+    const saveEmployeeResult = services.database.saveEmployee({
+      full_name: `Funcionario Smoke ${employeeToken}`,
+      document_type: "bi",
+      bi: `123456789LA${employeeToken.slice(-3)}`,
+      driver_license_number: "",
+      nif: `500${employeeToken}67`,
+      social_security_number: `12${employeeToken}345`,
+      attendance_code: `SMK${employeeToken}`,
+      birth_date: "1991-04-15",
+      gender: "masculino",
+      marital_status: "solteiro",
+      nationality: "Angolana",
+      personal_phone: "923000000",
+      personal_email: "func-smoke@kwanzafolha.ao",
+      address: "Luanda",
+      job_title: "Analista de Testes",
+      department: "Operacoes",
+      base_salary: 280000,
+      contract_type: "Indeterminado",
+      hire_date: `${monthRef}-01`,
+      shift_id: "",
+      iban: employeeIban,
+      bank_code: "BAI",
+      bank_account: `${bankRegistryCode}${domesticAccount}`,
+      status: "ativo",
+      notes: "Registo automatico para smoke release.",
+      recurring_allowances: [],
+      recurring_bonuses: [],
+      special_payments: []
+    });
+    assertSmokeResult(saveEmployeeResult, "Nao foi possivel criar funcionario para o smoke E2E.");
+
+    const smokeEmployee = (saveEmployeeResult?.employees || []).find((item) => String(item.attendance_code || "").startsWith("SMK"));
+    if (!smokeEmployee?.id) {
+      throw new Error("Funcionario smoke nao foi localizado apos criacao.");
+    }
+    addSmokeStep(report, "employee-create", true, {
+      employeeId: smokeEmployee.id,
+      monthRef
+    });
+
+    const attendanceResult = services.database.saveAttendanceRecord({
+      employee_id: smokeEmployee.id,
+      attendance_date: `${monthRef}-05`,
+      status: "present",
+      shift_id: smokeEmployee.shift_id || null,
+      check_in_time: "08:00",
+      check_out_time: "17:00",
+      hours_worked: 8,
+      delay_minutes: 0,
+      source: "manual",
+      approval_status: "approved",
+      notes: "Entrada automatica do smoke release."
+    });
+    assertSmokeResult(attendanceResult, "Nao foi possivel registar assiduidade para o smoke E2E.");
+
+    const closeAttendanceResult = services.database.closeAttendancePeriod(monthRef, loginResult.user.id);
+    if (!closeAttendanceResult?.ok && !isAlreadyClosedPeriodMessage(closeAttendanceResult?.message)) {
+      throw new Error(closeAttendanceResult?.message || "Nao foi possivel fechar a assiduidade do periodo.");
+    }
+    addSmokeStep(report, "attendance-close", true, {
+      monthRef,
+      status: services.database.getAttendancePeriod(monthRef)?.status || "unknown"
+    });
+
+    let payrollResult = services.payroll.processMonth(monthRef, {
+      includePreview: false,
+      resetExisting: true
+    });
+    if (!payrollResult?.ok && /periodo .* fechado|período .* fechado/i.test(String(payrollResult?.message || ""))) {
+      const reopenResult = services.database.reopenPayrollPeriod(monthRef, loginResult.user.id);
+      if (reopenResult?.ok) {
+        payrollResult = services.payroll.processMonth(monthRef, {
+          includePreview: false,
+          resetExisting: true
+        });
+      }
+    }
+    assertSmokeResult(payrollResult, "Nao foi possivel processar a folha no smoke E2E.");
+    addSmokeStep(report, "payroll-process", true, {
+      monthRef,
+      count: payrollResult?.items?.length || 0
+    });
+
+    const exportFilters = { monthRef, employeeId: String(smokeEmployee.id) };
+    const payrollExport = services.database.exportMonthlyPayrollExcel(exportFilters);
+    const stateExport = services.database.exportStatePaymentsExcel(exportFilters);
+    const agtExport = services.database.exportAgtMonthlyRemunerationExcel(exportFilters);
+
+    assertSmokeResult(payrollExport, "Falha na exportacao Excel da folha salarial.");
+    assertSmokeResult(stateExport, "Falha na exportacao Excel de pagamento ao Estado.");
+    assertSmokeResult(agtExport, "Falha na exportacao AGT.");
+
+    report.artifacts = {
+      payrollExcel: payrollExport.path,
+      stateExcel: stateExport.path,
+      agtExcel: agtExport.path
+    };
+    addSmokeStep(report, "exports", true, report.artifacts);
+
+    report.ok = true;
+  } catch (error) {
+    report.ok = false;
+    report.error = String(error?.stack || error?.message || error);
+    log.error("[BOOT][SMOKE-E2E] falha", error);
+  } finally {
+    report.finishedAt = new Date().toISOString();
+    const outputPath = writeSmokeE2EReport(report);
+    report.outputPath = outputPath;
+    log.info("[BOOT][SMOKE-E2E] resultado", { ok: report.ok, outputPath, steps: report.steps.length });
+  }
+
+  return report;
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1480,
@@ -377,6 +707,10 @@ function notifyStartupIntegrityIssue() {
   if (!startupIntegrityState?.message || !mainWindow) {
     return;
   }
+  if (isPackagedSmokeE2EMode()) {
+    log.warn("[BOOT][SMOKE-E2E] aviso de integridade suprimido para evitar bloqueio interativo", startupIntegrityState);
+    return;
+  }
 
   dialog
     .showMessageBox(mainWindow, {
@@ -388,6 +722,28 @@ function notifyStartupIntegrityIssue() {
     .catch((error) => {
       log.error("Nao foi possivel apresentar o aviso de integridade", error);
     });
+}
+
+function resolveStartupFailureMessage(error) {
+  const rawMessage = String(error?.message || "");
+
+  if (/NODE_MODULE_VERSION|compiled against a different Node\.js version|better-sqlite3/i.test(rawMessage)) {
+    return "Falha de compatibilidade dos modulos SQLite. Atualize/reinstale a aplicacao para a mesma versao do Electron.";
+  }
+
+  if (/Unsupported state or unable to authenticate data|failed to decrypt database|decrypt/i.test(rawMessage)) {
+    return "Nao foi possivel abrir a base de dados cifrada. Valide a chave local e os ficheiros de dados.";
+  }
+
+  if (/license|licenca|licensing/i.test(rawMessage)) {
+    return "Nao foi possivel inicializar o servico de licenciamento. O sistema abriu em modo restrito para evitar falhas totais.";
+  }
+
+  if (/ipc|handler/i.test(rawMessage)) {
+    return "Falha ao registar canais internos (IPC). Reinicie a aplicacao e valide os modulos do sistema.";
+  }
+
+  return "Erro de integridade da instalacao. Contacte o suporte para reativacao.";
 }
 
 function registerIpc() {
@@ -1328,53 +1684,50 @@ app.whenReady().then(() => {
     const anchors = installationIdentity.verifyInstallationAnchors();
     log.info("[BOOT] installation anchors verified", anchors);
     if (!anchors.ok) {
-      startupIntegrityState = {
-        ok: false,
-        message: "Nao foi possivel validar as ancoras de seguranca da instalacao."
-      };
+      setStartupIntegrityIssue("installation-identity", "Nao foi possivel validar as ancoras de seguranca da instalacao.");
     }
   } catch (error) {
-    startupIntegrityState = {
-      ok: false,
-      message: error.message || "Nao foi possivel validar a identidade da instalacao."
-    };
+    setStartupIntegrityIssue(
+      "installation-identity",
+      error.message || "Nao foi possivel validar a identidade da instalacao.",
+      { error: String(error?.stack || error?.message || error) }
+    );
     log.error("Falha ao validar a identidade da instalacao", error);
   }
 
   log.info("[BOOT] verifying executable signature");
   const executableSignature = installationIdentity.verifyExecutableSignature(
     process.execPath,
-    process.env.KWANZA_AUTHENTICODE_THUMBPRINT || ""
+    process.env.KWANZA_AUTHENTICODE_THUMBPRINT || "",
+    { developmentMode: !app.isPackaged }
   );
   log.info("[BOOT] executable signature result", executableSignature);
-  const allowUnsignedLocalBuild = isLocalDevelopmentRuntime() && executableSignature.code === "unsigned";
-  if (allowUnsignedLocalBuild) {
-    log.warn("Assinatura digital ignorada para build local de desenvolvimento.", executableSignature);
+  if (!app.isPackaged && executableSignature.warning && isLocalDevelopmentRuntime()) {
+    log.warn("[BOOT][FALLBACK] assinatura validada em modo dev local com excecao controlada", executableSignature);
   } else if (app.isPackaged && !executableSignature.ok) {
-    startupIntegrityState = {
-      ok: false,
-      message: executableSignature.message || "A assinatura do executavel nao pode ser validada."
-    };
+    setStartupIntegrityIssue(
+      "executable-signature",
+      executableSignature.message || "A assinatura do executavel nao pode ser validada.",
+      { code: executableSignature.code || "invalid_signature" }
+    );
   }
 
   log.info("[BOOT] verifying module integrity");
   const tamperCheck = antiTamper.verifyCriticalModules();
   log.info("[BOOT] module integrity result", tamperCheck);
   if (!tamperCheck.ok) {
-    startupIntegrityState = {
-      ok: false,
-      message: tamperCheck.message || "Foram detetadas alteracoes nos modulos criticos da aplicacao."
-    };
+    setStartupIntegrityIssue(
+      "module-integrity",
+      tamperCheck.message || "Foram detetadas alteracoes nos modulos criticos da aplicacao.",
+      { mismatches: tamperCheck.mismatches || [] }
+    );
   }
 
   log.info("[BOOT] detecting debug environment");
   const debugCheck = antiTamper.detectDebugEnvironment();
   log.info("[BOOT] debug environment result", debugCheck);
   if (app.isPackaged && !debugCheck.ok) {
-    startupIntegrityState = {
-      ok: false,
-      message: debugCheck.message || "Ambiente de debug detetado."
-    };
+    setStartupIntegrityIssue("debug-environment", debugCheck.message || "Ambiente de debug detetado.");
   }
 
   try {
@@ -1388,10 +1741,11 @@ app.whenReady().then(() => {
     registerIpc();
     log.info("[BOOT] ipc registered");
   } catch (error) {
-    startupIntegrityState = {
-      ok: false,
-      message: "Erro de integridade da instalacao. Contacte o suporte para reativacao."
-    };
+    setStartupIntegrityIssue(
+      "services-init",
+      resolveStartupFailureMessage(error),
+      { error: String(error?.stack || error?.message || error) }
+    );
     log.error("Falha ao inicializar os servicos da aplicacao", error);
   }
   log.info("[BOOT] creating window");
@@ -1406,6 +1760,18 @@ app.whenReady().then(() => {
     });
   }
   log.info("[BOOT] startup sequence finished");
+  if (isPackagedSmokeE2EMode()) {
+    log.info("[BOOT] packaged smoke e2e mode enabled");
+    void runPackagedSmokeE2EScenario()
+      .then((result) => {
+        const exitCode = result?.ok ? 0 : 1;
+        setTimeout(() => app.exit(exitCode), 400);
+      })
+      .catch((error) => {
+        log.error("[BOOT][SMOKE-E2E] erro inesperado", error);
+        setTimeout(() => app.exit(1), 400);
+      });
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
