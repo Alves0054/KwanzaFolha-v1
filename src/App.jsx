@@ -1043,8 +1043,8 @@ export default function App() {
         : nextLicenseState.status === "trial_active"
           ? `Período gratuito ativo. Está no dia ${Math.max(
               1,
-              Number(nextLicenseState.trialDaysTotal || 7) - Number(nextLicenseState.trialDaysRemaining || 0) + 1
-            )} de ${nextLicenseState.trialDaysTotal || 7}.`
+              Number(nextLicenseState.trialDaysTotal || 15) - Number(nextLicenseState.trialDaysRemaining || 0) + 1
+            )} de ${nextLicenseState.trialDaysTotal || 15}.`
           : ""
     );
     setUser(result.user);
@@ -1091,7 +1091,7 @@ export default function App() {
         ? `Registo concluído com sucesso. A sessão foi iniciada e a licença técnica de desenvolvimento está ativa até ${
             nextLicenseState.expireDate || "-"
           }.`
-        : `Registo concluído com sucesso. A sessão foi iniciada e o período gratuito de 7 dias está ativo${
+        : `Registo concluído com sucesso. A sessão foi iniciada e o período gratuito de 15 dias está ativo${
             nextLicenseState.trialExpireAt
               ? ` até ${new Date(nextLicenseState.trialExpireAt).toLocaleDateString("pt-PT")}`
               : ""

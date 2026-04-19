@@ -5,7 +5,7 @@ const crypto = require("crypto");
 const licenseSource = require("../config/license-source");
 const { LICENSE_PLANS, DEFAULT_LICENSE_PLAN } = require("../../shared/license-plans");
 
-const TRIAL_DAYS = 7;
+const TRIAL_DAYS = 15;
 const DEVELOPMENT_LICENSE_DAYS = 365;
 const HARDWARE_CHANGE_WEIGHTS = {
   motherboardSerial: 30,
@@ -621,7 +621,7 @@ class LicensingService {
         companyPhone: trialContext.companyPhone,
         companyNif: trialContext.companyNif,
         email: trialContext.adminEmail || trialContext.companyEmail,
-        message: "Conclua o registo inicial da empresa para iniciar o periodo gratuito de 7 dias."
+        message: "Conclua o registo inicial da empresa para iniciar o periodo gratuito de 15 dias."
       };
     }
 
@@ -701,7 +701,7 @@ class LicensingService {
       companyPhone: trialContext.companyPhone,
       companyNif: trialContext.companyNif,
       email: trialContext.adminEmail || trialContext.companyEmail,
-      message: "O periodo gratuito de 7 dias do Kwanza Folha terminou. Compre ou ative a licenca mensal para continuar."
+      message: "O periodo gratuito de 15 dias do Kwanza Folha terminou. Compre ou ative a licenca mensal para continuar."
     };
   }
 

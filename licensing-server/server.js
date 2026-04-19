@@ -10,6 +10,8 @@ const nodemailer = require("nodemailer");
 const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
 const { LICENSE_PLANS, DEFAULT_LICENSE_PLAN } = require("../shared/license-plans");
 
+const DEFAULT_TRIAL_DAYS = 15;
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -359,7 +361,7 @@ class LicensingServer {
         fingerprint_hash TEXT NOT NULL,
         license_id INTEGER DEFAULT NULL,
         trial_started_at TEXT NOT NULL,
-        trial_duration_days INTEGER NOT NULL DEFAULT 7,
+        trial_duration_days INTEGER NOT NULL DEFAULT ${DEFAULT_TRIAL_DAYS},
         last_seen_at TEXT NOT NULL,
         risk_flags TEXT NOT NULL DEFAULT '[]',
         status TEXT NOT NULL DEFAULT 'active',
@@ -372,6 +374,11 @@ class LicensingServer {
     this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_payment_id ON invoices(payment_id) WHERE payment_id IS NOT NULL");
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_installations_fingerprint_hash ON installations(fingerprint_hash)");
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_installations_license_id ON installations(license_id)");
+    this.db.prepare(`
+      UPDATE installations
+      SET trial_duration_days = ?, updated_at = ?
+      WHERE trial_duration_days IS NULL OR trial_duration_days < ?
+    `).run(DEFAULT_TRIAL_DAYS, nowIso(), DEFAULT_TRIAL_DAYS);
 
     const invoiceColumns = this.db.prepare("PRAGMA table_info(invoices)").all();
     if (!invoiceColumns.find((column) => column.name === "delivery_status")) {
@@ -695,7 +702,7 @@ class LicensingServer {
       install_id: installation.install_id,
       fingerprint_hash: installation.fingerprint_hash,
       trial_started_at: installation.trial_started_at,
-      trial_duration_days: Number(installation.trial_duration_days || 7),
+      trial_duration_days: Number(installation.trial_duration_days || DEFAULT_TRIAL_DAYS),
       suspicious_reinstall: this.normalizeRiskFlags(safeJsonParse(installation.risk_flags, [])).includes("suspicious_reinstall"),
       status: installation.status,
       risk_flags: this.normalizeRiskFlags(safeJsonParse(installation.risk_flags, [])),
@@ -703,7 +710,7 @@ class LicensingServer {
         install_id: installation.install_id,
         fingerprint_hash: installation.fingerprint_hash,
         trial_started_at: installation.trial_started_at,
-        trial_duration_days: Number(installation.trial_duration_days || 7),
+        trial_duration_days: Number(installation.trial_duration_days || DEFAULT_TRIAL_DAYS),
         risk_flags: this.normalizeRiskFlags(safeJsonParse(installation.risk_flags, []))
       })
     };
@@ -757,7 +764,7 @@ class LicensingServer {
       installId,
       fingerprintHash,
       nowIso(),
-      7,
+      DEFAULT_TRIAL_DAYS,
       nowIso(),
       JSON.stringify(explicitFlags),
       nowIso(),
@@ -1740,7 +1747,7 @@ class LicensingServer {
           fingerprintHash || sha256(deviceHash),
           license.id,
           nowIso(),
-          7,
+          DEFAULT_TRIAL_DAYS,
           nowIso(),
           nowIso(),
           nowIso()

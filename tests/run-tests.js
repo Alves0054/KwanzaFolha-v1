@@ -1180,7 +1180,7 @@ runTest("Licenciamento permite o registo inicial antes da compra da licença", (
   assert.equal(status.canUseApp, true);
 });
 
-runTest("Licenciamento mantém 7 dias gratuitos ativos após o registo inicial", () => {
+runTest("Licenciamento mantém 15 dias gratuitos ativos após o registo inicial", () => {
   const service = new LicensingService({
     app: { isPackaged: false },
     userDataPath: makeTempDir("kwanza-license-trial-"),
@@ -1204,11 +1204,11 @@ runTest("Licenciamento mantém 7 dias gratuitos ativos após o registo inicial",
   const status = service.getLicenseStatus(true);
   assert.equal(status.status, "trial_active");
   assert.equal(status.canUseApp, true);
-  assert.equal(status.trialDaysTotal, 7);
+  assert.equal(status.trialDaysTotal, 15);
   assert.ok(status.trialDaysRemaining >= 1);
 });
 
-runTest("Licenciamento bloqueia o aplicativo quando os 7 dias gratuitos terminam", () => {
+runTest("Licenciamento bloqueia o aplicativo quando os 15 dias gratuitos terminam", () => {
   const service = new LicensingService({
     app: { isPackaged: false },
     userDataPath: makeTempDir("kwanza-license-expired-trial-"),
@@ -1218,7 +1218,7 @@ runTest("Licenciamento bloqueia o aplicativo quando os 7 dias gratuitos terminam
       getLicenseTrialContext() {
         return {
           setupRequired: false,
-          trialStartedAt: new Date(Date.now() - 8 * 86400000).toISOString(),
+          trialStartedAt: new Date(Date.now() - 16 * 86400000).toISOString(),
           companyName: "Empresa Exemplo",
           companyEmail: "empresa@exemplo.ao",
           companyPhone: "923000000",
@@ -1232,7 +1232,7 @@ runTest("Licenciamento bloqueia o aplicativo quando os 7 dias gratuitos terminam
   const status = service.getLicenseStatus(true);
   assert.equal(status.status, "trial_expired");
   assert.equal(status.canUseApp, false);
-  assert.match(status.message, /7 dias/i);
+  assert.match(status.message, /15 dias/i);
 });
 
 runTest("Licenciamento tecnico de desenvolvimento libera a edicao local por 1 ano", () => {

@@ -51,7 +51,7 @@ export default function LicenseScreen({
     : isExpired
       ? "Sua licença do KwanzaFolha expirou. Renove para continuar usando o sistema."
       : isTrialExpired
-        ? "Os 7 dias gratuitos já terminaram. Para continuar, renove ou compre a licença KwanzaFolha Mensal."
+        ? "Os 15 dias gratuitos já terminaram. Para continuar, renove ou compre a licença KwanzaFolha Mensal."
         : "Ative a sua licença ou conclua a compra da assinatura mensal para continuar a usar o Kwanza Folha.";
   const returnMode = isExpired ? "renew" : "purchase";
   const shellClassName = embedded ? "license-overlay-shell" : "auth-shell auth-shell--license-gate";
