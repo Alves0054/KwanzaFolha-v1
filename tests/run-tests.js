@@ -326,6 +326,25 @@ runTest("DatabaseService migra base legada e preserva dados principais", () => {
   }
 });
 
+runTest("DatabaseService recupera automaticamente quando a base runtime esta corrompida", () => {
+  const basePath = makeTempDir("kwanza-db-corrupted-");
+  const documentsPath = makeTempDir("kwanza-documents-corrupted-");
+  const programDataPath = path.join(basePath, "ProtectedData");
+  const localStatePath = path.join(programDataPath, "LocalState");
+  fs.mkdirSync(localStatePath, { recursive: true });
+  fs.writeFileSync(path.join(localStatePath, "kwanza-folha.sqlite"), "NOT_A_SQLITE_DATABASE", "utf8");
+
+  const service = new DatabaseService(basePath, documentsPath, { programDataPath });
+
+  try {
+    const probe = service.db.prepare("SELECT count(*) AS total FROM sqlite_master").get();
+    assert.ok(typeof probe.total === "number");
+    assert.equal(service.db.pragma("user_version", { simple: true }), CURRENT_SCHEMA_VERSION);
+  } finally {
+    service.prepareForShutdown();
+  }
+});
+
 runTest("Repositorio documental guarda anexos, sinaliza validade e remove ficheiro gerido", () => {
   const basePath = makeTempDir("kwanza-db-documents-");
   const documentsPath = makeTempDir("kwanza-documents-repo-");
@@ -2987,6 +3006,111 @@ runTest("PdfService bloqueia relatórios sem salários processados", async () =>
   const batchResult = await service.generatePayslipsByMonth("2026-04");
   assert.equal(batchResult.ok, false);
   assert.match(batchResult.message, /recibos em lote/i);
+});
+
+runTest("PdfService gera relatórios tabulares com layout padronizado", async () => {
+  const exportsDir = makeTempDir("kwanza-pdf-tabular-");
+  const basePayrollRows = [
+    {
+      id: 1,
+      full_name: "Carlos Silva",
+      month_ref: "2026-04",
+      gross_salary: 250000,
+      allowances_total: 30000,
+      bonuses_total: 12000,
+      inss_amount: 7500,
+      irt_amount: 21500,
+      absence_deduction: 0,
+      net_salary: 233000,
+      department: "RH",
+      job_title: "Técnico de RH",
+      summary_json: {
+        penalties: 0,
+        financialDeductions: 0,
+        employerCost: 270000
+      }
+    }
+  ];
+
+  const service = new PdfService({
+    exportsDir,
+    getCompanyProfile() {
+      return { name: "Empresa Teste", nif: "5000000000", logo_path: "" };
+    },
+    listPayrollRuns() {
+      return basePayrollRows;
+    },
+    buildAttendanceReportData(_, reportType) {
+      return {
+        rows: [
+          {
+            full_name: "Carlos Silva",
+            department: "RH",
+            attendance_date: "2026-04-10",
+            status_label: reportType === "faltas" ? "Falta" : "Presença",
+            status: reportType === "faltas" ? "absent" : "present",
+            hours_worked: reportType === "faltas" ? 0 : 8,
+            delay_minutes: reportType === "faltas" ? 0 : 15,
+            notes: "Registo validado"
+          }
+        ]
+      };
+    },
+    buildShiftMapData() {
+      return {
+        ok: true,
+        employeeRows: [
+          {
+            full_name: "Carlos Silva",
+            department: "RH",
+            shift_name: "Turno Geral",
+            planned_days: 22,
+            present_days: 20,
+            delay_days: 1,
+            absent_days: 1,
+            half_absence_days: 0,
+            hours_worked: 168,
+            punctuality_rate: 95.5
+          }
+        ],
+        departmentRows: [
+          {
+            department: "RH",
+            employees_count: 5,
+            shifts_label: "Turno Geral",
+            present_days: 101,
+            delay_days: 7,
+            absent_days: 4,
+            leave_days: 1,
+            vacation_days: 2,
+            hours_worked: 820,
+            coverage_rate: 96.3
+          }
+        ],
+        teacherRows: [
+          {
+            full_name: "Carlos Silva",
+            shift_name: "Turno Geral",
+            blocks_label: "Blocos 1-4",
+            expected_hours: 176,
+            hours_worked: 168,
+            present_days: 20,
+            delay_days: 1,
+            absent_days: 1
+          }
+        ]
+      };
+    }
+  });
+
+  const types = ["descontos", "faltas", "presencas", "turnos-trabalhador", "turnos-departamento", "mapa-docente"];
+  for (const type of types) {
+    const result = await service.generateReport({ type, monthRef: "2026-04" });
+    assert.equal(result?.ok, true, `Relatório ${type} deveria ser gerado com sucesso.`);
+    assert.ok(fs.existsSync(result.path), `Relatório ${type} deveria existir em disco.`);
+    const header = fs.readFileSync(result.path).subarray(0, 4).toString("utf8");
+    assert.equal(header, "%PDF", `Relatório ${type} deveria ser um PDF válido.`);
+  }
 });
 
 runTest("PdfService cria pacote mensal com os ficheiros consolidados", async () => {

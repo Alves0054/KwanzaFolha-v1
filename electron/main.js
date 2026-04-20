@@ -2,6 +2,7 @@ const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require("electron")
 const path = require("path");
 const fs = require("fs");
 const log = require("electron-log");
+const licenseSource = require("./config/license-source");
 const { createAppServices } = require("./services/core/create-app-services");
 const { SecureStorageService } = require("./services/secure-storage");
 const { InstallationIdentityService } = require("./services/installation-identity");
@@ -38,17 +39,36 @@ let attendanceWatcher = null;
 let attendanceSyncTimer = null;
 let startupIntegrityState = {
   ok: true,
-  message: ""
+  message: "",
+  details: {}
 };
+let startupIntegrityNotified = false;
+
+function normalizePathForCompare(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\//g, "\\")
+    .toLowerCase();
+}
+
+function isLocalPackagedBuildRuntime() {
+  if (!app.isPackaged || process.env.KWANZA_LOCAL_PACKAGED_DEV_MODE !== "1") {
+    return false;
+  }
+
+  const executablePath = normalizePathForCompare(process.execPath);
+  return executablePath.includes("\\dist-electron\\win-unpacked\\");
+}
 
 function isPackagedSmokeE2EMode() {
+  const hasSmokeArg =
+    process.argv.includes("--smoke-e2e") ||
+    process.argv.includes("/smoke-e2e");
+  if (!app.isPackaged || !hasSmokeArg) {
+    return false;
+  }
   return (
-    app.isPackaged &&
-    (
-      process.env.KWANZA_SMOKE_E2E === "1" ||
-      process.argv.includes("--smoke-e2e") ||
-      process.argv.includes("/smoke-e2e")
-    )
+    process.env.KWANZA_SMOKE_E2E !== "0"
   );
 }
 
@@ -131,7 +151,8 @@ function setStartupIntegrityIssue(stage, message, details = {}) {
   startupIntegrityState = {
     ok: false,
     stage: String(stage || "").trim() || "startup",
-    message: String(message || "Falha de integridade detetada durante o arranque.")
+    message: String(message || "Falha de integridade detetada durante o arranque."),
+    details: details && typeof details === "object" ? details : {}
   };
   log.warn("[BOOT][FALLBACK]", {
     stage: startupIntegrityState.stage,
@@ -163,11 +184,7 @@ function cleanupLegacyData() {
 
   try {
     fs.renameSync(oldPath, backupPath);
-    setStartupIntegrityIssue(
-      "legacy-data-cleanup",
-      "Foram encontrados dados locais legados. A aplicacao isolou esses ficheiros para evitar conflitos no arranque.",
-      { oldPath, backupPath }
-    );
+    log.warn("[BOOT][LEGACY-MIGRATION] dados legados movidos para backup", { oldPath, backupPath });
   } catch (error) {
     console.warn("legacy cleanup failed", error);
   }
@@ -286,7 +303,7 @@ function resolveWindowIcon() {
     path.join(__dirname, "..", "build", "Folha.png"),
     path.join(__dirname, "..", "build", "icon.ico"),
     path.join(__dirname, "..", "assets", "icon.ico"),
-    path.join(__dirname, "..", "src", "assets", "brand-icon.png")
+    path.join(__dirname, "..", "src", "assets", "logos", "logo-icon.png")
   ];
 
   for (const candidate of candidates) {
@@ -703,10 +720,7 @@ function createWindow() {
   if (app.isPackaged) {
     mainWindow.webContents.on("devtools-opened", () => {
       mainWindow.webContents.closeDevTools();
-      startupIntegrityState = {
-        ok: false,
-        message: "Tentativa de abrir ferramentas de desenvolvimento detetada no ambiente protegido."
-      };
+      setStartupIntegrityIssue("debug-environment", "Tentativa de abrir ferramentas de desenvolvimento detetada no ambiente protegido.");
       notifyStartupIntegrityIssue();
     });
   }
@@ -714,20 +728,51 @@ function createWindow() {
 }
 
 function notifyStartupIntegrityIssue() {
-  if (!startupIntegrityState?.message || !mainWindow) {
+  if (!startupIntegrityState?.message || !mainWindow || startupIntegrityNotified) {
     return;
   }
   if (isPackagedSmokeE2EMode()) {
     log.warn("[BOOT][SMOKE-E2E] aviso de integridade suprimido para evitar bloqueio interativo", startupIntegrityState);
     return;
   }
+  if (isLocalPackagedBuildRuntime() && String(startupIntegrityState?.stage || "") === "executable-signature") {
+    log.warn("[BOOT][LOCAL-PACKAGED] aviso de assinatura suprimido para validacao local.", startupIntegrityState);
+    return;
+  }
 
+  const integrityStages = new Set([
+    "installation-identity",
+    "executable-signature",
+    "module-integrity",
+    "debug-environment",
+    "legacy-data-cleanup"
+  ]);
+  const isIntegrityIssue = integrityStages.has(String(startupIntegrityState?.stage || "").trim());
+  const title = isIntegrityIssue ? "Integridade da instalacao" : "Inicializacao do sistema";
+  const message = isIntegrityIssue
+    ? "Erro de integridade da instalacao. Contacte o suporte para reativacao."
+    : "Nao foi possivel inicializar todos os servicos internos.";
+  const detailHint = (() => {
+    const stage = String(startupIntegrityState?.stage || "").trim();
+    if (stage === "executable-signature") {
+      return "Instale uma build assinada (Setup oficial) e evite executar binarios nao assinados.";
+    }
+    if (stage === "services-init") {
+      return "Reinicie a aplicacao. Se persistir, restaure o ultimo backup valido.";
+    }
+    return "";
+  })();
+  const detail = detailHint
+    ? `${startupIntegrityState.message}\n\n${detailHint}`
+    : startupIntegrityState.message;
+
+  startupIntegrityNotified = true;
   dialog
     .showMessageBox(mainWindow, {
       type: "warning",
-      title: "Integridade da instalacao",
-      message: "Erro de integridade da instalacao. Contacte o suporte para reativacao.",
-      detail: startupIntegrityState.message
+      title,
+      message,
+      detail
     })
     .catch((error) => {
       log.error("Nao foi possivel apresentar o aviso de integridade", error);
@@ -743,6 +788,10 @@ function resolveStartupFailureMessage(error) {
 
   if (/Unsupported state or unable to authenticate data|failed to decrypt database|decrypt/i.test(rawMessage)) {
     return "Nao foi possivel abrir a base de dados cifrada. Valide a chave local e os ficheiros de dados.";
+  }
+
+  if (/file is not a database|database disk image is malformed/i.test(rawMessage)) {
+    return "A base de dados local estava invalida e o sistema tentou recuperar automaticamente. Reinicie a aplicacao e valide os dados recentes.";
   }
 
   if (/license|licenca|licensing/i.test(rawMessage)) {
@@ -1642,6 +1691,7 @@ function registerIpc() {
 
 app.whenReady().then(() => {
   log.info("[BOOT] starting app");
+  startupIntegrityNotified = false;
   app.setName("Kwanza Folha");
   Menu.setApplicationMenu(null);
   registerStartupIpcFallbacks();
@@ -1706,20 +1756,42 @@ app.whenReady().then(() => {
   }
 
   log.info("[BOOT] verifying executable signature");
+  const expectedSignerThumbprints = Array.from(
+    new Set(
+      [
+        process.env.KWANZA_AUTHENTICODE_THUMBPRINT,
+        process.env.KWANZA_AUTHENTICODE_THUMBPRINTS,
+        licenseSource.expectedSignerThumbprint,
+        ...(Array.isArray(licenseSource.expectedSignerThumbprints) ? licenseSource.expectedSignerThumbprints : [])
+      ]
+        .flatMap((value) => String(value || "").split(","))
+        .map((value) => value.trim().toUpperCase())
+        .filter(Boolean)
+    )
+  );
   const executableSignature = installationIdentity.verifyExecutableSignature(
     process.execPath,
-    process.env.KWANZA_AUTHENTICODE_THUMBPRINT || "",
-    { developmentMode: !app.isPackaged }
+    expectedSignerThumbprints[0] || "",
+    {
+      developmentMode: !app.isPackaged || isLocalPackagedBuildRuntime(),
+      allowedThumbprints: expectedSignerThumbprints
+    }
   );
   log.info("[BOOT] executable signature result", executableSignature);
   if (!app.isPackaged && executableSignature.warning && isLocalDevelopmentRuntime()) {
     log.warn("[BOOT][FALLBACK] assinatura validada em modo dev local com excecao controlada", executableSignature);
+  } else if (app.isPackaged && executableSignature.warning) {
+    log.warn("[BOOT][WARN] assinatura validada com aviso em modo empacotado", executableSignature);
   } else if (app.isPackaged && !executableSignature.ok) {
+    if (isLocalPackagedBuildRuntime()) {
+      log.warn("[BOOT][LOCAL-PACKAGED] assinatura invalida no binario local de QA; validacao estrita mantida apenas para instalacoes comerciais.");
+    } else {
     setStartupIntegrityIssue(
       "executable-signature",
       executableSignature.message || "A assinatura do executavel nao pode ser validada.",
       { code: executableSignature.code || "invalid_signature" }
     );
+    }
   }
 
   log.info("[BOOT] verifying module integrity");
@@ -1741,7 +1813,8 @@ app.whenReady().then(() => {
   }
 
   const allowPackagedSmokeBoot = isPackagedSmokeE2EMode();
-  const blockCommercialStartup = app.isPackaged && !startupIntegrityState.ok && !allowPackagedSmokeBoot;
+  const enforceCommercialIntegrity = app.isPackaged && !isLocalPackagedBuildRuntime();
+  const blockCommercialStartup = enforceCommercialIntegrity && !startupIntegrityState.ok && !allowPackagedSmokeBoot;
   if (allowPackagedSmokeBoot && !startupIntegrityState.ok) {
     log.warn("[BOOT][SMOKE-E2E] integrity issue detected, but commercial services are allowed for packaged smoke validation only.", {
       stage: startupIntegrityState.stage || "startup",

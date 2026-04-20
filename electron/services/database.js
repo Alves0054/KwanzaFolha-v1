@@ -1277,12 +1277,59 @@ class DatabaseService {
       if (connection?.open) {
         connection.close();
       }
-      if (!fs.existsSync(this.dbPath) || !this.migratePlaintextDatabaseInPlace(this.dbPath)) {
+      const normalizedMessage = String(error?.message || "").toLowerCase();
+      const recoverableRuntimeError =
+        normalizedMessage.includes("file is not a database") ||
+        normalizedMessage.includes("database disk image is malformed");
+
+      let migratedLegacyPlaintext = false;
+      if (fs.existsSync(this.dbPath)) {
+        try {
+          migratedLegacyPlaintext = this.migratePlaintextDatabaseInPlace(this.dbPath);
+        } catch {
+          migratedLegacyPlaintext = false;
+        }
+      }
+
+      if (migratedLegacyPlaintext) {
+        try {
+          connection = new Database(this.dbPath);
+          this.applySqlCipherPragmas(connection);
+          this.verifySqlCipherConnection(connection);
+        } catch (migrationError) {
+          if (connection?.open) {
+            connection.close();
+          }
+          const migrationMessage = String(migrationError?.message || "").toLowerCase();
+          if (
+            migrationMessage.includes("file is not a database") ||
+            migrationMessage.includes("database disk image is malformed")
+          ) {
+            connection = this.openFreshRuntimeConnection();
+          } else {
+            throw migrationError;
+          }
+        }
+      } else if (recoverableRuntimeError) {
+        const recovery = this.recoverRuntimeDatabaseFromCorruption(error);
+        if (recovery.ok) {
+          try {
+            connection = new Database(this.dbPath);
+            this.applySqlCipherPragmas(connection);
+            this.verifySqlCipherConnection(connection);
+          } catch (recoveryOpenError) {
+            if (connection?.open) {
+              connection.close();
+            }
+            connection = this.openFreshRuntimeConnection();
+          }
+          this.lastRuntimeRecovery = recovery;
+        } else {
+          throw error;
+        }
+      } else {
         throw error;
       }
-      connection = new Database(this.dbPath);
-      this.applySqlCipherPragmas(connection);
-      this.verifySqlCipherConnection(connection);
     }
 
     this.db = connection;
@@ -1439,10 +1486,15 @@ class DatabaseService {
   applySqlCipherPragmas(db) {
     db.pragma(`cipher='${SQLCIPHER_COMPATIBILITY_MODE}'`);
     db.pragma(`legacy=${SQLCIPHER_LEGACY_VERSION}`);
-    if (typeof db.key === "function") {
-      db.key(this.getSqlCipherKeyBuffer());
-    } else {
-      db.pragma(`key="x'${this.getSqlCipherKeyBuffer().toString("hex")}'"`);
+    const keyHex = this.getSqlCipherKeyBuffer().toString("hex");
+    try {
+      db.pragma(`key="x'${keyHex}'"`);
+    } catch (pragmaError) {
+      if (typeof db.key === "function") {
+        db.key(this.getSqlCipherKeyBuffer());
+      } else {
+        throw pragmaError;
+      }
     }
   }
 
@@ -1462,14 +1514,130 @@ class DatabaseService {
       plainDb.pragma("journal_mode = DELETE");
       plainDb.pragma(`cipher='${SQLCIPHER_COMPATIBILITY_MODE}'`);
       plainDb.pragma(`legacy=${SQLCIPHER_LEGACY_VERSION}`);
-      if (typeof plainDb.rekey === "function") {
-        plainDb.rekey(this.getSqlCipherKeyBuffer());
-      } else {
-        plainDb.pragma(`rekey="x'${this.getSqlCipherKeyBuffer().toString("hex")}'"`);
+      const keyHex = this.getSqlCipherKeyBuffer().toString("hex");
+      try {
+        plainDb.pragma(`rekey="x'${keyHex}'"`);
+      } catch (pragmaError) {
+        if (typeof plainDb.rekey === "function") {
+          plainDb.rekey(this.getSqlCipherKeyBuffer());
+        } else {
+          throw pragmaError;
+        }
       }
       return true;
     } finally {
       plainDb.close();
+    }
+  }
+
+  quarantineCorruptedDatabase(filePath, reason = "corrupted-runtime") {
+    const targetPath = String(filePath || "").trim();
+    if (!targetPath || !fs.existsSync(targetPath)) {
+      return "";
+    }
+
+    const diagnosticsDir = path.join(this.workspaceDir, "Diagnostico", "CorruptedDB");
+    fs.mkdirSync(diagnosticsDir, { recursive: true });
+    const timestamp = nowIso().replace(/[:.]/g, "-");
+    const quarantinePath = path.join(diagnosticsDir, `kwanza-folha-${reason}-${timestamp}.sqlite`);
+
+    try {
+      fs.copyFileSync(targetPath, quarantinePath);
+      if (fs.existsSync(`${targetPath}-wal`)) {
+        fs.copyFileSync(`${targetPath}-wal`, `${quarantinePath}-wal`);
+      }
+      if (fs.existsSync(`${targetPath}-shm`)) {
+        fs.copyFileSync(`${targetPath}-shm`, `${quarantinePath}-shm`);
+      }
+      return quarantinePath;
+    } catch {
+      return "";
+    }
+  }
+
+  restoreRuntimeDatabaseFromEncryptedSnapshot() {
+    const candidates = [this.encryptedDbPath, this.legacyEncryptedDbPath]
+      .filter((candidate) => candidate && candidate !== this.dbPath && fs.existsSync(candidate));
+
+    for (const candidate of candidates) {
+      try {
+        const rawBuffer = fs.readFileSync(candidate);
+        const envelope = parseEncryptedEnvelope(rawBuffer.toString("utf8"));
+        if (envelope) {
+          const restored = this.restoreEncryptedFileToTarget(candidate, this.dbPath, DATABASE_ENCRYPTION_PURPOSE);
+          if (restored === false) {
+            continue;
+          }
+        } else {
+          fs.copyFileSync(candidate, this.dbPath);
+        }
+
+        const probe = new Database(this.dbPath);
+        this.applySqlCipherPragmas(probe);
+        this.verifySqlCipherConnection(probe);
+        probe.close();
+        return { ok: true, sourcePath: candidate };
+      } catch {
+        safeUnlink(this.dbPath);
+        safeUnlink(`${this.dbPath}-wal`);
+        safeUnlink(`${this.dbPath}-shm`);
+      }
+    }
+
+    return { ok: false, sourcePath: "" };
+  }
+
+  recoverRuntimeDatabaseFromCorruption(error) {
+    const quarantinedPath = this.quarantineCorruptedDatabase(this.dbPath, "not-a-database");
+    safeUnlink(this.dbPath);
+    safeUnlink(`${this.dbPath}-wal`);
+    safeUnlink(`${this.dbPath}-shm`);
+
+    const restored = this.restoreRuntimeDatabaseFromEncryptedSnapshot();
+    if (restored.ok) {
+      console.warn("Runtime database recovered from encrypted snapshot.", {
+        sourcePath: restored.sourcePath,
+        quarantinedPath
+      });
+      return { ok: true, restored: true, sourcePath: restored.sourcePath, quarantinedPath };
+    }
+
+    console.warn("Runtime database snapshot unavailable. Recreating runtime database.", {
+      quarantinedPath,
+      error: String(error?.message || "")
+    });
+    return { ok: true, restored: false, sourcePath: "", quarantinedPath };
+  }
+
+  createFreshRuntimeDatabase() {
+    safeUnlink(this.dbPath);
+    safeUnlink(`${this.dbPath}-wal`);
+    safeUnlink(`${this.dbPath}-shm`);
+
+    const fresh = new Database(this.dbPath);
+    try {
+      this.applySqlCipherPragmas(fresh);
+      this.verifySqlCipherConnection(fresh);
+      fresh.pragma("user_version = 0");
+    } finally {
+      if (fresh?.open) {
+        fresh.close();
+      }
+    }
+  }
+
+  openFreshRuntimeConnection() {
+    this.createFreshRuntimeDatabase();
+    const connection = new Database(this.dbPath);
+    try {
+      this.applySqlCipherPragmas(connection);
+      this.verifySqlCipherConnection(connection);
+      return connection;
+    } catch (error) {
+      if (connection?.open) {
+        connection.close();
+      }
+      throw error;
     }
   }
 

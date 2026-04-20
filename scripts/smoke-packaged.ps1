@@ -52,7 +52,13 @@ if (Test-Path $logPath) {
 }
 
 $previousDevMode = $env:KWANZA_DEV_LICENSE_MODE
+$previousLocalPackagedDevMode = $env:KWANZA_LOCAL_PACKAGED_DEV_MODE
 $env:KWANZA_DEV_LICENSE_MODE = ""
+if ($SkipSignatureCheck) {
+  $env:KWANZA_LOCAL_PACKAGED_DEV_MODE = "1"
+} else {
+  $env:KWANZA_LOCAL_PACKAGED_DEV_MODE = ""
+}
 
 $process = $null
 try {
@@ -91,6 +97,11 @@ try {
     Remove-Item Env:KWANZA_DEV_LICENSE_MODE -ErrorAction SilentlyContinue
   } else {
     $env:KWANZA_DEV_LICENSE_MODE = $previousDevMode
+  }
+  if ($null -eq $previousLocalPackagedDevMode) {
+    Remove-Item Env:KWANZA_LOCAL_PACKAGED_DEV_MODE -ErrorAction SilentlyContinue
+  } else {
+    $env:KWANZA_LOCAL_PACKAGED_DEV_MODE = $previousLocalPackagedDevMode
   }
 }
 

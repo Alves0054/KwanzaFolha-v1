@@ -1,8 +1,13 @@
 module.exports = {
-  apiBaseUrl: "https://127.0.0.1:3055",
+  apiBaseUrl: "https://license.alvesestudio.ao",
   requestTimeoutMs: 15000,
   productCode: "KWANZAFOLHA",
   localLicenseFile: "license.json",
   fingerprintPepper: "",
-  expectedSignerThumbprint: ""
+  expectedSignerThumbprint: "E2DD19624522D4F4FAB08207C8709030E4FF70CD",
+  expectedSignerThumbprints: [
+    "E2DD19624522D4F4FAB08207C8709030E4FF70CD",
+    "E894DF0A0DD300FCC80DCE5C696FD10E0E455859",
+    "4A0C48787CA403C12B8F95C3ACA44F6B55044DB5"
+  ]
 };

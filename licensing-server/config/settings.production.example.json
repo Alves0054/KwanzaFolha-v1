@@ -1,0 +1,72 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 3055
+  },
+  "https": {
+    "enabled": false,
+    "keyPath": "",
+    "certPath": ""
+  },
+  "smtp": {
+    "host": "smtp.seu-provedor.com",
+    "port": 587,
+    "secure": false,
+    "user": "no-reply@alvesestudio.ao",
+    "password": "ALTERAR",
+    "fromName": "Kwanza Folha",
+    "fromEmail": "no-reply@alvesestudio.ao"
+  },
+  "issuer": {
+    "companyName": "Alves Estudio",
+    "invoicePrefix": "FT",
+    "emailSubject": "Sua licença do Kwanza Folha"
+  },
+  "webhook": {
+    "secret": "ALTERAR",
+    "provider": "generic",
+    "requireAmountMatch": true,
+    "paidStatuses": [
+      "paid",
+      "confirmed",
+      "success",
+      "completed"
+    ],
+    "cancelledStatuses": [
+      "cancelled",
+      "canceled",
+      "failed",
+      "expired"
+    ]
+  },
+  "admin": {
+    "username": "admin",
+    "passwordHash": "ALTERAR_HASH_BCRYPT",
+    "tokenHash": "ALTERAR_HASH_SHA256"
+  },
+  "rateLimit": {
+    "windowMs": 60000,
+    "maxRequests": 90,
+    "maxSensitiveRequests": 20,
+    "maxAdminRequests": 10
+  },
+  "sales": {
+    "enabled": true,
+    "disabledMessage": "Vendas comerciais temporariamente indisponíveis."
+  },
+  "paymentInstructions": {
+    "bankName": "Banco ATLANTICO",
+    "accountName": "Alves Estudio",
+    "iban": "AO06....",
+    "accountNumber": "000000000000",
+    "entity": "00000",
+    "referenceLabel": "Referência",
+    "supportEmail": "suporte@alvesestudio.ao",
+    "supportPhone": "+244900000000",
+    "notes": "Depois do pagamento, clique em Verificar pagamento no aplicativo."
+  },
+  "security": {
+    "requireHttps": true,
+    "allowHttpBehindProxy": true
+  }
+}

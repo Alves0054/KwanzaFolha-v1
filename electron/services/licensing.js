@@ -186,16 +186,28 @@ class LicensingService {
   }
 
   getApiBaseUrl() {
-    const apiBaseUrl = String(process.env.KWANZA_LICENSE_API_URL || this.config.apiBaseUrl || "")
+    const configuredUrl = String(process.env.KWANZA_LICENSE_API_URL || this.config.apiBaseUrl || "")
       .trim()
       .replace(/\/+$/, "");
+    const productionDefaultUrl = "https://license.alvesestudio.ao";
+    let apiBaseUrl = configuredUrl;
+
+    if (this.app?.isPackaged) {
+      if (!apiBaseUrl) {
+        apiBaseUrl = productionDefaultUrl;
+      }
+
+      if (!apiBaseUrl.startsWith("https://")) {
+        throw new Error("A aplicacao empacotada so permite servidores de licenciamento com HTTPS.");
+      }
+
+      if (/^https:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(apiBaseUrl)) {
+        apiBaseUrl = productionDefaultUrl;
+      }
+    }
 
     if (!apiBaseUrl) {
       throw new Error("Configure a URL do servidor de licenciamento antes de continuar.");
-    }
-
-    if (this.app?.isPackaged && !apiBaseUrl.startsWith("https://")) {
-      throw new Error("A aplicacao empacotada so permite servidores de licenciamento com HTTPS.");
     }
 
     return apiBaseUrl;
@@ -771,9 +783,31 @@ class LicensingService {
       return result;
     } catch (error) {
       const failureMessage = String(error?.message || "").trim();
+      const networkCode = String(error?.cause?.code || error?.code || "").trim().toUpperCase();
+      const configuredHost = (() => {
+        try {
+          return new URL(this.getApiBaseUrl()).host;
+        } catch {
+          return "servidor de licencas";
+        }
+      })();
       const shouldExposeMessage =
         /licenciamento com HTTPS/i.test(failureMessage) ||
         /Configure a URL do servidor de licenciamento/i.test(failureMessage);
+
+      if (networkCode === "ENOTFOUND") {
+        return {
+          ok: false,
+          message: `Não foi possível resolver o domínio do servidor de licenças (${configuredHost}). Verifique o DNS do subdomínio.`
+        };
+      }
+
+      if (networkCode === "ECONNREFUSED" || networkCode === "EHOSTUNREACH" || networkCode === "ETIMEDOUT") {
+        return {
+          ok: false,
+          message: `Não foi possível ligar ao servidor de licenças (${configuredHost}). Verifique se o serviço está online e com HTTPS ativo.`
+        };
+      }
 
       return {
         ok: false,

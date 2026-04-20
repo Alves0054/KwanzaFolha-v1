@@ -141,6 +141,11 @@ jobs:
         run: |
           powershell -ExecutionPolicy Bypass -File scripts\prepare-release.ps1 -Channel $env:KWANZA_RELEASE_CHANNEL -Target all -SkipTests -TimestampServer $env:KWANZA_TIMESTAMP_SERVER
 
+      - name: Enforce Authenticode signature (release)
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File scripts\verify-release-signatures.ps1 -OutputDir dist-electron -RequireTimestamp
+
       - name: Verify packaged main syntax
         shell: pwsh
         run: |

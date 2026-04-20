@@ -125,6 +125,32 @@ function firstNonEmpty(...values) {
   return "";
 }
 
+function resolvePaymentInstructions(context = {}) {
+  const defaults = {
+    bankName: "",
+    accountName: "",
+    iban: "",
+    accountNumber: "",
+    entity: "",
+    referenceLabel: "Referência",
+    supportEmail: "",
+    supportPhone: "",
+    notes: ""
+  };
+  const instructions = context?.settings?.paymentInstructions || {};
+  return {
+    bankName: String(instructions.bankName || defaults.bankName || "").trim(),
+    accountName: String(instructions.accountName || defaults.accountName || "").trim(),
+    iban: String(instructions.iban || defaults.iban || "").trim(),
+    accountNumber: String(instructions.accountNumber || defaults.accountNumber || "").trim(),
+    entity: String(instructions.entity || defaults.entity || "").trim(),
+    referenceLabel: String(instructions.referenceLabel || defaults.referenceLabel || "Referência").trim(),
+    supportEmail: String(instructions.supportEmail || defaults.supportEmail || "").trim(),
+    supportPhone: String(instructions.supportPhone || defaults.supportPhone || "").trim(),
+    notes: String(instructions.notes || defaults.notes || "").trim()
+  };
+}
+
 class LicensingServer {
   constructor() {
     this.rootDir = path.resolve(__dirname, "..");
@@ -136,6 +162,9 @@ class LicensingServer {
     this.privateKeyPath = path.join(this.keyDir, "license-private.pem");
     this.settingsPath = path.join(this.configDir, "settings.json");
     this.rateLimitBuckets = new Map();
+    this.runtimeRequireHttps = false;
+    this.runtimeHttpsEnabled = false;
+    this.runtimeAllowHttpBehindProxy = false;
 
     ensureDir(this.configDir);
     ensureDir(this.storageDir);
@@ -198,8 +227,20 @@ class LicensingServer {
         enabled: false,
         disabledMessage: "Licenciamento comercial temporariamente suspenso até à correção fiscal mínima do produto."
       },
+      paymentInstructions: {
+        bankName: "",
+        accountName: "",
+        iban: "",
+        accountNumber: "",
+        entity: "",
+        referenceLabel: "Referência",
+        supportEmail: "",
+        supportPhone: "",
+        notes: ""
+      },
       security: {
-        requireHttps: true
+        requireHttps: true,
+        allowHttpBehindProxy: false
       }
     };
   }
@@ -210,6 +251,7 @@ class LicensingServer {
     const admin = candidate?.admin || {};
     const rateLimit = candidate?.rateLimit || {};
     const sales = candidate?.sales || {};
+    const paymentInstructions = candidate?.paymentInstructions || {};
     const security = candidate?.security || {};
 
     return {
@@ -255,11 +297,32 @@ class LicensingServer {
         enabled: typeof sales?.enabled === "boolean" ? sales.enabled : defaults.sales.enabled,
         disabledMessage: String(sales?.disabledMessage || defaults.sales.disabledMessage || "").trim()
       },
+      paymentInstructions: {
+        ...defaults.paymentInstructions,
+        ...paymentInstructions,
+        bankName: String(paymentInstructions?.bankName || defaults.paymentInstructions.bankName || "").trim(),
+        accountName: String(paymentInstructions?.accountName || defaults.paymentInstructions.accountName || "").trim(),
+        iban: String(paymentInstructions?.iban || defaults.paymentInstructions.iban || "").trim(),
+        accountNumber: String(
+          paymentInstructions?.accountNumber || defaults.paymentInstructions.accountNumber || ""
+        ).trim(),
+        entity: String(paymentInstructions?.entity || defaults.paymentInstructions.entity || "").trim(),
+        referenceLabel: String(
+          paymentInstructions?.referenceLabel || defaults.paymentInstructions.referenceLabel || "Referência"
+        ).trim(),
+        supportEmail: String(paymentInstructions?.supportEmail || defaults.paymentInstructions.supportEmail || "").trim(),
+        supportPhone: String(paymentInstructions?.supportPhone || defaults.paymentInstructions.supportPhone || "").trim(),
+        notes: String(paymentInstructions?.notes || defaults.paymentInstructions.notes || "").trim()
+      },
       security: {
         ...defaults.security,
         ...security,
         requireHttps:
-          typeof security?.requireHttps === "boolean" ? security.requireHttps : defaults.security.requireHttps
+          typeof security?.requireHttps === "boolean" ? security.requireHttps : defaults.security.requireHttps,
+        allowHttpBehindProxy:
+          typeof security?.allowHttpBehindProxy === "boolean"
+            ? security.allowHttpBehindProxy
+            : defaults.security.allowHttpBehindProxy
       },
       webhook: {
         ...defaults.webhook,
@@ -443,6 +506,22 @@ class LicensingServer {
 
   getSecuritySettings() {
     return this.settings?.security || this.createDefaultSettings().security;
+  }
+
+  getPaymentInstructions() {
+    const base = resolvePaymentInstructions(this);
+    return {
+      ...base,
+      bankName: String(process.env.KWANZA_PAYMENT_BANK_NAME || base.bankName || "").trim(),
+      accountName: String(process.env.KWANZA_PAYMENT_ACCOUNT_NAME || base.accountName || "").trim(),
+      iban: String(process.env.KWANZA_PAYMENT_IBAN || base.iban || "").trim(),
+      accountNumber: String(process.env.KWANZA_PAYMENT_ACCOUNT_NUMBER || base.accountNumber || "").trim(),
+      entity: String(process.env.KWANZA_PAYMENT_ENTITY || base.entity || "").trim(),
+      referenceLabel: String(process.env.KWANZA_PAYMENT_REFERENCE_LABEL || base.referenceLabel || "Referencia").trim(),
+      supportEmail: String(process.env.KWANZA_PAYMENT_SUPPORT_EMAIL || base.supportEmail || "").trim(),
+      supportPhone: String(process.env.KWANZA_PAYMENT_SUPPORT_PHONE || base.supportPhone || "").trim(),
+      notes: String(process.env.KWANZA_PAYMENT_NOTES || base.notes || "").trim()
+    };
   }
 
   getPrivateKeyMaterial() {
@@ -961,6 +1040,7 @@ class LicensingServer {
         plan: plan.name,
         plan_code: plan.code,
         max_users: plan.maxUsers,
+        payment_instructions: resolvePaymentInstructions(this),
         reused: true
       };
     }
@@ -982,7 +1062,8 @@ class LicensingServer {
       expiration_time: validUntil,
       plan: plan.name,
       plan_code: plan.code,
-      max_users: plan.maxUsers
+      max_users: plan.maxUsers,
+      payment_instructions: resolvePaymentInstructions(this)
     };
   }
 
@@ -1360,7 +1441,8 @@ class LicensingServer {
       valid_until: payment.valid_until,
       serial_key: serialKey,
       expire_date: expireDate,
-      plan: payment.plan
+      plan: payment.plan,
+      payment_instructions: resolvePaymentInstructions(this)
     };
   }
 
@@ -1917,6 +1999,20 @@ class LicensingServer {
     `;
   }
 
+  getForwardedProto(request) {
+    return String(request?.headers?.["x-forwarded-proto"] || "")
+      .split(",")
+      .map((entry) => entry.trim().toLowerCase())
+      .find(Boolean);
+  }
+
+  isRequestSecure(request) {
+    if (request?.socket?.encrypted) {
+      return true;
+    }
+    return this.getForwardedProto(request) === "https";
+  }
+
   async handleRequest(request, response) {
     const url = new URL(request.url, `http://${request.headers.host}`);
     const pathName = url.pathname;
@@ -1932,6 +2028,15 @@ class LicensingServer {
       "/license/activate"
     ].includes(pathName);
 
+    if (pathName !== "/health" && this.runtimeRequireHttps && !this.isRequestSecure(request)) {
+      sendJson(response, 426, {
+        ok: false,
+        message:
+          "Este endpoint exige HTTPS. Aceda por https://license.alvesestudio.ao ou configure o proxy com x-forwarded-proto=https."
+      });
+      return;
+    }
+
     if (sensitiveRoute) {
       const scope = adminRoute ? "admin" : "sensitive";
       if (!this.consumeRateLimit(scope, request, response)) {
@@ -1945,7 +2050,12 @@ class LicensingServer {
     }
 
     if (request.method === "GET" && pathName === "/plans") {
-      sendJson(response, 200, { ok: true, plans: LICENSE_PLANS });
+      sendJson(response, 200, {
+        ok: true,
+        plans: LICENSE_PLANS,
+        sales_enabled: this.isCommercialLicensingEnabled(),
+        payment_instructions: this.getPaymentInstructions()
+      });
       return;
     }
 
@@ -2051,12 +2161,20 @@ class LicensingServer {
 
   listen() {
     const host = this.settings.server?.host || "127.0.0.1";
-    const port = Number(this.settings.server?.port || 3055);
+    const runtimePort = Number(process.env.PORT || this.settings.server?.port || 3055);
+    const port = Number.isFinite(runtimePort) && runtimePort > 0 ? runtimePort : 3055;
     const httpsOptions = this.resolveHttpsOptions();
-    const requireHttps = this.getSecuritySettings().requireHttps !== false && process.env.KWANZA_ALLOW_HTTP !== "1";
-    if (requireHttps && !httpsOptions) {
+    const security = this.getSecuritySettings();
+    const allowHttpBypass = process.env.KWANZA_ALLOW_HTTP === "1";
+    const allowHttpBehindProxy =
+      security.allowHttpBehindProxy === true || process.env.KWANZA_ALLOW_HTTP_BEHIND_PROXY === "1";
+    this.runtimeRequireHttps = security.requireHttps !== false && !allowHttpBypass;
+    this.runtimeHttpsEnabled = Boolean(httpsOptions);
+    this.runtimeAllowHttpBehindProxy = allowHttpBehindProxy;
+
+    if (this.runtimeRequireHttps && !httpsOptions && !allowHttpBehindProxy) {
       throw new Error(
-        "HTTPS obrigatório para o servidor de licenciamento. Configure https.keyPath e https.certPath ou use KWANZA_ALLOW_HTTP=1 apenas em desenvolvimento controlado."
+        "HTTPS obrigatório para o servidor de licenciamento. Configure https.keyPath/certPath ou ative allowHttpBehindProxy=true com proxy reverso HTTPS."
       );
     }
 
@@ -2068,6 +2186,11 @@ class LicensingServer {
       : http.createServer(this.createHttpHandler());
 
     server.listen(port, host, () => {
+      if (this.runtimeRequireHttps && !httpsOptions && allowHttpBehindProxy) {
+        console.warn(
+          "Licensing server em HTTP interno; HTTPS exigido no edge proxy (x-forwarded-proto=https)."
+        );
+      }
       console.log(`Licensing server listening on ${protocol}://${host}:${port}`);
     });
   }

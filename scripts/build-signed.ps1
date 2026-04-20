@@ -202,6 +202,18 @@ function Sign-WithFallback {
   )
 
   foreach ($server in $TimestampServers) {
+    & $SignToolPath sign /fd SHA256 /td SHA256 /tr $server /f $CertPath /p $CertPassword /d "Kwanza Folha" /du "https://github.com/Alves0054/KwanzaFolha" $FilePath
+    if ($LASTEXITCODE -eq 0) {
+      return @{ Signed = $true; Timestamped = $true; TimestampServer = $server }
+    }
+
+    if ($CertThumbprint) {
+      & $SignToolPath sign /fd SHA256 /td SHA256 /tr $server /sha1 $CertThumbprint /d "Kwanza Folha" /du "https://github.com/Alves0054/KwanzaFolha" $FilePath
+      if ($LASTEXITCODE -eq 0) {
+        return @{ Signed = $true; Timestamped = $true; TimestampServer = $server }
+      }
+    }
+
     & $SignToolPath sign /fd SHA256 /t $server /f $CertPath /p $CertPassword /d "Kwanza Folha" /du "https://github.com/Alves0054/KwanzaFolha" $FilePath
     if ($LASTEXITCODE -eq 0) {
       return @{ Signed = $true; Timestamped = $true; TimestampServer = $server }

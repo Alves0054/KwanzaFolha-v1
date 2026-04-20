@@ -23,6 +23,7 @@
     "release:artifacts": "node scripts\\release-artifacts.js --channel stable --target all",
     "release:prepare": "powershell -ExecutionPolicy Bypass -File scripts\\prepare-release.ps1 -Channel stable -Target all",
     "release:prepare:beta": "powershell -ExecutionPolicy Bypass -File scripts\\prepare-release.ps1 -Channel beta -Target all",
+    "clean:workspace": "powershell -ExecutionPolicy Bypass -File scripts\\clean-workspace.ps1",
     "report:boot-integrity": "powershell -ExecutionPolicy Bypass -File scripts\\collect-boot-integrity-report.ps1 -OutputDir dist-electron",
     "smoke:packaged": "powershell -ExecutionPolicy Bypass -File scripts\\smoke-packaged.ps1",
     "smoke:packaged:e2e": "powershell -ExecutionPolicy Bypass -File scripts\\smoke-packaged-e2e.ps1",

@@ -54,6 +54,17 @@ export default function LicenseScreen({
         ? "Os 15 dias gratuitos já terminaram. Para continuar, renove ou compre a licença KwanzaFolha Mensal."
         : "Ative a sua licença ou conclua a compra da assinatura mensal para continuar a usar o Kwanza Folha.";
   const returnMode = isExpired ? "renew" : "purchase";
+  const paymentInstructions = paymentState?.paymentInstructions || {};
+  const hasPaymentInstructions = Boolean(
+    paymentInstructions.bankName ||
+      paymentInstructions.accountName ||
+      paymentInstructions.iban ||
+      paymentInstructions.accountNumber ||
+      paymentInstructions.entity ||
+      paymentInstructions.supportEmail ||
+      paymentInstructions.supportPhone ||
+      paymentInstructions.notes
+  );
   const shellClassName = embedded ? "license-overlay-shell" : "auth-shell auth-shell--license-gate";
   const noteText = embedded
     ? "Pode fechar esta janela e voltar às Configurações. A licença atual do sistema mantém-se até nova ativação ou renovação."
@@ -302,6 +313,26 @@ export default function LicenseScreen({
                     <strong>{paymentState.validUntil ? new Date(paymentState.validUntil).toLocaleString("pt-PT") : "-"}</strong>
                   </div>
                 </div>
+
+                {hasPaymentInstructions && (
+                  <div className="auth-note">
+                    <strong>Dados bancários para pagamento</strong>
+                    <br />
+                    {paymentInstructions.bankName ? `Banco: ${paymentInstructions.bankName}` : ""}
+                    {paymentInstructions.accountName ? ` | Titular: ${paymentInstructions.accountName}` : ""}
+                    {paymentInstructions.entity ? ` | Entidade: ${paymentInstructions.entity}` : ""}
+                    {paymentInstructions.accountNumber ? ` | Conta: ${paymentInstructions.accountNumber}` : ""}
+                    {paymentInstructions.iban ? ` | IBAN: ${paymentInstructions.iban}` : ""}
+                    {paymentInstructions.supportPhone ? ` | Suporte: ${paymentInstructions.supportPhone}` : ""}
+                    {paymentInstructions.supportEmail ? ` | E-mail: ${paymentInstructions.supportEmail}` : ""}
+                    {paymentInstructions.notes ? (
+                      <>
+                        <br />
+                        {paymentInstructions.notes}
+                      </>
+                    ) : null}
+                  </div>
+                )}
 
                 <div className="inline-actions">
                   <button type="button" className="secondary-btn" onClick={() => setLicenseMode(returnMode)}>

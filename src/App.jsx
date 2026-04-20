@@ -18,6 +18,16 @@ import { buildLicenseBannerState } from "./features/licensing/banner";
 import { buildAgtMonthlyRemunerationMapFromBoot } from "./features/state-payments/buildAgtMonthlyRemunerationMap";
 import { roundAmount } from "./shared/utils/number";
 import {
+  normalizeMonthDate,
+  buildMonthDateRange,
+  buildInitialReportFilters,
+  buildFilterState,
+  applyReportPreset,
+  buildReportRequestFilters,
+  matchesMonthRange,
+  matchesDateRange
+} from "./shared/utils/reportFilters";
+import {
   angolaBanks,
   formatMoney,
   initialAttendanceImport,
@@ -43,95 +53,6 @@ import {
   parseCommaList,
   todayMonth
 } from "./utils/payroll";
-
-function normalizeMonthDate(monthRef) {
-  const normalized = String(monthRef || "").trim();
-  return /^\d{4}-\d{2}$/.test(normalized) ? `${normalized}-01` : new Date().toISOString().slice(0, 10);
-}
-
-function buildMonthDateRange(monthRef) {
-  const normalized = String(monthRef || "").trim();
-  if (!/^\d{4}-\d{2}$/.test(normalized)) {
-    const today = new Date().toISOString().slice(0, 10);
-    return { startDate: today, endDate: today };
-  }
-  const [year, month] = normalized.split("-").map(Number);
-  const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
-  const endDate = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
-  return { startDate, endDate };
-}
-
-function buildInitialReportFilters(monthRef) {
-  return {
-    ...buildMonthDateRange(monthRef),
-    employeeId: "",
-    preset: "month"
-  };
-}
-
-function buildFilterState(monthRef, extras = {}) {
-  return {
-    ...buildInitialReportFilters(monthRef),
-    ...extras
-  };
-}
-
-function shiftDate(dateValue, offsetDays = 0) {
-  const date = new Date(`${dateValue}T00:00:00`);
-  date.setDate(date.getDate() + offsetDays);
-  return date.toISOString().slice(0, 10);
-}
-
-function applyReportPreset(preset, monthRef) {
-  const monthRange = buildMonthDateRange(monthRef);
-  const today = new Date().toISOString().slice(0, 10);
-  switch (preset) {
-    case "week":
-      return { startDate: shiftDate(today, -6), endDate: today };
-    case "year":
-      return { startDate: `${today.slice(0, 4)}-01-01`, endDate: `${today.slice(0, 4)}-12-31` };
-    case "all":
-      return { startDate: "1900-01-01", endDate: "2100-12-31" };
-    case "month":
-    default:
-      return monthRange;
-  }
-}
-
-function buildReportRequestFilters(reportFilters = {}, monthRef = "") {
-  const fallbackRange = buildMonthDateRange(monthRef);
-  let startDate = reportFilters.startDate || fallbackRange.startDate;
-  let endDate = reportFilters.endDate || fallbackRange.endDate;
-  if (startDate && endDate && startDate > endDate) {
-    [startDate, endDate] = [endDate, startDate];
-  }
-  const startMonthRef = String(startDate || "").slice(0, 7);
-  const endMonthRef = String(endDate || "").slice(0, 7);
-  return {
-    monthRef: startMonthRef && startMonthRef === endMonthRef ? startMonthRef : "",
-    startDate,
-    endDate,
-    employeeId: reportFilters.employeeId || ""
-  };
-}
-
-function matchesMonthRange(monthRef, filters) {
-  const normalized = String(monthRef || "").trim();
-  const startMonthRef = String(filters.startDate || "").slice(0, 7);
-  const endMonthRef = String(filters.endDate || "").slice(0, 7);
-  if (!startMonthRef || !endMonthRef) {
-    return normalized === filters.monthRef;
-  }
-  return normalized >= startMonthRef && normalized <= endMonthRef;
-}
-
-function matchesDateRange(dateValue, filters) {
-  const normalized = String(dateValue || "").slice(0, 10);
-  if (!filters.startDate || !filters.endDate) {
-    return true;
-  }
-  return normalized >= filters.startDate && normalized <= filters.endDate;
-}
 
 function buildAgtSubmissionForm(monthRef, submission = {}) {
   return {
@@ -219,7 +140,8 @@ export default function App() {
     amount: 0,
     validUntil: "",
     planName: "",
-    serialKey: ""
+    serialKey: "",
+    paymentInstructions: null
   });
   const [licenseCenterOpen, setLicenseCenterOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -1189,7 +1111,14 @@ export default function App() {
     }
 
     await refreshAuthState();
-    setLicensePaymentState({ reference: "", amount: 0, validUntil: "", planName: "", serialKey: "" });
+    setLicensePaymentState({
+      reference: "",
+      amount: 0,
+      validUntil: "",
+      planName: "",
+      serialKey: "",
+      paymentInstructions: null
+    });
     const restoredSession = await window.payrollAPI.restoreSession();
     if (restoredSession?.ok) {
       setUser(restoredSession.user);
@@ -1235,7 +1164,8 @@ export default function App() {
       amount: result.amount,
       validUntil: result.valid_until,
       planName: result.plan,
-      serialKey: result.serial_key || payload.serial_key || ""
+      serialKey: result.serial_key || payload.serial_key || "",
+      paymentInstructions: result.payment_instructions || null
     });
     setFeedback(`Referência ${result.reference} gerada com sucesso. Depois do pagamento, use "Verificar pagamento".`);
   }
@@ -1251,6 +1181,11 @@ export default function App() {
       setFeedback(contextualizeFeedback("Pagamento da licença", result?.message, "Não foi possível verificar o pagamento."));
       return;
     }
+
+    setLicensePaymentState((current) => ({
+      ...current,
+      paymentInstructions: result.payment_instructions || current.paymentInstructions || null
+    }));
 
     if (result.status !== "paid") {
       setFeedback(`Pagamento com referência ${result.reference} ainda está em estado ${result.status}.`);
@@ -1281,7 +1216,14 @@ export default function App() {
 
     await refreshLicenseState();
     await refreshAuthState();
-    setLicensePaymentState({ reference: "", amount: 0, validUntil: "", planName: "", serialKey: "" });
+    setLicensePaymentState({
+      reference: "",
+      amount: 0,
+      validUntil: "",
+      planName: "",
+      serialKey: "",
+      paymentInstructions: null
+    });
     setLicenseMode("activate");
     const restoredSession = await window.payrollAPI.restoreSession();
     if (restoredSession?.ok) {

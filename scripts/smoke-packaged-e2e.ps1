@@ -65,6 +65,7 @@ $originalEnv = @{
   KWANZA_SMOKE_E2E = [Environment]::GetEnvironmentVariable("KWANZA_SMOKE_E2E", "Process")
   KWANZA_SMOKE_OUTPUT_PATH = [Environment]::GetEnvironmentVariable("KWANZA_SMOKE_OUTPUT_PATH", "Process")
   KWANZA_DEV_LICENSE_MODE = [Environment]::GetEnvironmentVariable("KWANZA_DEV_LICENSE_MODE", "Process")
+  KWANZA_LOCAL_PACKAGED_DEV_MODE = [Environment]::GetEnvironmentVariable("KWANZA_LOCAL_PACKAGED_DEV_MODE", "Process")
   LOCALAPPDATA = [Environment]::GetEnvironmentVariable("LOCALAPPDATA", "Process")
   ProgramData = [Environment]::GetEnvironmentVariable("ProgramData", "Process")
 }
@@ -72,12 +73,13 @@ $originalEnv = @{
 [Environment]::SetEnvironmentVariable("KWANZA_SMOKE_E2E", "1", "Process")
 [Environment]::SetEnvironmentVariable("KWANZA_SMOKE_OUTPUT_PATH", $smokeResultPath, "Process")
 [Environment]::SetEnvironmentVariable("KWANZA_DEV_LICENSE_MODE", "", "Process")
+[Environment]::SetEnvironmentVariable("KWANZA_LOCAL_PACKAGED_DEV_MODE", $(if ($SkipSignatureCheck) { "1" } else { "" }), "Process")
 [Environment]::SetEnvironmentVariable("LOCALAPPDATA", $smokeLocalAppData, "Process")
 [Environment]::SetEnvironmentVariable("ProgramData", $smokeProgramDataRoot, "Process")
 
 $process = $null
 try {
-  $process = Start-Process -FilePath $appExe -WorkingDirectory (Split-Path $appExe -Parent) -PassThru
+  $process = Start-Process -FilePath $appExe -ArgumentList @("--smoke-e2e") -WorkingDirectory (Split-Path $appExe -Parent) -PassThru
   $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
 
   while ((Get-Date) -lt $deadline) {

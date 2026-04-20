@@ -10,6 +10,8 @@ dist-electron/
 .tmp-electron-boot/
 .tmp-secure-machine/
 .tmp-secure-user/
+.tmp_deploy_key
+.tmp_deploy_key.pub
 *.log
 *.err.log
 *.out.log
@@ -26,8 +28,12 @@ licensing-server/config/settings.json
 *.pem
 *.p12
 
+# Local deployment artifacts
+artifacts/
+dist.zip
+licensing-server.zip
+
 # OS/editor files
 .DS_Store
 Thumbs.db
 desktop.ini
-

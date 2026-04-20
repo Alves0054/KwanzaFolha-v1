@@ -114,7 +114,7 @@ Hoje o projeto já faz quase todo o ciclo.
 
 1. o cliente instala o aplicativo
 2. regista a empresa e o primeiro administrador
-3. começa um período gratuito de 7 dias
+3. começa um período gratuito de 15 dias
 4. durante esses 7 dias pode usar o sistema normalmente
 5. quando o teste termina, o app bloqueia
 6. o cliente compra ou ativa a licença

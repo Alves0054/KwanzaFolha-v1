@@ -393,6 +393,16 @@ foreach ($path in $paths) {
 
   verifyExecutableSignature(executablePath, expectedThumbprint = "", options = {}) {
     const isDevelopmentMode = Boolean(options?.developmentMode);
+    const normalizedAllowedThumbprints = Array.from(
+      new Set(
+        [
+          expectedThumbprint,
+          ...(Array.isArray(options?.allowedThumbprints) ? options.allowedThumbprints : [])
+        ]
+          .map((value) => safeString(value).toUpperCase())
+          .filter(Boolean)
+      )
+    );
     if (!executablePath || !fs.existsSync(executablePath)) {
       return isDevelopmentMode
         ? {
@@ -418,9 +428,22 @@ if ($signature.SignerCertificate) { $thumbprint = $signature.SignerCertificate.T
       const output = this.runPowerShell(script, { KWANZA_EXE_PATH: executablePath });
       const result = safeJsonParse(output, {});
       const normalizedThumbprint = safeString(result.thumbprint).toUpperCase();
-      const expected = safeString(expectedThumbprint).toUpperCase();
       const status = String(result.status || "").toLowerCase();
+      const matchesExpectedThumbprint = Boolean(
+        normalizedThumbprint &&
+        normalizedAllowedThumbprints.includes(normalizedThumbprint)
+      );
       if (status !== "valid") {
+        if (matchesExpectedThumbprint) {
+          return {
+            ok: true,
+            warning: true,
+            code: "untrusted_chain_with_expected_thumbprint",
+            message:
+              "Assinatura do executavel corresponde ao certificado esperado, mas a cadeia de confianca nao foi validada neste Windows.",
+            result
+          };
+        }
         if (isDevelopmentMode) {
           return {
             ok: true,
@@ -437,8 +460,13 @@ if ($signature.SignerCertificate) { $thumbprint = $signature.SignerCertificate.T
           result
         };
       }
-      if (expected && normalizedThumbprint !== expected) {
-        return { ok: false, code: "thumbprint_mismatch", message: "O thumbprint do executavel nao corresponde ao certificado esperado.", result };
+      if (normalizedAllowedThumbprints.length > 0 && !matchesExpectedThumbprint) {
+        return {
+          ok: false,
+          code: "thumbprint_mismatch",
+          message: "O thumbprint do executavel nao corresponde ao certificado esperado.",
+          result
+        };
       }
       return { ok: true, code: "valid", result };
     } catch (error) {

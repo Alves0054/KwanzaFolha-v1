@@ -3,10 +3,12 @@ Add-Type -AssemblyName System.Drawing
 $root = Split-Path -Parent $PSScriptRoot
 $buildDir = Join-Path $root "build"
 $srcAssetsDir = Join-Path $root "src\assets"
+$srcLogosDir = Join-Path $srcAssetsDir "logos"
 $sourceLogoPath = Join-Path $buildDir "logo.png"
 
 New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
 New-Item -ItemType Directory -Force -Path $srcAssetsDir | Out-Null
+New-Item -ItemType Directory -Force -Path $srcLogosDir | Out-Null
 
 if (-not (Test-Path $sourceLogoPath)) {
   throw "Nao encontrei o logo oficial em build\logo.png."
@@ -82,7 +84,7 @@ try {
   } finally {
     $logoGraphics.Dispose()
   }
-  Save-Png $logoBitmap (Join-Path $srcAssetsDir "brand-logo.png")
+  Save-Png $logoBitmap (Join-Path $srcLogosDir "logo-light.png")
   $logoBitmap.Dispose()
 
   $iconSize = 256
@@ -100,14 +102,15 @@ try {
     $iconGraphics.Dispose()
   }
 
-  Save-Png $iconBitmap (Join-Path $srcAssetsDir "brand-icon.png")
+  $logoIconPath = Join-Path $srcLogosDir "logo-icon.png"
+  Save-Png $iconBitmap $logoIconPath
   Save-Ico $iconBitmap (Join-Path $buildDir "icon.ico")
   $iconBitmap.Dispose()
 
   $installerIconPath = Join-Path $buildDir "installerIcon.ico"
   $uninstallerIconPath = Join-Path $buildDir "uninstallerIcon.ico"
-  Save-Ico ([System.Drawing.Bitmap]::FromFile((Join-Path $srcAssetsDir "brand-icon.png"))) $installerIconPath
-  Save-Ico ([System.Drawing.Bitmap]::FromFile((Join-Path $srcAssetsDir "brand-icon.png"))) $uninstallerIconPath
+  Save-Ico ([System.Drawing.Bitmap]::FromFile($logoIconPath)) $installerIconPath
+  Save-Ico ([System.Drawing.Bitmap]::FromFile($logoIconPath)) $uninstallerIconPath
 
   $headerWidth = 150
   $headerHeight = 57

@@ -136,7 +136,7 @@ class PdfService {
 
   async generateReport(payload = {}) {
     const filters = normalizeReportPayload(payload);
-    const { type, monthRef } = filters;
+    const { type } = filters;
     if ((type || "").toLowerCase() === "anual") {
       return this.generateAnnualExecutiveReport(filters);
     }
@@ -159,7 +159,8 @@ class PdfService {
 
     const normalizedType = String(type || "").toLowerCase();
     let rows;
-    let definitions;
+    let emptyMessage = "Não existem salários processados para gerar este relatório no período selecionado.";
+
     if (normalizedType === "faltas" || normalizedType === "presencas") {
       const attendanceData = this.database.buildAttendanceReportData(filters, normalizedType);
       rows = attendanceData.rows;
@@ -172,32 +173,6 @@ class PdfService {
               : "Não existem registos de presenças para gerar este relatório no período selecionado."
         };
       }
-      definitions = {
-        faltas: {
-          headers: ["Funcionário", "Departamento", "Data", "Estado", "Horas", "Observações"],
-          xPositions: [40, 220, 380, 470, 560, 620],
-          values: (row) => [
-            row.full_name,
-            row.department,
-            row.attendance_date,
-            row.status_label,
-            String(row.hours_worked.toFixed(2)),
-            this.fitText(row.notes || "-", font, 9, 150)
-          ]
-        },
-        presencas: {
-          headers: ["Funcionário", "Departamento", "Data", "Estado", "Horas", "Atraso"],
-          xPositions: [40, 220, 380, 470, 560, 650],
-          values: (row) => [
-            row.full_name,
-            row.department,
-            row.attendance_date,
-            row.status_label,
-            String(row.hours_worked.toFixed(2)),
-            `${row.delay_minutes.toFixed(0)} min`
-          ]
-        }
-      };
     }
 
     if (["turnos-trabalhador", "turnos-departamento", "mapa-docente"].includes(normalizedType)) {
@@ -206,52 +181,6 @@ class PdfService {
         return shiftData;
       }
 
-      definitions = {
-        "turnos-trabalhador": {
-          headers: ["Funcionário", "Departamento", "Turno", "Dias", "Pres.", "Atrasos", "Faltas", "Horas", "Pont."],
-          xPositions: [40, 180, 300, 470, 515, 560, 620, 680, 770],
-          values: (row) => [
-            this.fitText(row.full_name, font, 8.8, 132),
-            this.fitText(row.department, font, 8.8, 110),
-            this.fitText(row.shift_name, font, 8.8, 158),
-            String(row.planned_days || 0),
-            String(Number(row.present_days || 0) + Number(row.delay_days || 0)),
-            String(row.delay_days || 0),
-            String(Number(row.absent_days || 0) + Number(row.half_absence_days || 0)),
-            String(Number(row.hours_worked || 0).toFixed(2)),
-            `${Number(row.punctuality_rate || 0).toFixed(1)}%`
-          ]
-        },
-        "turnos-departamento": {
-          headers: ["Departamento", "Trab.", "Turnos", "Pres.", "Atrasos", "Faltas", "Lic./Fér.", "Horas", "Cobertura"],
-          xPositions: [40, 205, 255, 430, 485, 545, 600, 690, 770],
-          values: (row) => [
-            this.fitText(row.department, font, 8.8, 155),
-            String(row.employees_count || 0),
-            this.fitText(row.shifts_label, font, 8.8, 165),
-            String(Number(row.present_days || 0) + Number(row.delay_days || 0)),
-            String(row.delay_days || 0),
-            String(row.absent_days || 0),
-            `${Number(row.leave_days || 0) + Number(row.vacation_days || 0)}`,
-            String(Number(row.hours_worked || 0).toFixed(2)),
-            `${Number(row.coverage_rate || 0).toFixed(1)}%`
-          ]
-        },
-        "mapa-docente": {
-          headers: ["Docente", "Turno", "Blocos letivos", "Carga prev.", "Carga reg.", "Pres.", "Atrasos", "Faltas"],
-          xPositions: [40, 175, 300, 540, 620, 700, 742, 785],
-          values: (row) => [
-            this.fitText(row.full_name, font, 8.8, 125),
-            this.fitText(row.shift_name, font, 8.8, 115),
-            this.fitText(row.blocks_label, font, 8.8, 230),
-            String(Number(row.expected_hours || 0).toFixed(2)),
-            String(Number(row.hours_worked || 0).toFixed(2)),
-            String(row.present_days || 0),
-            String(row.delay_days || 0),
-            String(row.absent_days || 0)
-          ]
-        }
-      };
       rows =
         normalizedType === "turnos-trabalhador"
           ? shiftData.employeeRows
@@ -270,6 +199,12 @@ class PdfService {
                 : "Não existem turnos docentes ou registos letivos para gerar o mapa docente neste período."
         };
       }
+      emptyMessage =
+        normalizedType === "turnos-trabalhador"
+          ? "Não existem turnos atribuídos ou registos de assiduidade para gerar o mapa mensal de turnos neste período."
+          : normalizedType === "turnos-departamento"
+            ? "Não existem departamentos com turnos ou assiduidade registada para este período."
+            : "Não existem turnos docentes ou registos letivos para gerar o mapa docente neste período.";
     }
 
     const company = this.database.getCompanyProfile();
@@ -277,97 +212,85 @@ class PdfService {
       rows = this.database.listPayrollRuns(filters);
     }
     if (!rows.length) {
-      return { ok: false, message: "Não existem salários processados para gerar este relatório no período selecionado." };
+      return { ok: false, message: emptyMessage };
     }
+
+    const report = this.resolveReportDefinition(normalizedType);
+    const periodLabel = this.resolveReportPeriodLabel(filters);
     const doc = await PDFDocument.create();
     const font = await doc.embedFont(StandardFonts.Helvetica);
     const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-    let page = doc.addPage([842, 595]);
-    let y = await this.drawHeader({
+    const logo = await this.loadLogo(doc, company.logo_path);
+    let pageNumber = 1;
+    let pageContext = this.createTabularReportPage({
       doc,
-      page,
       company,
+      title: this.reportTitle(normalizedType || type),
+      sectionLabel: report.sectionLabel,
+      periodLabel,
+      rowsCount: rows.length,
+      report,
       font,
       bold,
-      title: this.reportTitle(type),
-      subtitle: filters.startDate || filters.endDate ? `Período ${filters.startDate || "?"} a ${filters.endDate || "?"}` : monthRef ? `Período ${monthRef}` : "Todos os períodos"
+      logo,
+      pageNumber
     });
+    let page = pageContext.page;
+    let y = pageContext.firstRowY;
 
-    if (!definitions) {
-      definitions = {
-        mensal: {
-          headers: ["Funcionário", "Mês", "Bruto", "Subsídios", "Bónus", "Líquido"],
-          xPositions: [40, 250, 340, 430, 540, 650],
-          values: (row) => [
-            row.full_name,
-            row.month_ref,
-            this.currency(row.gross_salary),
-            this.currency(row.allowances_total),
-            this.currency(row.bonuses_total),
-            this.currency(row.net_salary)
-          ]
-        },
-        descontos: {
-          headers: ["Funcionário", "Mês", "IRT", "INSS Func.", "Faltas/Lic.", "Outros Desc.", "Total"],
-          xPositions: [40, 220, 310, 400, 505, 620, 715],
-          values: (row) => [
-            row.full_name,
-            row.month_ref,
-            this.currency(row.irt_amount),
-            this.currency(row.inss_amount),
-            this.currency(row.absence_deduction),
-            this.currency(Number(row.summary_json?.penalties || 0) + Number(row.summary_json?.financialDeductions || 0)),
-            this.currency(
-              (row.irt_amount || 0) +
-              (row.inss_amount || 0) +
-              (row.absence_deduction || 0) +
-              Number(row.summary_json?.penalties || 0) +
-              Number(row.summary_json?.financialDeductions || 0)
-            )
-          ]
-        },
-        funcionario: {
-          headers: ["Funcionário", "Departamento", "Cargo", "Mês", "Líquido", "Custo Emp."],
-          xPositions: [40, 240, 390, 535, 625, 720],
-          values: (row) => [
-            row.full_name,
-            row.department,
-            row.job_title,
-            row.month_ref,
-            this.currency(row.net_salary),
-            this.currency(row.summary_json?.employerCost || row.gross_salary)
-          ]
-        }
-      };
-    }
-
-    const report = definitions[normalizedType] || definitions[type] || definitions.mensal;
-    ({ page, y } = this.drawTableHeader({ page, y, headers: report.headers, xPositions: report.xPositions, font: bold }));
-
+    let rowIndex = 0;
     for (const row of rows) {
-      if (y < 55) {
-        page = doc.addPage([842, 595]);
-        y = await this.drawHeader({
+      if (y < pageContext.bottomY) {
+        pageNumber += 1;
+        pageContext = this.createTabularReportPage({
           doc,
-          page,
           company,
+          title: this.reportTitle(normalizedType || type),
+          sectionLabel: `${report.sectionLabel} (continuação)`,
+          periodLabel,
+          rowsCount: rows.length,
+          report,
           font,
           bold,
-          title: `${this.reportTitle(type)} - continuacao`,
-          subtitle: filters.startDate || filters.endDate ? `Período ${filters.startDate || "?"} a ${filters.endDate || "?"}` : monthRef ? `Período ${monthRef}` : "Todos os períodos"
+          logo,
+          pageNumber
         });
-        ({ page, y } = this.drawTableHeader({ page, y, headers: report.headers, xPositions: report.xPositions, font: bold }));
+        page = pageContext.page;
+        y = pageContext.firstRowY;
       }
 
-      const values = report.values(row);
-      values.forEach((value, index) => {
-        page.drawText(String(value), { x: report.xPositions[index], y, font, size: 9, color: rgb(0, 0, 0) });
+      y = this.drawTabularReportRow({
+        page,
+        y,
+        row,
+        rowIndex,
+        columns: pageContext.columns,
+        rowHeight: report.rowHeight,
+        font
       });
-      y -= 18;
+      rowIndex += 1;
     }
 
-    y -= 16;
-    this.drawReportTotals({ page, y, type, rows, font, bold });
+    if (y < 144) {
+      pageNumber += 1;
+      pageContext = this.createTabularReportPage({
+        doc,
+        company,
+        title: this.reportTitle(normalizedType || type),
+        sectionLabel: "Resumo",
+        periodLabel,
+        rowsCount: rows.length,
+        report,
+        font,
+        bold,
+        logo,
+        pageNumber
+      });
+      page = pageContext.page;
+      y = pageContext.firstRowY - 8;
+    }
+
+    this.drawReportTotals({ page, y: y - 8, type: normalizedType, rows, font, bold });
 
     const fileName = `relatorio-${type}-${filters.monthRef || [filters.startDate, filters.endDate].filter(Boolean).join("_") || "geral"}.pdf`;
     const output = path.join(this.database.exportsDir, fileName);
@@ -1337,35 +1260,316 @@ class PdfService {
     }).format(numeric);
   }
 
-  async drawHeader({ doc, page, company, font, bold, title, subtitle }) {
+  createTabularReportPage({ doc, company, title, sectionLabel, periodLabel, rowsCount, report, font, bold, logo, pageNumber }) {
+    const page = doc.addPage(A4_LANDSCAPE);
+    this.drawStandardReportPage({
+      page,
+      company,
+      title,
+      section: sectionLabel || "Tabela",
+      font,
+      bold,
+      logo,
+      pageNumber
+    });
+
     const { width, height } = page.getSize();
-    page.drawRectangle({ x: 24, y: height - 86, width: width - 48, height: 54, color: rgb(0.02, 0.15, 0.1) });
+    const contentX = REPORT_MARGIN;
+    const contentWidth = width - REPORT_MARGIN * 2;
+    const metaTopY = height - 148;
 
-    const logo = await this.loadLogo(doc, company.logo_path);
-    const textX = logo ? 102 : 40;
-    if (logo) {
-      page.drawImage(logo.image, {
-        x: 40,
-        y: height - 78,
-        width: logo.width,
-        height: logo.height
-      });
-    }
+    page.drawRectangle({
+      x: contentX,
+      y: metaTopY - 36,
+      width: contentWidth,
+      height: 30,
+      color: REPORT_COLORS.mutedFill
+    });
+    page.drawText(report.tableTitle, {
+      x: contentX + 12,
+      y: metaTopY - 24,
+      font: bold,
+      size: 10.4,
+      color: REPORT_COLORS.title
+    });
+    page.drawText(`Período: ${periodLabel}`, {
+      x: contentX + 238,
+      y: metaTopY - 24,
+      font,
+      size: 9.6,
+      color: REPORT_COLORS.text
+    });
+    page.drawText(`Registos: ${rowsCount}`, {
+      x: width - REPORT_MARGIN - 180,
+      y: metaTopY - 24,
+      font,
+      size: 9.6,
+      color: REPORT_COLORS.text
+    });
+    page.drawText(`Emitido: ${this.formatDate(new Date().toISOString())}`, {
+      x: width - REPORT_MARGIN - 180,
+      y: metaTopY - 36,
+      font,
+      size: 8.8,
+      color: REPORT_COLORS.subtitle
+    });
 
-    page.drawText(company.name || "Kwanza Folha", { x: textX, y: height - 54, font: bold, size: 18, color: rgb(0.97, 0.99, 0.97) });
-    page.drawText(title, { x: textX, y: height - 71, font, size: 9, color: rgb(0.87, 0.96, 0.47) });
-    if (subtitle) {
-      page.drawText(subtitle, { x: textX, y: height - 82, font, size: 8, color: rgb(0.83, 0.92, 0.84) });
-    }
+    const columns = this.normalizeTabularColumns(report.columns || [], contentX + 8, contentWidth - 16);
+    const tableHeaderY = metaTopY - 62;
+    this.drawTabularReportHeader({ page, y: tableHeaderY, columns, font: bold });
 
-    return height - 118;
+    return {
+      page,
+      columns,
+      firstRowY: tableHeaderY - 22,
+      bottomY: 92
+    };
   }
 
-  drawTableHeader({ page, y, headers, xPositions, font }) {
-    headers.forEach((header, index) => {
-      page.drawText(header, { x: xPositions[index], y, font, size: 10, color: rgb(0, 0, 0) });
+  normalizeTabularColumns(columns, x, availableWidth) {
+    const safeColumns = Array.isArray(columns) && columns.length ? columns : [];
+    const rawTotalWidth = safeColumns.reduce((sum, column) => sum + Number(column.width || 0), 0);
+    const scale = rawTotalWidth > availableWidth && rawTotalWidth > 0 ? availableWidth / rawTotalWidth : 1;
+
+    let currentX = x;
+    return safeColumns.map((column, index) => {
+      const isLast = index === safeColumns.length - 1;
+      const scaledWidth = Math.max(44, Math.round(Number(column.width || 0) * scale));
+      const width = isLast ? Math.max(44, x + availableWidth - currentX) : scaledWidth;
+      const normalized = {
+        ...column,
+        x: currentX,
+        width
+      };
+      currentX += width;
+      return normalized;
     });
-    return { page, y: y - 18 };
+  }
+
+  drawTabularReportHeader({ page, y, columns, font }) {
+    const firstColumn = columns[0];
+    const lastColumn = columns[columns.length - 1];
+    if (!firstColumn || !lastColumn) {
+      return;
+    }
+
+    page.drawRectangle({
+      x: firstColumn.x,
+      y: y - 9,
+      width: lastColumn.x + lastColumn.width - firstColumn.x,
+      height: 22,
+      color: REPORT_COLORS.title
+    });
+
+    columns.forEach((column) => {
+      page.drawText(column.label, {
+        x: column.x + 4,
+        y: y - 1,
+        font,
+        size: 8.2,
+        color: rgb(1, 1, 1)
+      });
+    });
+  }
+
+  drawTabularReportRow({ page, y, row, rowIndex, columns, rowHeight, font }) {
+    const firstColumn = columns[0];
+    const lastColumn = columns[columns.length - 1];
+    if (!firstColumn || !lastColumn) {
+      return y;
+    }
+
+    page.drawRectangle({
+      x: firstColumn.x,
+      y: y - 4,
+      width: lastColumn.x + lastColumn.width - firstColumn.x,
+      height: rowHeight,
+      color: rowIndex % 2 === 0 ? REPORT_COLORS.altFill : rgb(1, 1, 1)
+    });
+
+    columns.forEach((column) => {
+      const rawValue = typeof column.getValue === "function" ? column.getValue(row) : row?.[column.key];
+      this.drawTabularReportCell({
+        page,
+        value: rawValue,
+        column,
+        y: y + 3,
+        font,
+        size: 8.6
+      });
+    });
+
+    return y - rowHeight;
+  }
+
+  drawTabularReportCell({ page, value, column, y, font, size }) {
+    const text = String(value ?? "-");
+    const maxWidth = Math.max(column.width - 8, 12);
+
+    if (column.align === "right") {
+      this.drawRightAlignedWithin(page, text, column.x + column.width - 4, y, font, size, maxWidth);
+      return;
+    }
+
+    if (column.align === "center") {
+      this.drawCenteredText(page, text, column.x + 4, y, column.width - 8, font, size, REPORT_COLORS.text);
+      return;
+    }
+
+    page.drawText(this.fitText(text, font, size, maxWidth), {
+      x: column.x + 4,
+      y,
+      font,
+      size,
+      color: REPORT_COLORS.text
+    });
+  }
+
+  resolveReportDefinition(type) {
+    const definitions = {
+      mensal: {
+        sectionLabel: "Tabela geral",
+        tableTitle: "Detalhe mensal de salários processados",
+        rowHeight: 20,
+        columns: [
+          { label: "Funcionário", width: 200, getValue: (row) => row.full_name || "-" },
+          { label: "Mês", width: 78, align: "center", getValue: (row) => row.month_ref || "-" },
+          { label: "Bruto", width: 98, align: "right", getValue: (row) => this.currency(row.gross_salary) },
+          { label: "Subsídios", width: 98, align: "right", getValue: (row) => this.currency(row.allowances_total) },
+          { label: "Bónus", width: 90, align: "right", getValue: (row) => this.currency(row.bonuses_total) },
+          { label: "Líquido", width: 98, align: "right", getValue: (row) => this.currency(row.net_salary) }
+        ]
+      },
+      descontos: {
+        sectionLabel: "Tabela de descontos",
+        tableTitle: "Resumo dos descontos por colaborador e período",
+        rowHeight: 20,
+        columns: [
+          { label: "Funcionário", width: 170, getValue: (row) => row.full_name || "-" },
+          { label: "Mês", width: 72, align: "center", getValue: (row) => row.month_ref || "-" },
+          { label: "IRT", width: 84, align: "right", getValue: (row) => this.currency(row.irt_amount) },
+          { label: "INSS Func.", width: 86, align: "right", getValue: (row) => this.currency(row.inss_amount) },
+          { label: "Faltas/Lic.", width: 98, align: "right", getValue: (row) => this.currency(row.absence_deduction) },
+          {
+            label: "Outros Desc.",
+            width: 96,
+            align: "right",
+            getValue: (row) => this.currency(Number(row.summary_json?.penalties || 0) + Number(row.summary_json?.financialDeductions || 0))
+          },
+          {
+            label: "Total",
+            width: 96,
+            align: "right",
+            getValue: (row) =>
+              this.currency(
+                Number(row.irt_amount || 0) +
+                Number(row.inss_amount || 0) +
+                Number(row.absence_deduction || 0) +
+                Number(row.summary_json?.penalties || 0) +
+                Number(row.summary_json?.financialDeductions || 0)
+              )
+          }
+        ]
+      },
+      funcionario: {
+        sectionLabel: "Tabela por funcionário",
+        tableTitle: "Comparativo por colaborador no período selecionado",
+        rowHeight: 20,
+        columns: [
+          { label: "Funcionário", width: 166, getValue: (row) => row.full_name || "-" },
+          { label: "Departamento", width: 128, getValue: (row) => row.department || "-" },
+          { label: "Cargo", width: 128, getValue: (row) => row.job_title || "-" },
+          { label: "Mês", width: 76, align: "center", getValue: (row) => row.month_ref || "-" },
+          { label: "Líquido", width: 100, align: "right", getValue: (row) => this.currency(row.net_salary) },
+          { label: "Custo Emp.", width: 106, align: "right", getValue: (row) => this.currency(row.summary_json?.employerCost || row.gross_salary) }
+        ]
+      },
+      faltas: {
+        sectionLabel: "Mapa de faltas",
+        tableTitle: "Registos de assiduidade marcados como falta",
+        rowHeight: 20,
+        columns: [
+          { label: "Funcionário", width: 150, getValue: (row) => row.full_name || "-" },
+          { label: "Departamento", width: 120, getValue: (row) => row.department || "-" },
+          { label: "Data", width: 90, align: "center", getValue: (row) => row.attendance_date || "-" },
+          { label: "Estado", width: 92, align: "center", getValue: (row) => row.status_label || "-" },
+          { label: "Horas", width: 72, align: "right", getValue: (row) => this.formatPlainNumber(row.hours_worked) },
+          { label: "Observações", width: 176, getValue: (row) => row.notes || "-" }
+        ]
+      },
+      presencas: {
+        sectionLabel: "Mapa de presenças",
+        tableTitle: "Registos de presença e atrasos no período",
+        rowHeight: 20,
+        columns: [
+          { label: "Funcionário", width: 152, getValue: (row) => row.full_name || "-" },
+          { label: "Departamento", width: 120, getValue: (row) => row.department || "-" },
+          { label: "Data", width: 92, align: "center", getValue: (row) => row.attendance_date || "-" },
+          { label: "Estado", width: 90, align: "center", getValue: (row) => row.status_label || "-" },
+          { label: "Horas", width: 72, align: "right", getValue: (row) => this.formatPlainNumber(row.hours_worked) },
+          { label: "Atraso", width: 106, align: "right", getValue: (row) => `${Number(row.delay_minutes || 0).toFixed(0)} min` }
+        ]
+      },
+      "turnos-trabalhador": {
+        sectionLabel: "Mapa de turnos",
+        tableTitle: "Consolidação por trabalhador e turno atribuído",
+        rowHeight: 20,
+        columns: [
+          { label: "Funcionário", width: 136, getValue: (row) => row.full_name || "-" },
+          { label: "Departamento", width: 98, getValue: (row) => row.department || "-" },
+          { label: "Turno", width: 128, getValue: (row) => row.shift_name || "-" },
+          { label: "Dias", width: 46, align: "right", getValue: (row) => String(row.planned_days || 0) },
+          { label: "Pres.", width: 52, align: "right", getValue: (row) => String(Number(row.present_days || 0) + Number(row.delay_days || 0)) },
+          { label: "Atrasos", width: 54, align: "right", getValue: (row) => String(row.delay_days || 0) },
+          { label: "Faltas", width: 54, align: "right", getValue: (row) => String(Number(row.absent_days || 0) + Number(row.half_absence_days || 0)) },
+          { label: "Horas", width: 58, align: "right", getValue: (row) => this.formatPlainNumber(row.hours_worked) },
+          { label: "Pont.", width: 62, align: "right", getValue: (row) => `${Number(row.punctuality_rate || 0).toFixed(1)}%` }
+        ]
+      },
+      "turnos-departamento": {
+        sectionLabel: "Mapa departamental",
+        tableTitle: "Consolidação de turnos por departamento",
+        rowHeight: 20,
+        columns: [
+          { label: "Departamento", width: 140, getValue: (row) => row.department || "-" },
+          { label: "Trab.", width: 50, align: "right", getValue: (row) => String(row.employees_count || 0) },
+          { label: "Turnos", width: 138, getValue: (row) => row.shifts_label || "-" },
+          { label: "Pres.", width: 54, align: "right", getValue: (row) => String(Number(row.present_days || 0) + Number(row.delay_days || 0)) },
+          { label: "Atrasos", width: 54, align: "right", getValue: (row) => String(row.delay_days || 0) },
+          { label: "Faltas", width: 54, align: "right", getValue: (row) => String(row.absent_days || 0) },
+          { label: "Lic./Fér.", width: 62, align: "right", getValue: (row) => String(Number(row.leave_days || 0) + Number(row.vacation_days || 0)) },
+          { label: "Horas", width: 56, align: "right", getValue: (row) => this.formatPlainNumber(row.hours_worked) },
+          { label: "Cobertura", width: 66, align: "right", getValue: (row) => `${Number(row.coverage_rate || 0).toFixed(1)}%` }
+        ]
+      },
+      "mapa-docente": {
+        sectionLabel: "Mapa docente",
+        tableTitle: "Consolidação mensal de turnos e carga letiva",
+        rowHeight: 20,
+        columns: [
+          { label: "Docente", width: 130, getValue: (row) => row.full_name || "-" },
+          { label: "Turno", width: 104, getValue: (row) => row.shift_name || "-" },
+          { label: "Blocos letivos", width: 158, getValue: (row) => row.blocks_label || "-" },
+          { label: "Carga prev.", width: 62, align: "right", getValue: (row) => this.formatPlainNumber(row.expected_hours) },
+          { label: "Carga reg.", width: 62, align: "right", getValue: (row) => this.formatPlainNumber(row.hours_worked) },
+          { label: "Pres.", width: 50, align: "right", getValue: (row) => String(row.present_days || 0) },
+          { label: "Atrasos", width: 52, align: "right", getValue: (row) => String(row.delay_days || 0) },
+          { label: "Faltas", width: 52, align: "right", getValue: (row) => String(row.absent_days || 0) }
+        ]
+      }
+    };
+
+    return definitions[String(type || "mensal").toLowerCase()] || definitions.mensal;
+  }
+
+  resolveReportPeriodLabel(filters) {
+    if (filters.startDate || filters.endDate) {
+      return `${filters.startDate || "?"} a ${filters.endDate || "?"}`;
+    }
+    if (filters.monthRef) {
+      return this.formatMonthYear(filters.monthRef);
+    }
+    return "Todos os períodos";
   }
 
   drawReportTotals({ page, y, type, rows, font, bold }) {
@@ -1411,11 +1615,33 @@ class PdfService {
     };
 
     const totals = totalsByType[type] || totalsByType.mensal;
-    page.drawLine({ start: { x: 40, y }, end: { x: 800, y }, thickness: 1, color: rgb(0.51, 0.72, 0.36) });
-    let currentY = y - 18;
-    totals.forEach((line) => {
-      page.drawText(line, { x: 40, y: currentY, font: bold, size: 10, color: rgb(0, 0, 0) });
-      currentY -= 14;
+    const { width } = page.getSize();
+    const topY = Math.max(y, 132);
+    page.drawText("Resumo do relatório", {
+      x: REPORT_MARGIN,
+      y: topY,
+      font: bold,
+      size: 12,
+      color: REPORT_COLORS.title
+    });
+
+    let currentY = topY - 22;
+    totals.forEach((line, index) => {
+      page.drawRectangle({
+        x: REPORT_MARGIN,
+        y: currentY - 6,
+        width: width - REPORT_MARGIN * 2,
+        height: 22,
+        color: index % 2 === 0 ? REPORT_COLORS.altFill : rgb(1, 1, 1)
+      });
+      page.drawText(line, {
+        x: REPORT_MARGIN + 12,
+        y: currentY,
+        font: bold,
+        size: 10,
+        color: REPORT_COLORS.text
+      });
+      currentY -= 24;
     });
   }
 
@@ -1811,7 +2037,7 @@ class PdfService {
       color: REPORT_COLORS.line
     });
 
-    page.drawText(`${company.name || "Empresa"}  |  Documento Confidencial â€” Uso Interno`, {
+    page.drawText(`${company.name || "Empresa"}  |  Documento Confidencial - Uso Interno`, {
       x: REPORT_MARGIN,
       y: 26,
       font,
