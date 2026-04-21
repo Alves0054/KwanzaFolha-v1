@@ -61,10 +61,19 @@ function Resolve-CertificatePassword {
 }
 
 function Resolve-CertificateThumbprint {
-  param([string]$CertPath)
+  param(
+    [string]$CertPath,
+    [string]$CertPassword
+  )
 
   try {
-    $cert = Get-PfxCertificate -FilePath $CertPath -ErrorAction Stop
+    if ($CertPassword) {
+      $securePassword = ConvertTo-SecureString $CertPassword -AsPlainText -Force
+      $pfxData = Get-PfxData -FilePath $CertPath -Password $securePassword -ErrorAction Stop
+      $cert = $pfxData.EndEntityCertificates | Select-Object -First 1
+    } else {
+      $cert = Get-PfxCertificate -FilePath $CertPath -ErrorAction Stop
+    }
     if ($cert -and $cert.Thumbprint) {
       return ($cert.Thumbprint -replace "\s", "").ToUpperInvariant()
     }
@@ -263,7 +272,9 @@ $root = Split-Path -Parent $PSScriptRoot
 $outputDir = Join-Path $root "dist-electron"
 $certificate = Resolve-CertificatePath -PreferredPath $CertificatePath
 $resolvedPassword = Resolve-CertificatePassword -PreferredPassword $CertificatePassword
-$certificateThumbprint = Resolve-CertificateThumbprint -CertPath $certificate.Path
+$certificateThumbprint = Resolve-CertificateThumbprint `
+  -CertPath $certificate.Path `
+  -CertPassword $resolvedPassword
 $timestampServers = Resolve-TimestampServers -PrimaryServer $TimestampServer
 
 Set-Location $root
