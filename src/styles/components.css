@@ -381,6 +381,16 @@ button.danger:not(.link-btn):hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.06);
 }
 
+.auth-highlight__content {
+  display: grid;
+  gap: 4px;
+}
+
+.auth-highlight__content strong,
+.auth-highlight__content small {
+  display: block;
+}
+
 .auth-highlight__icon {
   width: 36px;
   height: 36px;
@@ -447,6 +457,21 @@ button.danger:not(.link-btn):hover:not(:disabled) {
 
 .license-plan-card--single {
   margin-bottom: 16px;
+}
+
+.license-plan-card__headline {
+  display: grid;
+  gap: 4px;
+}
+
+.license-plan-card__headline strong,
+.license-plan-card__headline span,
+.license-plan-card__meta {
+  display: block;
+}
+
+.license-plan-card__meta {
+  margin-top: 4px;
 }
 
 .license-plan-features {

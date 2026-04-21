@@ -39,6 +39,7 @@ export default function LicenseScreen({
   const isExpired = licenseState?.status === "expired";
   const isTrialExpired = licenseState?.status === "trial_expired";
   const plan = plans?.[0] || FALLBACK_PLAN;
+
   const title = isDeveloperActive
     ? "LICENÇA TÉCNICA DE DESENVOLVIMENTO"
     : isExpired
@@ -46,6 +47,7 @@ export default function LicenseScreen({
       : isTrialExpired
         ? "PERÍODO GRATUITO TERMINADO"
         : "ATIVAR LICENÇA";
+
   const description = isDeveloperActive
     ? "Esta instalação local está em modo técnico de desenvolvimento para permitir edição, testes e manutenção do sistema sem bloqueio comercial."
     : isExpired
@@ -53,6 +55,7 @@ export default function LicenseScreen({
       : isTrialExpired
         ? "Os 30 dias gratuitos já terminaram. Para continuar, renove ou compre a licença KwanzaFolha Mensal."
         : "Ative a sua licença ou conclua a compra da assinatura mensal para continuar a usar o Kwanza Folha.";
+
   const returnMode = isExpired ? "renew" : "purchase";
   const paymentInstructions = paymentState?.paymentInstructions || {};
   const hasPaymentInstructions = Boolean(
@@ -65,10 +68,15 @@ export default function LicenseScreen({
       paymentInstructions.supportPhone ||
       paymentInstructions.notes
   );
+
   const shellClassName = embedded ? "license-overlay-shell" : "auth-shell auth-shell--license-gate";
   const noteText = embedded
     ? "Pode fechar esta janela e voltar às Configurações. A licença atual do sistema mantém-se até nova ativação ou renovação."
     : "Fechar este aviso termina o aplicativo. Sem uma licença válida, o Kwanza Folha continuará bloqueado ao voltar a abrir.";
+
+  const normalizedLicenseMessage = String(licenseState?.message || "").trim().toLowerCase();
+  const normalizedFeedback = String(feedback || "").trim().toLowerCase();
+  const showStandaloneFeedback = Boolean(normalizedFeedback && normalizedFeedback !== normalizedLicenseMessage);
 
   return (
     <div className={shellClassName}>
@@ -109,7 +117,7 @@ export default function LicenseScreen({
                 <span className="auth-highlight__icon">
                   <AppIcon name="reports" size={18} />
                 </span>
-                <div>
+                <div className="auth-highlight__content">
                   <strong>{plan.name}</strong>
                   <small>{formatKz(plan.price)} por mês, com acesso completo ao sistema.</small>
                 </div>
@@ -119,7 +127,7 @@ export default function LicenseScreen({
                 <span className="auth-highlight__icon">
                   <AppIcon name="audit" size={18} />
                 </span>
-                <div>
+                <div className="auth-highlight__content">
                   <strong>Funcionamento offline</strong>
                   <small>Depois da ativação, o aplicativo continua a funcionar offline até à data de expiração.</small>
                 </div>
@@ -129,7 +137,7 @@ export default function LicenseScreen({
                 <span className="auth-highlight__icon">
                   <AppIcon name="settings" size={18} />
                 </span>
-                <div>
+                <div className="auth-highlight__content">
                   <strong>Proteção por dispositivo</strong>
                   <small>A licença fica associada ao equipamento ativado e bloqueia reutilização indevida.</small>
                 </div>
@@ -140,7 +148,7 @@ export default function LicenseScreen({
                   <span className="auth-highlight__icon">
                     <AppIcon name="shield" size={18} />
                   </span>
-                  <div>
+                  <div className="auth-highlight__content">
                     <strong>Modo técnico local</strong>
                     <small>Licença temporária de desenvolvimento ativa para esta instalação de trabalho.</small>
                   </div>
@@ -229,9 +237,11 @@ export default function LicenseScreen({
                 </div>
 
                 <div className="license-plan-card license-plan-card--active license-plan-card--single">
-                  <strong>{plan.name}</strong>
-                  <span>{formatKz(plan.price)} por mês</span>
-                  <small>Validade de {plan.periodDays} dias com renovação mensal.</small>
+                  <div className="license-plan-card__headline">
+                    <strong>{plan.name}</strong>
+                    <span>{formatKz(plan.price)} por mês</span>
+                  </div>
+                  <small className="license-plan-card__meta">Validade de {plan.periodDays} dias com renovação mensal.</small>
                   <ul className="license-plan-features">
                     {(plan.features || FALLBACK_PLAN.features).map((feature) => (
                       <li key={feature}>{feature}</li>
@@ -347,7 +357,7 @@ export default function LicenseScreen({
 
             <div className="auth-note">{noteText}</div>
 
-            {feedback && (
+            {showStandaloneFeedback && (
               <div className={`feedback ${isExpired || isTrialExpired ? "feedback--warning" : "feedback--info"}`}>
                 {feedback}
               </div>
