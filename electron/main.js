@@ -805,6 +805,55 @@ function resolveStartupFailureMessage(error) {
   return "Erro de integridade da instalacao. Contacte o suporte para reativacao.";
 }
 
+function isRecoverableDatabaseStartupError(error) {
+  const rawMessage = String(error?.message || "").toLowerCase();
+  return (
+    rawMessage.includes("file is not a database") ||
+    rawMessage.includes("database disk image is malformed") ||
+    rawMessage.includes("failed to decrypt database") ||
+    rawMessage.includes("unsupported state or unable to authenticate data")
+  );
+}
+
+function quarantineRuntimeDatabaseForStartupRetry(userDataPath) {
+  const runtimeDbPath = path.join(userDataPath, "kwanza-folha.runtime.sqlite");
+  if (!fs.existsSync(runtimeDbPath)) {
+    return null;
+  }
+
+  const diagnosticsDir = path.join(userDataPath, "Diagnostico", "StartupRecovery");
+  fs.mkdirSync(diagnosticsDir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const quarantinedMainPath = path.join(diagnosticsDir, `kwanza-folha.runtime.${stamp}.sqlite`);
+
+  try {
+    fs.copyFileSync(runtimeDbPath, quarantinedMainPath);
+    if (fs.existsSync(`${runtimeDbPath}-wal`)) {
+      fs.copyFileSync(`${runtimeDbPath}-wal`, `${quarantinedMainPath}-wal`);
+    }
+    if (fs.existsSync(`${runtimeDbPath}-shm`)) {
+      fs.copyFileSync(`${runtimeDbPath}-shm`, `${quarantinedMainPath}-shm`);
+    }
+  } catch (copyError) {
+    log.warn("[BOOT][RECOVERY] nao foi possivel copiar runtime DB para diagnostico", {
+      error: String(copyError?.message || copyError)
+    });
+  }
+
+  safeUnlink(runtimeDbPath);
+  safeUnlink(`${runtimeDbPath}-wal`);
+  safeUnlink(`${runtimeDbPath}-shm`);
+  return quarantinedMainPath;
+}
+
+function safeUnlink(targetPath) {
+  try {
+    if (targetPath && fs.existsSync(targetPath)) {
+      fs.unlinkSync(targetPath);
+    }
+  } catch {}
+}
+
 function registerIpc() {
   ipcMain.removeHandler("app:get-version");
   ipcMain.removeHandler("license:get-status");
@@ -1827,23 +1876,50 @@ app.whenReady().then(() => {
       message: startupIntegrityState.message || "Falha de integridade no arranque."
     });
   } else {
-    try {
+    const initializeServices = () => {
       log.info("[BOOT] initializing application services");
       services = createAppServices({ userDataPath, documentsPath, programDataPath, secureStorage, installationIdentity });
       log.info("[BOOT] application services ready");
-      log.info("[BOOT] initializing database backup");
-      services.database.performAutomaticBackup();
-      log.info("[BOOT] database backup initialization finished");
       log.info("[BOOT] registering ipc");
       registerIpc();
       log.info("[BOOT] ipc registered");
+      try {
+        log.info("[BOOT] initializing database backup");
+        services.database.performAutomaticBackup();
+        log.info("[BOOT] database backup initialization finished");
+      } catch (backupError) {
+        log.error("[BOOT][WARN] falha no backup automatico, app segue operacional", backupError);
+      }
+    };
+
+    try {
+      initializeServices();
     } catch (error) {
-      setStartupIntegrityIssue(
-        "services-init",
-        resolveStartupFailureMessage(error),
-        { error: String(error?.stack || error?.message || error) }
-      );
-      log.error("Falha ao inicializar os servicos da aplicacao", error);
+      if (isRecoverableDatabaseStartupError(error)) {
+        log.warn("[BOOT][RECOVERY] recoverable startup DB error detected, retrying with fresh runtime DB", {
+          message: String(error?.message || error)
+        });
+        try {
+          const quarantinedPath = quarantineRuntimeDatabaseForStartupRetry(userDataPath);
+          log.warn("[BOOT][RECOVERY] runtime DB quarantined for retry", { quarantinedPath });
+          initializeServices();
+          log.info("[BOOT][RECOVERY] services initialized after runtime DB retry");
+        } catch (retryError) {
+          setStartupIntegrityIssue(
+            "services-init",
+            resolveStartupFailureMessage(retryError),
+            { error: String(retryError?.stack || retryError?.message || retryError) }
+          );
+          log.error("Falha ao inicializar os servicos da aplicacao apos tentativa de recuperacao", retryError);
+        }
+      } else {
+        setStartupIntegrityIssue(
+          "services-init",
+          resolveStartupFailureMessage(error),
+          { error: String(error?.stack || error?.message || error) }
+        );
+        log.error("Falha ao inicializar os servicos da aplicacao", error);
+      }
     }
   }
   log.info("[BOOT] creating window");

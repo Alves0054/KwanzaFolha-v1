@@ -10,7 +10,7 @@ const nodemailer = require("nodemailer");
 const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
 const { LICENSE_PLANS, DEFAULT_LICENSE_PLAN } = require("../shared/license-plans");
 
-const DEFAULT_TRIAL_DAYS = 15;
+const DEFAULT_TRIAL_DAYS = 30;
 
 function nowIso() {
   return new Date().toISOString();
