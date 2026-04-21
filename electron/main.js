@@ -794,6 +794,10 @@ function resolveStartupFailureMessage(error) {
     return "A base de dados local estava invalida e o sistema tentou recuperar automaticamente. Reinicie a aplicacao e valide os dados recentes.";
   }
 
+  if (/cannot open|unable to open|readonly database|disk i\/o error|sqlcipher|sqlite/i.test(rawMessage)) {
+    return "Nao foi possivel abrir a base de dados local. O sistema tentou recuperacao automatica; reinicie e valide os dados recentes.";
+  }
+
   if (/license|licenca|licensing/i.test(rawMessage)) {
     return "Nao foi possivel inicializar o servico de licenciamento. O sistema abriu em modo restrito para evitar falhas totais.";
   }
@@ -812,6 +816,18 @@ function isRecoverableDatabaseStartupError(error) {
     rawMessage.includes("database disk image is malformed") ||
     rawMessage.includes("failed to decrypt database") ||
     rawMessage.includes("unsupported state or unable to authenticate data")
+  );
+}
+
+function isDatabaseStartupError(error) {
+  const rawMessage = String(error?.message || "").toLowerCase();
+  return (
+    isRecoverableDatabaseStartupError(error) ||
+    rawMessage.includes("sqlite") ||
+    rawMessage.includes("database") ||
+    rawMessage.includes("sqlcipher") ||
+    rawMessage.includes("cannot open") ||
+    rawMessage.includes("unable to open")
   );
 }
 
@@ -844,6 +860,52 @@ function quarantineRuntimeDatabaseForStartupRetry(userDataPath) {
   safeUnlink(`${runtimeDbPath}-wal`);
   safeUnlink(`${runtimeDbPath}-shm`);
   return quarantinedMainPath;
+}
+
+function quarantineDatabaseArtifactsForStartupRetry(userDataPath, programDataPath) {
+  const diagnosticsDir = path.join(userDataPath, "Diagnostico", "StartupRecovery");
+  fs.mkdirSync(diagnosticsDir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const snapshotRoot = path.join(diagnosticsDir, `full-db-reset-${stamp}`);
+  fs.mkdirSync(snapshotRoot, { recursive: true });
+
+  const protectedDataRoot = path.join(programDataPath || "C:\\ProgramData\\Kwanza Folha", "LocalState");
+  const candidates = [
+    path.join(userDataPath, "kwanza-folha.runtime.sqlite"),
+    path.join(userDataPath, "kwanza-folha.runtime.sqlite-wal"),
+    path.join(userDataPath, "kwanza-folha.runtime.sqlite-shm"),
+    path.join(userDataPath, "kwanza-folha.sqlite"),
+    path.join(userDataPath, "kwanza-folha.sqlite.enc"),
+    path.join(protectedDataRoot, "kwanza-folha.sqlite"),
+    path.join(protectedDataRoot, "kwanza-folha.sqlite.enc"),
+    path.join(protectedDataRoot, "kwanza-folha.sqlite-wal"),
+    path.join(protectedDataRoot, "kwanza-folha.sqlite-shm")
+  ];
+
+  const quarantined = [];
+  for (const sourcePath of candidates) {
+    if (!sourcePath || !fs.existsSync(sourcePath)) {
+      continue;
+    }
+
+    const targetPath = path.join(snapshotRoot, path.basename(sourcePath));
+    try {
+      fs.copyFileSync(sourcePath, targetPath);
+      quarantined.push(targetPath);
+    } catch (copyError) {
+      log.warn("[BOOT][RECOVERY] nao foi possivel copiar artefacto DB para diagnostico", {
+        sourcePath,
+        error: String(copyError?.message || copyError)
+      });
+    }
+
+    safeUnlink(sourcePath);
+  }
+
+  return {
+    snapshotRoot,
+    quarantinedCount: quarantined.length
+  };
 }
 
 function safeUnlink(targetPath) {
@@ -1896,8 +1958,8 @@ app.whenReady().then(() => {
     try {
       initializeServices();
     } catch (error) {
-      if (isRecoverableDatabaseStartupError(error)) {
-        log.warn("[BOOT][RECOVERY] recoverable startup DB error detected, retrying with fresh runtime DB", {
+      if (isDatabaseStartupError(error)) {
+        log.warn("[BOOT][RECOVERY] database startup error detected, retrying with runtime DB quarantine", {
           message: String(error?.message || error)
         });
         try {
@@ -1906,12 +1968,31 @@ app.whenReady().then(() => {
           initializeServices();
           log.info("[BOOT][RECOVERY] services initialized after runtime DB retry");
         } catch (retryError) {
-          setStartupIntegrityIssue(
-            "services-init",
-            resolveStartupFailureMessage(retryError),
-            { error: String(retryError?.stack || retryError?.message || retryError) }
-          );
-          log.error("Falha ao inicializar os servicos da aplicacao apos tentativa de recuperacao", retryError);
+          if (isDatabaseStartupError(retryError)) {
+            log.warn("[BOOT][RECOVERY] runtime retry failed, performing full DB artifact quarantine", {
+              message: String(retryError?.message || retryError)
+            });
+            try {
+              const recoverySnapshot = quarantineDatabaseArtifactsForStartupRetry(userDataPath, programDataPath);
+              log.warn("[BOOT][RECOVERY] full DB quarantine executed", recoverySnapshot);
+              initializeServices();
+              log.info("[BOOT][RECOVERY] services initialized after full DB quarantine");
+            } catch (finalRetryError) {
+              setStartupIntegrityIssue(
+                "services-init",
+                resolveStartupFailureMessage(finalRetryError),
+                { error: String(finalRetryError?.stack || finalRetryError?.message || finalRetryError) }
+              );
+              log.error("Falha ao inicializar os servicos da aplicacao apos recuperacao completa de DB", finalRetryError);
+            }
+          } else {
+            setStartupIntegrityIssue(
+              "services-init",
+              resolveStartupFailureMessage(retryError),
+              { error: String(retryError?.stack || retryError?.message || retryError) }
+            );
+            log.error("Falha ao inicializar os servicos da aplicacao apos tentativa de recuperacao", retryError);
+          }
         }
       } else {
         setStartupIntegrityIssue(
