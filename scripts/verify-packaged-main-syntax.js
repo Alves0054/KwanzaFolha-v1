@@ -1,6 +1,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const vm = require("vm");
 const { spawnSync } = require("child_process");
 
 function parseArgs(argv) {
@@ -54,9 +55,21 @@ function main() {
 
   try {
     fs.writeFileSync(tempFile, extractedContent, "utf8");
-    const checkResult = spawnSync(process.execPath, ["--check", tempFile], {
-      encoding: "utf8"
-    });
+    const checkResult = runNodeSyntaxCheck(tempFile, extractedContent.toString("utf8"));
+
+    if (checkResult.error) {
+      throw new Error(
+        `Falha ao executar validacao de sintaxe de '${entryPath}' no app.asar: ${
+          checkResult.error.message || checkResult.error
+        }`
+      );
+    }
+
+    if (typeof checkResult.status !== "number") {
+      throw new Error(
+        `Falha ao validar sintaxe de '${entryPath}' no app.asar: status de processo invalido.`
+      );
+    }
 
     if (checkResult.status !== 0) {
       const details = [checkResult.stdout, checkResult.stderr].filter(Boolean).join("\n").trim();
@@ -79,6 +92,50 @@ function main() {
       fs.rmSync(tempDir, { recursive: true, force: true });
     } catch {}
   }
+}
+
+function runNodeSyntaxCheck(tempFile, sourceCode) {
+  const candidates = [process.execPath, process.argv0, "node"].filter(Boolean);
+  let lastResult = null;
+
+  for (const candidate of candidates) {
+    const result = spawnSync(candidate, ["--check", tempFile], {
+      encoding: "utf8"
+    });
+    lastResult = result;
+
+    if (!result.error) {
+      return result;
+    }
+
+    const message = String(result.error.message || "");
+    const code = result.error.code;
+    const isRecoverableSpawnIssue = code === "EPERM" || code === "ENOENT" || message.includes("spawnSync");
+    if (!isRecoverableSpawnIssue) {
+      return result;
+    }
+  }
+
+  if (lastResult && lastResult.error) {
+    try {
+      new vm.Script(sourceCode, { filename: tempFile });
+      return {
+        status: 0,
+        stdout: "",
+        stderr: "",
+        signal: null
+      };
+    } catch (parseError) {
+      return {
+        status: 1,
+        stdout: "",
+        stderr: String(parseError && parseError.stack ? parseError.stack : parseError),
+        signal: null
+      };
+    }
+  }
+
+  return lastResult || { error: new Error("Nao foi possivel executar o runtime Node para validacao.") };
 }
 
 if (require.main === module) {

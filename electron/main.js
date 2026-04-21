@@ -1746,10 +1746,11 @@ app.whenReady().then(() => {
   registerStartupIpcFallbacks();
   cleanupLegacyData();
   const userDataPath = app.getPath("userData");
-  const documentsPath = app.getPath("documents");
+  const isSmokeE2E = process.env.KWANZA_SMOKE_E2E === "1";
+  const documentsPath = isSmokeE2E ? userDataPath : app.getPath("documents");
   const programDataPath = path.join(process.env.ProgramData || "C:\\ProgramData", "Kwanza Folha");
   const cachePath = app.getPath("cache");
-  log.info("[BOOT] resolved paths", { userDataPath, documentsPath, programDataPath });
+  log.info("[BOOT] resolved paths", { userDataPath, documentsPath, programDataPath, isSmokeE2E });
   fs.mkdirSync(userDataPath, { recursive: true });
   fs.mkdirSync(programDataPath, { recursive: true });
   ensureDir(app.getPath("sessionData"));
