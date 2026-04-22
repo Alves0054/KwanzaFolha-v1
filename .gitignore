@@ -20,6 +20,7 @@ dist-electron/
 *.sqlite
 *.sqlite.enc
 *.db
+licensing-server/
 licensing-server/storage/
 
 # Secrets and local config
@@ -32,6 +33,11 @@ licensing-server/config/settings.json
 artifacts/
 dist.zip
 licensing-server.zip
+Kwanza Folha.zip
+*.local.json
+.env
+.env.*
+logs/
 
 # OS/editor files
 .DS_Store

@@ -15,12 +15,12 @@
     "native:rebuild:electron": "npm rebuild better-sqlite3-multiple-ciphers better-sqlite3 --runtime=electron --target=35.7.5 --dist-url=https://electronjs.org/headers",
     "prebuild": "npm run native:rebuild:electron && powershell -ExecutionPolicy Bypass -File scripts\\sync-folha-icon.ps1",
     "prebuild:installer": "npm run native:rebuild:electron && powershell -ExecutionPolicy Bypass -File scripts\\sync-folha-icon.ps1",
-    "license:server": "node licensing-server/server.js",
-    "license:rotate-keys": "node scripts\\rotate-license-keys.js",
     "brand:generate": "powershell -ExecutionPolicy Bypass -File scripts\\generate-brand-assets.ps1",
     "build:signed": "powershell -ExecutionPolicy Bypass -File scripts\\build-signed.ps1 -Target all",
     "build:signed:installer": "powershell -ExecutionPolicy Bypass -File scripts\\build-signed.ps1 -Target installer",
     "release:artifacts": "node scripts\\release-artifacts.js --channel stable --target all",
+    "release:validate": "node scripts\\validate-release-readiness.js --phase preflight",
+    "release:validate:packaged": "node scripts\\validate-release-readiness.js --phase packaged --distDir dist-electron",
     "release:prepare": "powershell -ExecutionPolicy Bypass -File scripts\\prepare-release.ps1 -Channel stable -Target all",
     "release:prepare:beta": "powershell -ExecutionPolicy Bypass -File scripts\\prepare-release.ps1 -Channel beta -Target all",
     "clean:workspace": "powershell -ExecutionPolicy Bypass -File scripts\\clean-workspace.ps1",
@@ -34,6 +34,10 @@
     "build": "npm run integrity:generate && vite build && electron-builder",
     "build:installer": "npm run integrity:generate && vite build && electron-builder --win nsis",
     "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Alves0054/KwanzaFolha-v1.git"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

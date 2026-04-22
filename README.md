@@ -1,267 +1,112 @@
 # Kwanza Folha
 
-O **Kwanza Folha** é um aplicativo desktop de gestão de folha salarial, assiduidade e documentação laboral, desenvolvido para empresas em Angola que precisam de um sistema local, estável e profissional para processar salários, emitir documentos e controlar operações de RH.
-
-O sistema foi concebido para funcionar em ambiente Windows, com base de dados local em SQLite, interface moderna em React e motor desktop em Electron. O foco principal é dar à empresa controlo operacional, reduzir erros manuais e transformar o processamento salarial num fluxo claro, auditável e pronto para uso empresarial.
-
-O Kwanza Folha foi criado por **Adérito Alves** e pela empresa **Alves Estúdio**.
-
-## Para quem o Kwanza Folha foi criado
-
-O Kwanza Folha é indicado para:
-
-- departamentos de Recursos Humanos
-- áreas financeiras e administrativas
-- pequenas, médias e grandes empresas
-- escolas, centros de formação e instituições com corpo docente
-- organizações que precisam de processar salários localmente, sem depender de um servidor externo para a operação principal
-
-## O que o sistema faz
-
-O Kwanza Folha cobre o ciclo completo da operação salarial e de RH da empresa.
-
-### Gestão base da empresa
-
-- configuração institucional da empresa
-- logótipo, NIF, contactos e morada
-- banco e conta de origem para exportações bancárias oficiais
-- gestão de utilizadores e perfis de acesso
-- autenticação local
-- recuperação de acesso por e-mail
-
-### Cadastro completo do trabalhador
-
-- ficha pessoal do trabalhador
-- documento principal com suporte para BI, passaporte ou cartão de estrangeiro
-- número da Segurança Social
-- contactos, morada, nacionalidade, género e estado civil
-- dados laborais
-- dados bancários
-- número opcional da carta de condução
-
-### Processamento salarial
-
-- processamento mensal da folha
-- cálculo automático de IRT
-- cálculo automático de Segurança Social
-- cálculo de faltas, licenças, horas extra, subsídios e bónus
-- tratamento de empréstimos e adiantamentos
-- fecho e reabertura de períodos
-- bloqueios para impedir alterações indevidas em períodos fechados
-
-### Base fiscal aplicada
-
-- vigência fiscal padrão a partir de **2020-09**
-- base legal do IRT: **Lei n.º 18/14** com alteração pela **Lei n.º 28/20**
-- cálculo de INSS com **3% trabalhador** e **8% entidade empregadora**
-- sem dependência de regras fiscais legadas anteriores ao regime atualmente em vigor
-
-### Assiduidade, férias e ausências
-
-- registo diário de assiduidade
-- estados de presença, atraso, falta, meia falta, licença e férias
-- importação de assiduidade por ficheiro vindo de biométrico ou leitor de cartão
-- sincronização automática por pasta monitorizada
-- histórico técnico de importações
-- licenças laborais e justificação de ausência
-- plano de férias e controlo de saldo anual
-- turnos de trabalho e turnos ajustados ao corpo docente
-
-### Relatórios e documentos
-
-- recibo salarial em PDF
-- recibos em lote
-- relatório mensal de salários
-- relatório anual de salários
-- relatório por funcionário
-- relatório de descontos
-- relatório anual do IRT
-- relatório anual da Segurança Social
-- relatório de faltas
-- relatório de presenças
-- mapa mensal de turnos por trabalhador
-- mapa mensal de turnos por departamento
-- mapa docente
-- pacote mensal consolidado com os principais documentos do período
-
-### Exportações e operação externa
-
-- exportação Excel
-- exportação bancária em CSV
-- exportação bancária oficial PS2
-- exportação bancária oficial PSX
-- separação entre banco de origem da empresa e bancos dos funcionários
-- deteção automática do banco do funcionário por IBAN, quando o código bancário é reconhecido
-
-### Segurança, controlo e continuidade
-
-- auditoria de ações
-- histórico com antes e depois
-- backups
-- restauro de backups
-- atualizações automáticas por GitHub Releases
-- licenciamento com teste grátis, ativação e renovação
-
-## Licenciamento e uso comercial
-
-O Kwanza Folha já está preparado para funcionar como software pago por assinatura.
-
-### Fluxo atual de uso
-
-1. A empresa regista-se no aplicativo.
-2. O sistema ativa um período gratuito de **7 dias**.
-3. Durante esse período, o utilizador pode usar o sistema normalmente.
-4. Quando o período gratuito termina, o aplicativo fica bloqueado até a licença ser ativada ou comprada.
-5. A compra e a renovação da licença podem ser iniciadas dentro do próprio aplicativo.
-
-### Plano disponível
-
-- **KwanzaFolha Mensal**: 15.000 Kz por mês
-- acesso completo ao sistema
-- múltiplos utilizadores dentro da empresa
-- validade de 30 dias
-- renovação mensal
-
-## Como funciona a operação no dia a dia
-
-O fluxo prático de uso é este:
-
-1. Registar a empresa e o primeiro administrador
-2. Configurar a empresa, os bancos e as regras base
-3. Cadastrar os trabalhadores
-4. Definir turnos, escalas salariais e dados bancários
-5. Lançar eventos, faltas, licenças, férias ou assiduidade
-6. Processar a folha do mês
-7. Rever encargos, descontos e pagamentos ao Estado
-8. Emitir recibos, relatórios e mapas
-9. Exportar ficheiros bancários
-10. Fechar o período
-11. Criar backup
-
-## Arquitetura do projeto
-
-O sistema está organizado em duas camadas principais.
-
-### Aplicação desktop
-
-- `Electron` para a camada desktop
-- `React` para a interface
-- `SQLite` para armazenamento local
-- `pdf-lib` para geração de PDFs
-- `better-sqlite3` para persistência rápida e local
-
-### Serviços principais
-
-- [electron/main.js](C:/Users/nunes/Documents/Pagamentos/electron/main.js)
-- [electron/preload.js](C:/Users/nunes/Documents/Pagamentos/electron/preload.js)
-- [electron/services/database.js](C:/Users/nunes/Documents/Pagamentos/electron/services/database.js)
-- [electron/services/payroll.js](C:/Users/nunes/Documents/Pagamentos/electron/services/payroll.js)
-- [electron/services/core/fiscal/index.js](C:/Users/nunes/Documents/Pagamentos/electron/services/core/fiscal/index.js)
-- [electron/services/core/irt/irtCalculator.js](C:/Users/nunes/Documents/Pagamentos/electron/services/core/irt/irtCalculator.js)
-- [electron/services/core/inss/inssCalculator.js](C:/Users/nunes/Documents/Pagamentos/electron/services/core/inss/inssCalculator.js)
-- [electron/services/core/payroll/salaryEngine.js](C:/Users/nunes/Documents/Pagamentos/electron/services/core/payroll/salaryEngine.js)
-- [electron/services/core/payroll/absenceCalculator.js](C:/Users/nunes/Documents/Pagamentos/electron/services/core/payroll/absenceCalculator.js)
-- [electron/services/pdf.js](C:/Users/nunes/Documents/Pagamentos/electron/services/pdf.js)
-- [electron/services/updater.js](C:/Users/nunes/Documents/Pagamentos/electron/services/updater.js)
-- [electron/services/licensing.js](C:/Users/nunes/Documents/Pagamentos/electron/services/licensing.js)
-- [electron/services/mailer.js](C:/Users/nunes/Documents/Pagamentos/electron/services/mailer.js)
-- [src/App.jsx](C:/Users/nunes/Documents/Pagamentos/src/App.jsx)
-
-### Servidor de licenciamento
-
-O projeto também inclui uma base de servidor de licenciamento:
-
-- [licensing-server/server.js](C:/Users/nunes/Documents/Pagamentos/licensing-server/server.js)
-
-Esse servidor suporta:
-
-- geração de referências de pagamento
-- ativação de licença
-- renovação
-- geração de serial
-- envio de e-mails
-- emissão de fatura
-- painel administrativo de licenças
-
-## Como executar em desenvolvimento
-
-1. Instale o Node.js 20 ou superior.
-2. Execute `npm install`.
-3. Inicie a aplicação com `npm run dev`.
-4. Execute `npm test` para validar a suite automatizada.
-
-## Como gerar builds
-
-### Build padrão
-
-- `npm run build`
-
-### Build separada
-
-- `npm run build:installer`
-- `npm run build:portable`
-
-### Build assinada
-
-- `npm run build:signed`
-- `npm run build:signed:installer`
-- `npm run build:signed:portable`
-
-### Release comercial preparada
-
-- `npm run release:prepare`
-- `npm run release:prepare:beta`
-
-Estes comandos executam a suite, exigem assinatura digital valida e geram `SHA256SUMS.txt`, `release-manifest.json` e um rascunho de notas da release em `dist-electron`.
-
-## Estrutura resumida do projeto
-
-- [src](C:/Users/nunes/Documents/Pagamentos/src)
-- [electron](C:/Users/nunes/Documents/Pagamentos/electron)
-- [shared](C:/Users/nunes/Documents/Pagamentos/shared)
-- [tests](C:/Users/nunes/Documents/Pagamentos/tests)
-- [build](C:/Users/nunes/Documents/Pagamentos/build)
-- [dist-electron](C:/Users/nunes/Documents/Pagamentos/dist-electron)
-
-## Documentação adicional
-
-- [OPERACAO-RAPIDA.md](C:/Users/nunes/Documents/Pagamentos/OPERACAO-RAPIDA.md)
-- [FISCALIDADE-ANGOLA.md](C:/Users/nunes/Documents/Pagamentos/FISCALIDADE-ANGOLA.md)
-- [RELEASE-CHECKLIST.md](C:/Users/nunes/Documents/Pagamentos/RELEASE-CHECKLIST.md)
-- [RELEASE-POLICY.md](C:/Users/nunes/Documents/Pagamentos/RELEASE-POLICY.md)
-- [GITHUB-SECRETS-SETUP.md](C:/Users/nunes/Documents/Pagamentos/GITHUB-SECRETS-SETUP.md)
-
-## Saídas geradas pelo sistema
-
-O sistema grava os principais ficheiros operacionais em `Documentos\Kwanza Folha`, incluindo:
-
-- PDFs
-- exportações Excel
-- exportações bancárias
-- backups
-- atualizações descarregadas
-
-## Estado atual do produto
-
-O Kwanza Folha já se encontra num estado forte para uso empresarial interno, cobrindo folha salarial, RH operacional, documentação, exportações bancárias e licenciamento.
-
-Os próximos melhoramentos tendem a concentrar-se em:
-
-- maior integração com equipamentos biométricos específicos por fabricante
-- mais refinamento visual e institucional
-- amadurecimento da área comercial e pública do produto
-
-## Site de apresentação
-
-Foi criada uma área dedicada de apresentação do produto em:
-
-- [site-kwanzafolha](C:/Users/nunes/Documents/Pagamentos/site-kwanzafolha)
-
-Esse material já inclui:
-
-- apresentação do produto
-- funcionalidades principais
-- planos de assinatura
-- explicação do teste grátis de 7 dias
-- instruções de pagamento/licenciamento
-- botões para descarregar o instalador e a versão portátil
+Aplicacao desktop (Electron + React + SQLite) para processamento salarial e operacao de RH em Angola.
+
+## O que o produto faz hoje
+
+- processamento mensal da folha salarial
+- calculo fiscal Grupo A (IRT + INSS) com perfil fiscal versionado por vigencia
+- assiduidade, faltas, licencas e ferias
+- processamento de subsidio de ferias e subsidio de natal
+- relatorios e documentos PDF
+- exportacoes Excel, CSV bancario, PS2 e PSX
+- mapa mensal de remuneracoes AGT (geracao e validacao assistida)
+- auditoria operacional (logs de acoes e exportacao CSV/XLS)
+- licenciamento local com trial, ativacao e renovacao
+- backups e restauro de base local
+
+## Trial e licenciamento (estado real)
+
+- trial padrao: **30 dias**
+- quando o trial termina, o sistema entra em estado bloqueado para uso comercial
+- modo tecnico (`developer-license.json` e `KWANZA_DEV_LICENSE_MODE=1`) so e aceite em runtime local de desenvolvimento
+- build empacotada de producao exige fluxo comercial normal de licenca
+
+## Arquitetura atual
+
+- Desktop: `electron/main.js`, `electron/preload.js`
+- Servicos: `electron/services/*`
+- Dominio fiscal: `electron/services/core/fiscal`, `core/irt`, `core/inss`, `core/payroll`
+- Persistencia: `electron/services/database.js` + dominos extraidos em `electron/services/core/db/domains`
+- Frontend: `src/` (app-shell, features, entities, ui)
+- Servidor de licenciamento: `licensing-server/server.js`
+
+## Scripts suportados
+
+| Script | Objetivo |
+|---|---|
+| `npm run dev` | Arranque local (renderer + Electron) |
+| `npm run test` | Suite Node principal |
+| `npm run test:node:abi` | Rebuild de modulos nativos para Node + testes |
+| `npm run integrity:generate` | Atualiza manifesto de integridade |
+| `npm run build` | Build desktop geral |
+| `npm run build:installer` | Build NSIS |
+| `npm run build:signed` | Build assinada (all) |
+| `npm run build:signed:installer` | Build assinada (installer) |
+| `npm run release:validate` | Validacao preflight de release |
+| `npm run release:validate:packaged` | Validacao de artefactos empacotados |
+| `npm run release:prepare` | Pipeline local de release estavel |
+| `npm run release:prepare:beta` | Pipeline local de release beta |
+| `npm run smoke:packaged` | Smoke de boot em build empacotada |
+| `npm run smoke:packaged:e2e` | Smoke funcional empacotado |
+| `npm run verify:packaged:main` | Verifica sintaxe do main empacotado |
+| `npm run report:boot-integrity` | Coleta relatorio de arranque/integridade |
+
+## Tipos de build suportados
+
+| Tipo | Suporte |
+|---|---|
+| NSIS Installer (`KwanzaFolha-Setup-<versao>.exe`) | Suportado |
+| Portable | **Nao suportado** |
+
+## Fluxo rapido local
+
+1. `npm install`
+2. `npm run dev`
+3. `npm test`
+
+## Release (local)
+
+1. validar preflight: `npm run release:validate`
+2. gerar release: `npm run release:prepare` ou `npm run release:prepare:beta`
+3. validar assinaturas: `powershell -ExecutionPolicy Bypass -File scripts/verify-release-signatures.ps1 -OutputDir dist-electron -RequireTimestamp`
+4. confirmar artefactos:
+- `dist-electron/KwanzaFolha-Setup-<versao>.exe`
+- `dist-electron/KwanzaFolha-Setup-<versao>.exe.blockmap`
+- `dist-electron/SHA256SUMS.txt`
+- `dist-electron/release-manifest.json`
+- `dist-electron/release-notes-template.md`
+
+## Limitacoes atuais conhecidas
+
+- validacao oficial AGT depende de homologacao externa em ambiente real
+- validacao formal de PS2/PSX depende de confirmacao com bancos alvo
+- revisao juridica de todos os documentos emitidos ainda depende de validacao humana externa
+- `electron/services/database.js`, `electron/main.js` e `electron/services/pdf.js` continuam grandes apesar de extracoes incrementais
+
+## Pre-requisitos para producao
+
+- certificado de code signing valido e segredo protegido
+- servidor de licenciamento online com HTTPS e monitorizacao basica
+- politica de backup/restauro operacional definida
+- suporte tecnico com acesso a bundle de diagnostico
+- checklist de release e rollback seguida em todas as publicacoes
+
+## O que depende de validacao externa
+
+- parecer contabilistico/fiscal sobre regras e relatarios legais
+- validacao bancaria dos ficheiros PS2/PSX por instituicao
+- validacao legal dos templates/documentos emitidos
+- aprovacao de claims comerciais de conformidade
+
+## Documentacao complementar
+
+- [FISCALIDADE-ANGOLA.md](./FISCALIDADE-ANGOLA.md)
+- [COMPLIANCE_GAP_REPORT.md](./COMPLIANCE_GAP_REPORT.md)
+- [RELEASE_PROCESS.md](./RELEASE_PROCESS.md)
+- [RELEASE-CHECKLIST.md](./RELEASE-CHECKLIST.md)
+- [RELEASE-POLICY.md](./RELEASE-POLICY.md)
+- [SECURITY.md](./SECURITY.md)
+- [SUPPORT_RUNBOOK.md](./SUPPORT_RUNBOOK.md)
+- [INCIDENT_RESPONSE.md](./INCIDENT_RESPONSE.md)
+- [LICENSING_OPERATIONS.md](./LICENSING_OPERATIONS.md)

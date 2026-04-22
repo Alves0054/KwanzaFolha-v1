@@ -2,46 +2,39 @@
 
 ## Antes da release
 
-- confirmar a versao em `package.json`
-- confirmar que o tag segue o formato `vX.Y.Z` ou `vX.Y.Z-beta.N`
+- confirmar versao em `package.json`
+- confirmar tag no formato `vX.Y.Z` ou `vX.Y.Z-beta.N`
 - confirmar `electron/config/update-source.js`
-- confirmar certificado de assinatura e palavra-passe em ambiente seguro
-- confirmar que o manifesto legal do instalador continua atual
+- confirmar secrets de assinatura (`KWANZA_CERTIFICATE_BASE64`, `KWANZA_CERTIFICATE_PASSWORD`)
+- executar `npm run release:validate`
 
-## Validacoes minimas
+## Validacoes tecnicas obrigatorias
 
-- executar `npm test`
-- validar login e logout
-- validar recuperacao de acesso por codigo de redefinicao
-- validar processamento mensal e fecho/reabertura de periodo
-- validar exportacao Excel, pacote mensal e recibos
-- validar backup e restauro
-- validar verificacao e descarga de atualizacao
+- `npm test`
+- `npm run release:validate:packaged`
+- `npm run verify:packaged:main`
+- `npm run smoke:packaged`
+- `npm run smoke:packaged:e2e`
+- `powershell -ExecutionPolicy Bypass -File scripts/verify-release-signatures.ps1 -OutputDir dist-electron -RequireTimestamp`
 
-## Build de release
+## Artefactos obrigatorios
 
-- usar `npm run release:prepare` para canal estavel
-- usar `npm run release:prepare:beta` para beta controlada
-- confirmar que foram gerados:
-  - `dist-electron/KwanzaFolha-Setup-<versao>.exe`
-  - `dist-electron/KwanzaFolha-Portable-<versao>.exe`
-  - `dist-electron/SHA256SUMS.txt`
-  - `dist-electron/release-manifest.json`
-  - `dist-electron/release-notes-template.md`
-- confirmar assinatura digital valida no `.exe`
+- `dist-electron/KwanzaFolha-Setup-<versao>.exe`
+- `dist-electron/KwanzaFolha-Setup-<versao>.exe.blockmap`
+- `dist-electron/SHA256SUMS.txt`
+- `dist-electron/release-manifest.json`
+- `dist-electron/release-notes-template.md`
 
-## Publicacao GitHub Release
+## Publicacao
 
-- publicar apenas artefactos assinados
-- anexar sempre `SHA256SUMS.txt`
-- anexar sempre `release-manifest.json`
-- publicar como `draft` para revisao final
-- marcar `prerelease` quando for canal beta
-- rever as notas da release antes de publicar
+- publicar inicialmente em `draft`
+- marcar `prerelease` para canal beta
+- anexar apenas artefactos obrigatorios assinados
+- validar hash SHA256 e manifesto antes de publicar
 
 ## Pos-release
 
-- testar o download da release no GitHub
-- testar a verificacao de integridade do instalador descarregado
-- validar instalacao por cima da versao anterior
-- arquivar backup operacional e relatorio de validacao
+- validar instalacao limpa em maquina de teste
+- validar upgrade sobre versao anterior
+- exportar bundle de diagnostico de referencia
+- registar validacao operacional da release

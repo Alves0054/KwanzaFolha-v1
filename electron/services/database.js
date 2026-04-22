@@ -2,7 +2,11 @@
 const fs = require("fs");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
-const Database = require("better-sqlite3-multiple-ciphers");
+// Em runtime Electron usamos o driver com SQLCipher. Em runtime Node (testes/unitarios),
+// carregamos `better-sqlite3` para evitar erros de ABI (NODE_MODULE_VERSION).
+const Database = process.versions?.electron
+  ? require("better-sqlite3-multiple-ciphers")
+  : require("better-sqlite3");
 const { execFileSync } = require("child_process");
 const {
   buildFiscalProfile,
@@ -29,6 +33,10 @@ const {
   buildEmployeeDocumentsFilter
 } = require("./core/db/domains/employee-documents");
 const { buildAuditLogsFilter, mapAuditRows } = require("./core/db/domains/audit");
+const {
+  buildPayrollAuditArtifact,
+  buildPayrollAuditCsv
+} = require("./core/db/domains/payroll-audit");
 const { mapEmployeeListRows } = require("./core/db/domains/employees");
 const { buildPayrollRunsFilter, mapPayrollRunRows } = require("./core/db/domains/payroll-runs");
 const {
@@ -2935,6 +2943,80 @@ class DatabaseService {
     const target = path.join(this.auditExportsDir, `auditoria-${stamp}.xls`);
     fs.writeFileSync(target, content, "utf8");
     return { ok: true, path: target, count: rows.length, format: "xls" };
+  }
+
+  buildPayrollCalculationAudit(filters = {}) {
+    const normalizedFilters = normalizeReportFilters(filters);
+    const rows = this.listPayrollRuns(normalizedFilters);
+
+    if (!rows.length) {
+      return {
+        ok: false,
+        message: "Nao existem salarios processados para gerar o artefacto de auditoria de calculo."
+      };
+    }
+
+    const effectiveMonthRef =
+      normalizedFilters.monthRef ||
+      normalizedFilters.startMonthRef ||
+      normalizedFilters.endMonthRef ||
+      String(rows[0]?.month_ref || "").trim() ||
+      getCurrentMonthRef();
+    const settings = this.getSystemSettings(effectiveMonthRef);
+    const fiscalProfile = summarizeFiscalProfile(
+      resolveFiscalProfileForMonth(settings, effectiveMonthRef)
+    );
+    const artifact = buildPayrollAuditArtifact({
+      company: this.getCompanyProfile(),
+      filters: normalizedFilters,
+      fiscalProfile,
+      rows,
+      generatedAt: nowIso()
+    });
+
+    return {
+      ok: true,
+      count: rows.length,
+      artifact
+    };
+  }
+
+  exportPayrollCalculationAudit(filters = {}) {
+    const auditResult = this.buildPayrollCalculationAudit(filters);
+    if (!auditResult.ok) {
+      return auditResult;
+    }
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const baseLabel =
+      String(auditResult.artifact?.period?.periodFileLabel || "").trim() || stamp;
+    const jsonPath = path.join(
+      this.auditExportsDir,
+      `auditoria-calculo-folha-${baseLabel}-${stamp}.json`
+    );
+    const csvPath = path.join(
+      this.auditExportsDir,
+      `auditoria-calculo-folha-${baseLabel}-${stamp}.csv`
+    );
+
+    fs.writeFileSync(
+      jsonPath,
+      `${JSON.stringify(auditResult.artifact, null, 2)}\n`,
+      "utf8"
+    );
+    fs.writeFileSync(
+      csvPath,
+      `\uFEFF${buildPayrollAuditCsv(auditResult.artifact)}\r\n`,
+      "utf8"
+    );
+
+    return {
+      ok: true,
+      count: auditResult.count,
+      jsonPath,
+      csvPath,
+      artifact: auditResult.artifact
+    };
   }
 
   recordAudit(payload) {

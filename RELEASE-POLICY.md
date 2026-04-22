@@ -14,6 +14,8 @@ Esta politica define como uma release comercial do Kwanza Folha deve ser prepara
 - nenhuma release publica sem assinatura digital valida
 - nenhuma release publica sem `SHA256SUMS.txt`
 - nenhuma release publica sem `release-manifest.json`
+- nenhuma release publica sem validacao preflight (`npm run release:validate`)
+- nenhuma release publica sem validacao packaged (`npm run release:validate:packaged`)
 - nenhuma release publica sem `draft` no GitHub para revisao humana final
 - nenhuma release `stable` sem testes automatizados concluidos e verificacao funcional minima
 
@@ -30,7 +32,10 @@ Esta politica define como uma release comercial do Kwanza Folha deve ser prepara
 1. Atualizar versao e changelog da release.
 2. Criar tag `vX.Y.Z` ou `vX.Y.Z-beta.N`.
 3. Executar `npm run release:prepare` ou `npm run release:prepare:beta`.
-4. Rever `dist-electron/SHA256SUMS.txt`, `release-manifest.json` e `release-notes-template.md`.
+4. Executar `npm run release:validate:packaged`.
+5. Rever `dist-electron/SHA256SUMS.txt`, `release-manifest.json` e `release-notes-template.md`.
+6. Validar assinatura com `scripts/verify-release-signatures.ps1`.
+7. Validar smoke empacotado.
 5. Publicar a GitHub Release como `draft`.
 6. Validar instalacao limpa e upgrade sobre a versao anterior.
 7. Publicar a release apenas apos validacao final.

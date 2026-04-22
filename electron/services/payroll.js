@@ -19,6 +19,10 @@ const {
   calculateIrt: computeIrt,
   findIrtBracket: findConfiguredIrtBracket
 } = require("./core/irt");
+const {
+  PAYROLL_OVERTIME_HOURLY_DIVISOR,
+  PAYROLL_OVERTIME_MULTIPLIERS
+} = require("../../shared/domain/payroll-constants");
 
 const SOCIAL_SECURITY_RATE = 0.03;
 const DEFAULT_FISCAL_MODE = "taxable";
@@ -40,7 +44,11 @@ function proratedBonus(baseSalary, quantity) {
 }
 
 function overtimeAmount(remunerationBase, quantity, multiplier) {
-  return roundCurrency((Number(remunerationBase || 0) / 176) * Number(multiplier || 1) * Number(quantity || 0));
+  return roundCurrency(
+    (Number(remunerationBase || 0) / PAYROLL_OVERTIME_HOURLY_DIVISOR) *
+      Number(multiplier || 1) *
+      Number(quantity || 0)
+  );
 }
 
 function monthlyRemunerationBase(baseSalary, allowancesTotal, bonusesTotal) {
@@ -463,9 +471,17 @@ function calculatePayrollRunForEmployee(
             : `Horas Extra (${Number(event.quantity || 0)}h)`),
       amount:
         event.event_type === "overtime_50"
-          ? overtimeAmount(employee.base_salary, event.quantity || 0, 1.5)
+          ? overtimeAmount(
+              employee.base_salary,
+              event.quantity || 0,
+              PAYROLL_OVERTIME_MULTIPLIERS.regular
+            )
           : event.event_type === "overtime_100"
-            ? overtimeAmount(employee.base_salary, event.quantity || 0, 2)
+            ? overtimeAmount(
+                employee.base_salary,
+                event.quantity || 0,
+                PAYROLL_OVERTIME_MULTIPLIERS.holidayOrRestDay
+              )
             : Number(event.amount || 0)
     }));
 
@@ -537,9 +553,17 @@ function calculatePayrollRunForEmployee(
       ...item,
       amount:
         item.source === "overtime_50"
-          ? overtimeAmount(remunerationBase, item.quantity || 0, 1.5)
+          ? overtimeAmount(
+              remunerationBase,
+              item.quantity || 0,
+              PAYROLL_OVERTIME_MULTIPLIERS.regular
+            )
           : item.source === "overtime_100"
-            ? overtimeAmount(remunerationBase, item.quantity || 0, 2)
+            ? overtimeAmount(
+                remunerationBase,
+                item.quantity || 0,
+                PAYROLL_OVERTIME_MULTIPLIERS.holidayOrRestDay
+              )
             : Number(item.amount || 0)
     }))
   );

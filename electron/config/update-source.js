@@ -1,6 +1,6 @@
 const UPDATE_SOURCE = {
   owner: "Alves0054",
-  repo: "KwanzaFolha",
+  repo: "KwanzaFolha-v1",
   assetHint: "setup",
   checksumHint: "sha256",
   allowPrerelease: false

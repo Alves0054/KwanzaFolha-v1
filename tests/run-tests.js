@@ -32,11 +32,19 @@ const { LicensingService } = require("../electron/services/licensing");
 const { MailerService } = require("../electron/services/mailer");
 const { PdfService } = require("../electron/services/pdf");
 const { UpdaterService, extractSemanticVersion, resolveReleaseVersion } = require("../electron/services/updater");
+const { SupportDiagnosticsService } = require("../electron/services/support-diagnostics");
 const { buildFiscalProfile, resolveFiscalProfileForMonth } = require("../electron/services/fiscal-config");
 const { hasPermission, getPermissionDeniedMessage } = require("../electron/services/permissions");
 const { buildReleaseManifest, collectReleaseArtifacts, writeReleaseBundle } = require("../scripts/release-artifacts");
+const { parseArgs: parseReleaseValidationArgs, validateReleaseReadiness } = require("../scripts/validate-release-readiness");
 const { DEFAULT_LICENSE_PLAN } = require("../shared/license-plans");
-const { LicensingServer } = require("../licensing-server/server");
+let LicensingServer = null;
+try {
+  ({ LicensingServer } = require("../licensing-server/server"));
+} catch {
+  // O repositório comercial desktop não inclui o servidor. Os testes de servidor são opcionais.
+  LicensingServer = null;
+}
 
 const brackets = DEFAULT_SETTINGS.irtBrackets;
 
@@ -1348,6 +1356,7 @@ runTest("Marcador tecnico local nao ativa licenciamento em instalacao de produca
   assert.equal(service.isDevelopmentLicenseMode(), false);
 });
 
+if (LicensingServer) {
 runTest("Webhook de pagamento confirma a referência paga com segredo válido", async () => {
   const confirmedReferences = [];
   const service = {
@@ -1736,6 +1745,70 @@ runTest("Endpoint público de confirmação manual responde 403", async () => {
 
   assert.equal(response.statusCode, 403);
   assert.match(response.body, /desativado/i);
+});
+
+runTest("Healthcheck do servidor de licenciamento devolve estado operacional", () => {
+  const service = {
+    runtimeRequireHttps: true,
+    runtimeHttpsEnabled: false,
+    runtimeAllowHttpBehindProxy: true,
+    db: {
+      prepare(sql) {
+        if (sql.includes("FROM payments")) {
+          return { get: () => ({ total: 2 }) };
+        }
+        if (sql.includes("FROM licenses")) {
+          return { get: () => ({ total: 9 }) };
+        }
+        if (sql.includes("FROM invoices")) {
+          return { get: () => ({ total: 1 }) };
+        }
+        throw new Error(`SQL inesperado: ${sql}`);
+      }
+    },
+    isCommercialLicensingEnabled() {
+      return true;
+    }
+  };
+
+  const result = LicensingServer.prototype.getHealthStatus.call(service);
+  assert.equal(result.ok, true);
+  assert.equal(result.database.pendingPayments, 2);
+  assert.equal(result.database.activeLicenses, 9);
+  assert.equal(result.sales.enabled, true);
+  assert.equal(result.runtime.requireHttps, true);
+});
+} else {
+  console.log("INFO licensing-server ausente; testes de servidor foram ignorados.");
+}
+
+runTest("SupportDiagnostics exporta bundle com logs e manifest", () => {
+  const userDataPath = makeTempDir("kwanza-support-");
+  const logsPath = path.join(userDataPath, "logs");
+  fs.mkdirSync(logsPath, { recursive: true });
+  fs.writeFileSync(path.join(logsPath, "main.log"), "log principal", "utf8");
+
+  const service = new SupportDiagnosticsService({
+    userDataPath,
+    logsPath,
+    appName: "Kwanza Folha",
+    appVersion: "1.0.0"
+  });
+  service.recordEvent({
+    level: "warn",
+    category: "licensing",
+    event: "licensing.activate.failed",
+    message: "Falha de ativacao",
+    details: { code: "invalid_license" }
+  });
+
+  const result = service.exportSupportBundle({ reason: "testes" });
+  assert.equal(result.ok, true);
+  assert.ok(fs.existsSync(result.manifestPath));
+  const manifest = JSON.parse(fs.readFileSync(result.manifestPath, "utf8"));
+  assert.equal(manifest.appVersion, "1.0.0");
+  assert.ok(Array.isArray(manifest.files));
+  assert.ok(manifest.files.includes("operations-events.jsonl"));
 });
 
 runTest("ValidaÃ§Ã£o avanÃ§ada de funcionÃ¡rio rejeita BI, NIF, IBAN e datas invÃ¡lidas", () => {
@@ -2542,6 +2615,90 @@ runTest("Auditoria exporta CSV com alterações registadas", () => {
   assert.match(content, /Financeiro/);
 });
 
+runTest("Auditoria de calculo da folha exporta artefactos JSON e CSV rastreaveis", () => {
+  const auditDir = makeTempDir("kwanza-payroll-audit-");
+  const service = {
+    auditExportsDir: auditDir,
+    getCompanyProfile() {
+      return { name: "Empresa Teste", nif: "50014781" };
+    },
+    getSystemSettings() {
+      return { ...DEFAULT_SETTINGS };
+    },
+    listPayrollRuns() {
+      return [
+        {
+          id: 11,
+          employee_id: 7,
+          full_name: "Maria Fernandes",
+          department: "Financeiro",
+          job_title: "Tecnica",
+          month_ref: "2026-04",
+          generated_at: "2026-04-03T12:00:00.000Z",
+          gross_salary: 260000,
+          allowances_total: 30000,
+          bonuses_total: 20000,
+          mandatory_deductions: 42000,
+          absence_deduction: 0,
+          net_salary: 218000,
+          irt_amount: 22000,
+          inss_amount: 7800,
+          summary_json: {
+            baseSalary: 210000,
+            allowancesTotal: 30000,
+            bonusesTotal: 20000,
+            overtimeTotal: 0,
+            grossSalary: 260000,
+            payableGrossSalary: 260000,
+            absencesDays: 0,
+            leaveDays: 0,
+            dailyRate: 7000,
+            attendanceDeduction: 0,
+            mandatoryDeductions: 42000,
+            totalDeductions: 42000,
+            netSalary: 218000,
+            inssAmount: 7800,
+            employerInssAmount: 20800,
+            irtAmount: 22000,
+            materiaColectavel: 252200,
+            legalBases: {
+              socialSecurityBase: 260000,
+              irtBaseBeforeSocialSecurity: 260000,
+              materiaColectavel: 252200
+            },
+            fiscalProfile: {
+              id: "ao-irt-lei-28-20",
+              name: "Perfil fiscal 2026",
+              version: "agt20260401",
+              effectiveFrom: "2020-09",
+              legalReference: "Lei 18/14 e Lei 28/20",
+              inssEmployeeRate: 3,
+              inssEmployerRate: 8
+            },
+            fiscalProfileVersion: "agt20260401"
+          }
+        }
+      ];
+    },
+    buildPayrollCalculationAudit: DatabaseService.prototype.buildPayrollCalculationAudit
+  };
+
+  const result = DatabaseService.prototype.exportPayrollCalculationAudit.call(service, "2026-04");
+  assert.equal(result.ok, true);
+  assert.equal(result.count, 1);
+  assert.ok(fs.existsSync(result.jsonPath));
+  assert.ok(fs.existsSync(result.csvPath));
+
+  const jsonContent = JSON.parse(fs.readFileSync(result.jsonPath, "utf8"));
+  assert.equal(jsonContent.company.nif, "50014781");
+  assert.equal(jsonContent.entries[0].employeeName, "Maria Fernandes");
+  assert.match(jsonContent.entries[0].formulas.netSalaryFormula, /net_salary/i);
+
+  const csvContent = fs.readFileSync(result.csvPath, "utf8");
+  assert.match(csvContent, /Maria Fernandes/);
+  assert.match(csvContent, /agt20260401/);
+});
+
 runTest("GestÃ£o de utilizadores cria e remove utilizador com resposta contextual", () => {
   const users = [{ id: 1, full_name: "Administrador", username: "admin", role: "admin", active: 1, must_change_password: 0 }];
   const runRecorder = [];
@@ -2836,7 +2993,7 @@ runTest("Updater informa quando existe release sem instalador anexado", async ()
       name: "v1.0.1",
       published_at: "2026-04-03T08:00:00.000Z",
       body: "",
-      html_url: "https://github.com/Alves0054/KwanzaFolha/releases/tag/latest"
+      html_url: "https://github.com/Alves0054/KwanzaFolha-v1/releases/tag/latest"
     },
     asset: null
   });
@@ -2892,6 +3049,22 @@ runTest("Pipeline de release gera manifesto e checksums dos artefactos publicado
   assert.ok(fs.existsSync(outputs.notesPath));
   assert.match(fs.readFileSync(outputs.checksumPath, "utf8"), /KwanzaFolha-Setup-1\.0\.0\.exe/);
   assert.equal(JSON.parse(fs.readFileSync(outputs.manifestPath, "utf8")).updater.checksumRequired, true);
+});
+
+runTest("Validacao de release interpreta argumentos de CLI", () => {
+  const parsed = parseReleaseValidationArgs(["--phase", "packaged", "--distDir", "dist-electron"]);
+  assert.equal(parsed.phase, "packaged");
+  assert.equal(parsed.distDir, "dist-electron");
+});
+
+runTest("Validacao preflight de release exige documentacao e scripts obrigatorios", () => {
+  const rootDir = path.resolve(__dirname, "..");
+  const result = validateReleaseReadiness({
+    rootDir,
+    phase: "preflight"
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.phase, "preflight");
 });
 
 runTest("Exportação oficial gera ficheiros PS2 e PSX com o formato esperado", () => {

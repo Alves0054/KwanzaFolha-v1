@@ -1,6 +1,7 @@
 const { roundCurrency } = require("../fiscal/utils");
+const { PAYROLL_MONTHLY_ABSENCE_DIVISOR } = require("../../../../shared/domain/payroll-constants");
 
-const MONTHLY_ABSENCE_DIVISOR = 30;
+const MONTHLY_ABSENCE_DIVISOR = PAYROLL_MONTHLY_ABSENCE_DIVISOR;
 
 function calculateDailySalaryRate(baseSalary, divisor = MONTHLY_ABSENCE_DIVISOR) {
   return roundCurrency(Number(baseSalary || 0) / Number(divisor || MONTHLY_ABSENCE_DIVISOR));

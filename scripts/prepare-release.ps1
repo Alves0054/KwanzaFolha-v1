@@ -13,6 +13,12 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
+Write-Host "A validar pre-condicoes da release..." -ForegroundColor Cyan
+node (Join-Path $PSScriptRoot "validate-release-readiness.js") --phase preflight
+if ($LASTEXITCODE -ne 0) {
+  throw "A validacao preflight da release falhou com exit code $LASTEXITCODE."
+}
+
 if (-not $SkipTests) {
   Write-Host "A executar a suite automatizada..." -ForegroundColor Cyan
   npm test
@@ -33,6 +39,12 @@ Write-Host "A gerar checksum e manifesto da release..." -ForegroundColor Cyan
 node (Join-Path $PSScriptRoot "release-artifacts.js") --channel $Channel --target $Target
 if ($LASTEXITCODE -ne 0) {
   throw "A geracao de checksums/manifesto falhou com exit code $LASTEXITCODE."
+}
+
+Write-Host "A validar artefactos empacotados da release..." -ForegroundColor Cyan
+node (Join-Path $PSScriptRoot "validate-release-readiness.js") --phase packaged --distDir "dist-electron"
+if ($LASTEXITCODE -ne 0) {
+  throw "A validacao dos artefactos da release falhou com exit code $LASTEXITCODE."
 }
 
 Write-Host "Release preparada com sucesso em dist-electron." -ForegroundColor Green

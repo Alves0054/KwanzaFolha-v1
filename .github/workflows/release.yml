@@ -49,10 +49,16 @@ jobs:
       - name: Run Node test suite
         run: npm test
 
+      - name: Validate release readiness (preflight)
+        run: npm run release:validate
+
       - name: Build unsigned installer (PR readiness)
         shell: pwsh
         run: |
           npm run build:installer
+
+      - name: Validate packaged artifacts (PR readiness)
+        run: node scripts/validate-release-readiness.js --phase packaged --distDir dist-electron --expectReleaseBundle false
 
       - name: Verify packaged main syntax
         shell: pwsh
@@ -113,6 +119,9 @@ jobs:
       - name: Run Node test suite
         run: npm test
 
+      - name: Validate release readiness (preflight)
+        run: npm run release:validate
+
       - name: Resolve release channel
         shell: pwsh
         run: |
@@ -140,6 +149,9 @@ jobs:
           KWANZA_CERTIFICATE_PASSWORD: ${{ secrets.KWANZA_CERTIFICATE_PASSWORD }}
         run: |
           powershell -ExecutionPolicy Bypass -File scripts\prepare-release.ps1 -Channel $env:KWANZA_RELEASE_CHANNEL -Target all -SkipTests -TimestampServer $env:KWANZA_TIMESTAMP_SERVER
+
+      - name: Validate packaged artifacts
+        run: npm run release:validate:packaged
 
       - name: Enforce Authenticode signature (release)
         shell: pwsh

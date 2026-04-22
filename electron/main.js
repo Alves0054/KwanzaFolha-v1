@@ -7,6 +7,7 @@ const { createAppServices } = require("./services/core/create-app-services");
 const { SecureStorageService } = require("./services/secure-storage");
 const { InstallationIdentityService } = require("./services/installation-identity");
 const { AntiTamperService } = require("./services/anti-tamper");
+const { SupportDiagnosticsService } = require("./services/support-diagnostics");
 const { hasPermission, getPermissionDeniedMessage } = require("./services/permissions");
 
 const dataRoot = path.join(process.env.LOCALAPPDATA || path.join(app.getPath("home"), "AppData", "Local"), "KwanzaFolha");
@@ -35,6 +36,7 @@ log.transports.file.resolvePath = () => path.join(app.getPath("logs"), "main.log
 
 let mainWindow;
 let services;
+let supportDiagnostics;
 let attendanceWatcher = null;
 let attendanceSyncTimer = null;
 let startupIntegrityState = {
@@ -44,6 +46,23 @@ let startupIntegrityState = {
 };
 let startupIntegrityNotified = false;
 
+function recordSupportEvent(level, category, event, message, details = {}) {
+  try {
+    supportDiagnostics?.recordEvent({
+      level,
+      category,
+      event,
+      message,
+      details
+    });
+  } catch (error) {
+    log.warn("[SUPPORT] falha ao registar evento estruturado", {
+      event,
+      error: String(error?.message || error)
+    });
+  }
+}
+
 function normalizePathForCompare(value) {
   return String(value || "")
     .trim()
@@ -52,12 +71,16 @@ function normalizePathForCompare(value) {
 }
 
 function isLocalPackagedBuildRuntime() {
-  if (!app.isPackaged || process.env.KWANZA_LOCAL_PACKAGED_DEV_MODE !== "1") {
+  if (!app.isPackaged) {
     return false;
   }
 
   const executablePath = normalizePathForCompare(process.execPath);
-  return executablePath.includes("\\dist-electron\\win-unpacked\\");
+  // Quando executamos o binário diretamente a partir do `dist-electron/win-unpacked`
+  // (QA local), não exigimos integridade comercial estrita para evitar falsos positivos
+  // durante o ciclo de build/teste. Instalações reais (ex: Program Files) continuam estritas.
+  return executablePath.includes("\\dist-electron\\win-unpacked\\") ||
+    (process.env.KWANZA_LOCAL_PACKAGED_DEV_MODE === "1" && executablePath.includes("\\win-unpacked\\"));
 }
 
 function isPackagedSmokeE2EMode() {
@@ -159,6 +182,7 @@ function setStartupIntegrityIssue(stage, message, details = {}) {
     message: startupIntegrityState.message,
     ...details
   });
+  recordSupportEvent("warn", "boot", `boot.integrity.${startupIntegrityState.stage}`, startupIntegrityState.message, details);
 }
 
 function summarizeAnchorVerification(result = {}) {
@@ -197,6 +221,13 @@ function getSessionUser() {
 function withAuth(handler) {
   return async (_, ...args) => {
     if (!services?.auth || !services?.licensingCore) {
+      recordSupportEvent(
+        "error",
+        "boot",
+        "boot.services.unavailable",
+        startupIntegrityState?.message || "Os servicos principais ainda nao ficaram disponiveis.",
+        startupIntegrityState
+      );
       return {
         ok: false,
         message: startupIntegrityState?.message || "Os servicos principais ainda nao ficaram disponiveis."
@@ -213,6 +244,16 @@ function withAuth(handler) {
         code: licenseGuard.code || "invalid",
         message: licenseGuard.message || "Licenciamento invalido ou expirado."
       });
+      recordSupportEvent(
+        "warn",
+        "licensing",
+        "licensing.guard.denied",
+        licenseGuard.message || "Licenciamento invalido ou expirado.",
+        {
+          code: licenseGuard.code || "invalid",
+          status: licenseGuard?.license?.status || ""
+        }
+      );
       return {
         ok: false,
         message: licenseGuard.message || "Licenciamento invalido ou expirado. Ative ou renove para continuar."
@@ -239,7 +280,31 @@ function registerStartupIpcFallbacks() {
     message: degradedMessage
   }));
   safeHandle("license:get-plans", async () => ({ ok: true, plans: [] }));
-  safeHandle("auth:get-state", async () => ({ setupRequired: false, canRegister: false, company: null }));
+  safeHandle("support:health", async () => ({
+    ok: true,
+    degraded: true,
+    startupIntegrity: startupIntegrityState,
+    message: degradedMessage
+  }));
+  safeHandle("support:export-logs", async () => {
+    if (!supportDiagnostics) {
+      return { ok: false, message: "Servico de diagnostico indisponivel." };
+    }
+    return supportDiagnostics.exportSupportBundle({
+      reason: "startup_degraded",
+      startupIntegrity: startupIntegrityState
+    });
+  });
+  // Este handler deve existir SEMPRE (antes e depois da inicialização), para evitar
+  // o erro "No handler registered for 'auth:get-state'" no arranque do renderer.
+  safeHandle("auth:get-state", async () => {
+    try {
+      if (services?.auth?.getState) {
+        return services.auth.getState();
+      }
+    } catch {}
+    return { setupRequired: false, canRegister: false, company: null };
+  });
   safeHandle("auth:restore-session", async () => ({ ok: false, message: degradedMessage }));
   safeHandle("auth:login", async () => ({ ok: false, message: degradedMessage }));
   safeHandle("auth:register-initial", async () => ({ ok: false, message: degradedMessage }));
@@ -920,23 +985,93 @@ function registerIpc() {
   ipcMain.removeHandler("app:get-version");
   ipcMain.removeHandler("license:get-status");
   ipcMain.removeHandler("license:get-plans");
-  ipcMain.removeHandler("auth:get-state");
   ipcMain.removeHandler("auth:login");
   ipcMain.removeHandler("auth:register-initial");
   ipcMain.removeHandler("auth:restore-session");
   ipcMain.removeHandler("auth:request-password-reset");
+  ipcMain.removeHandler("support:health");
+  ipcMain.removeHandler("support:export-logs");
   ipcMain.handle("app:get-version", async () => ({ version: app.getVersion() }));
   ipcMain.handle("app:quit", async () => {
     app.quit();
     return { ok: true };
   });
-  ipcMain.handle("license:get-status", async () => services.licensingCore.getStatus(true));
+  ipcMain.handle("license:get-status", async () => {
+    const status = services.licensingCore.getStatus(true);
+    if (!status?.canUseApp) {
+      recordSupportEvent(
+        "warn",
+        "licensing",
+        "licensing.status.blocked",
+        status?.message || "Licenca bloqueada.",
+        {
+          status: status?.status || "invalid",
+          requiresLicense: Boolean(status?.requiresLicense)
+        }
+      );
+    }
+    return status;
+  });
   ipcMain.handle("license:validate-installation", async () => services.licensingCore.validateInstallation());
   ipcMain.handle("license:get-plans", async () => ({ ok: true, plans: services.licensingCore.getPlans() }));
-  ipcMain.handle("license:create-payment", async (_, payload) => services.licensingCore.createPaymentReference(payload));
-  ipcMain.handle("license:check-payment", async (_, payload) => services.licensingCore.checkPaymentStatus(payload?.reference));
-  ipcMain.handle("license:activate", async (_, payload) => services.licensingCore.activateLicense(payload));
-  ipcMain.handle("license:renew", async (_, payload) => services.licensingCore.renewLicense(payload));
+  ipcMain.handle("license:create-payment", async (_, payload) => {
+    const result = await services.licensingCore.createPaymentReference(payload);
+    recordSupportEvent(
+      result?.ok ? "info" : "warn",
+      "licensing",
+      "licensing.payment.create",
+      result?.ok ? "Referencia de pagamento criada." : result?.message || "Falha ao criar referencia de pagamento.",
+      {
+        plan: String(payload?.plan || "").trim(),
+        ok: Boolean(result?.ok)
+      }
+    );
+    return result;
+  });
+  ipcMain.handle("license:check-payment", async (_, payload) => {
+    const result = await services.licensingCore.checkPaymentStatus(payload?.reference);
+    recordSupportEvent(
+      result?.ok ? "info" : "warn",
+      "licensing",
+      "licensing.payment.status",
+      result?.ok ? "Consulta de pagamento concluida." : result?.message || "Falha ao consultar pagamento.",
+      {
+        reference: String(payload?.reference || "").trim(),
+        status: String(result?.status || "").trim(),
+        ok: Boolean(result?.ok)
+      }
+    );
+    return result;
+  });
+  ipcMain.handle("license:activate", async (_, payload) => {
+    const result = await services.licensingCore.activateLicense(payload);
+    recordSupportEvent(
+      result?.ok ? "info" : "error",
+      "licensing",
+      "licensing.activate",
+      result?.ok ? "Licenca ativada com sucesso." : result?.message || "Falha na ativacao da licenca.",
+      {
+        email: String(payload?.email || "").trim().toLowerCase(),
+        status: String(result?.status || "").trim(),
+        ok: Boolean(result?.ok)
+      }
+    );
+    return result;
+  });
+  ipcMain.handle("license:renew", async (_, payload) => {
+    const result = await services.licensingCore.renewLicense(payload);
+    recordSupportEvent(
+      result?.ok ? "info" : "warn",
+      "licensing",
+      "licensing.renew",
+      result?.ok ? "Fluxo de renovacao iniciado." : result?.message || "Falha ao iniciar renovacao.",
+      {
+        email: String(payload?.email || "").trim().toLowerCase(),
+        ok: Boolean(result?.ok)
+      }
+    );
+    return result;
+  });
   ipcMain.handle("app:get-bootstrap", withAuth(async (user) => ({
     ...services.settings.getBootstrap(user),
     runtime: {
@@ -944,7 +1079,6 @@ function registerIpc() {
       installationIntegrity: startupIntegrityState
     }
   })));
-  ipcMain.handle("auth:get-state", async () => services.auth.getState());
   ipcMain.handle("auth:login", async (_, credentials) => {
     const licenseGuard = services.licensingCore.getGuardResult();
     if (!licenseGuard.ok) {
@@ -1710,6 +1844,10 @@ function registerIpc() {
   ipcMain.handle("audit:list", withAdmin(async (user, filters) => ({ ok: true, items: services.database.listAuditLogs(filters || {}) })));
   ipcMain.handle("audit:export", withAdmin(async (user, filters) => services.database.exportAuditCsv(filters || {})));
   ipcMain.handle("audit:export-excel", withAdmin(async (user, filters) => services.database.exportAuditExcel(filters || {})));
+  ipcMain.handle(
+    "audit:export-payroll-calculation",
+    withAdmin(async (user, filters) => services.database.exportPayrollCalculationAudit(filters || {}))
+  );
   ipcMain.handle("excel:export-monthly-payroll", withPermission("exports.generate", async (user, payload) => services.database.exportMonthlyPayrollExcel(payload)));
   ipcMain.handle(
     "excel:export-agt-monthly-remuneration",
@@ -1718,6 +1856,22 @@ function registerIpc() {
   ipcMain.handle("excel:export-state-payments", withPermission("exports.generate", async (user, payload) => services.database.exportStatePaymentsExcel(payload)));
   ipcMain.handle("excel:export-attendance", withPermission("exports.generate", async (user, payload) => services.database.exportAttendanceExcel(payload, payload?.reportType)));
   ipcMain.handle("excel:export-shift-map", withPermission("exports.generate", async (user, payload) => services.database.exportShiftMapExcel(payload, payload?.reportType)));
+  ipcMain.handle("support:health", withAdmin(async () => {
+    return supportDiagnostics?.buildHealthSnapshot({
+      startupIntegrity: startupIntegrityState
+    }) || { ok: false, message: "Servico de diagnostico indisponivel." };
+  }));
+  ipcMain.handle("support:export-logs", withAdmin(async (user, payload) => {
+    if (!supportDiagnostics) {
+      return { ok: false, message: "Servico de diagnostico indisponivel." };
+    }
+    return supportDiagnostics.exportSupportBundle({
+      requestedByUserId: user?.id || null,
+      requestedBy: user?.username || user?.full_name || "admin",
+      reason: String(payload?.reason || "support_request").trim(),
+      startupIntegrity: startupIntegrityState
+    });
+  }));
   ipcMain.handle("bank:export-payroll", withPermission("bank.export", async (user, payload) => {
     const format = String(payload?.format || "csv").toLowerCase();
     if (format === "ps2" || format === "psx") {
@@ -1825,6 +1979,18 @@ app.whenReady().then(() => {
       ensureDir(cachePath);
     } catch {}
   }
+
+  supportDiagnostics = new SupportDiagnosticsService({
+    userDataPath,
+    logsPath: app.getPath("logs"),
+    appName: app.getName(),
+    appVersion: app.getVersion()
+  });
+  recordSupportEvent("info", "boot", "boot.start", "Sequencia de arranque iniciada.", {
+    userDataPath,
+    documentsPath,
+    programDataPath
+  });
 
   log.info("[BOOT] loading secure storage");
   const secureStorage = new SecureStorageService({
@@ -1938,6 +2104,13 @@ app.whenReady().then(() => {
       stage: startupIntegrityState.stage || "startup",
       message: startupIntegrityState.message || "Falha de integridade no arranque."
     });
+    recordSupportEvent(
+      "error",
+      "boot",
+      "boot.blocked",
+      startupIntegrityState.message || "Arranque bloqueado por integridade.",
+      startupIntegrityState
+    );
   } else {
     const initializeServices = () => {
       log.info("[BOOT] initializing application services");
@@ -2020,6 +2193,10 @@ app.whenReady().then(() => {
     log.warn("[BOOT][FALLBACK] commercial services unavailable; startup kept in degraded mode.");
   }
   log.info("[BOOT] startup sequence finished");
+  recordSupportEvent("info", "boot", "boot.finished", "Sequencia de arranque concluida.", {
+    degradedMode: !services,
+    integrityOk: Boolean(startupIntegrityState?.ok)
+  });
   if (isPackagedSmokeE2EMode()) {
     log.info("[BOOT] packaged smoke e2e mode enabled");
     void runPackagedSmokeE2EScenario()
@@ -2057,10 +2234,45 @@ app.on("window-all-closed", () => {
   }
 });
 
+app.on("render-process-gone", (_event, webContents, details) => {
+  const message = `Processo renderer terminou com razao '${details?.reason || "desconhecida"}'.`;
+  log.error(message, details);
+  recordSupportEvent("error", "crash", "crash.render-process-gone", message, details || {});
+  try {
+    supportDiagnostics?.recordCrash("render-process", new Error(message), {
+      details: details || {},
+      webContentsId: webContents?.id || null
+    });
+  } catch {}
+});
+
+app.on("child-process-gone", (_event, details) => {
+  const message = `Processo filho terminou com razao '${details?.reason || "desconhecida"}'.`;
+  log.error(message, details);
+  recordSupportEvent("error", "crash", "crash.child-process-gone", message, details || {});
+  try {
+    supportDiagnostics?.recordCrash("child-process", new Error(message), {
+      details: details || {}
+    });
+  } catch {}
+});
+
 process.on("uncaughtException", (error) => {
   log.error("Erro inesperado", error);
+  recordSupportEvent("error", "crash", "crash.uncaught-exception", String(error?.message || error), {
+    stack: String(error?.stack || "")
+  });
+  try {
+    supportDiagnostics?.recordCrash("uncaught-exception", error);
+  } catch {}
 });
 
 process.on("unhandledRejection", (error) => {
   log.error("Promessa rejeitada sem tratamento", error);
+  recordSupportEvent("error", "crash", "crash.unhandled-rejection", String(error?.message || error), {
+    stack: String(error?.stack || "")
+  });
+  try {
+    supportDiagnostics?.recordCrash("unhandled-rejection", error);
+  } catch {}
 });

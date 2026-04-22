@@ -1,5 +1,8 @@
 const { roundCurrency } = require("../fiscal/utils");
 const {
+  PAYROLL_OVERTIME_HOURLY_DIVISOR
+} = require("../../../../shared/domain/payroll-constants");
+const {
   CURRENT_INSS_EMPLOYEE_RATE_PERCENT,
   calculateInssBreakdown,
   ratePercentToDecimal
@@ -30,7 +33,11 @@ function mandatoryBonusAmount(baseSalary, quantity = 1) {
 }
 
 function overtimeAmount(remunerationBase, quantity, multiplier) {
-  return roundCurrency((Number(remunerationBase || 0) / 176) * Number(multiplier || 1) * Number(quantity || 0));
+  return roundCurrency(
+    (Number(remunerationBase || 0) / PAYROLL_OVERTIME_HOURLY_DIVISOR) *
+      Number(multiplier || 1) *
+      Number(quantity || 0)
+  );
 }
 
 function monthlyRemunerationBase(baseSalary, allowancesTotal, bonusesTotal) {

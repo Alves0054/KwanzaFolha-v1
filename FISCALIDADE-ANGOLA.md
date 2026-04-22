@@ -1,41 +1,44 @@
-# Fiscalidade Angola
+# Fiscalidade Angola - Base Tecnica Atual
 
-## Base legal aplicada no motor fiscal
+## Base legal declarada no motor fiscal
 
-O motor fiscal do **Kwanza Folha** passa a assumir como base legal ativa:
+- Lei n. 18/14 (CIRT)
+- Lei n. 28/20 (alteracao aplicavel ao regime em vigor)
+- regras correntes de INSS: 3% trabalhador e 8% entidade empregadora
 
-- **Lei n.º 18/14** - Código do Imposto sobre o Rendimento do Trabalho (IRT)
-- **Lei n.º 28/20** - alteração ao Código do IRT
-- comunicação oficial da **AGT** indicando que os rendimentos de trabalho realizados **a partir de 1 de Setembro de 2020** passam a ser tributados nos termos da Lei n.º 28/20
-- regras operacionais correntes de **INSS** usadas pelo sistema: **3% trabalhador** e **8% entidade empregadora**
+Perfil fiscal padrao no codigo:
 
-## Regras implementadas
+- `electron/services/core/fiscal/index.js`
+- vigencia base: `2020-09`
 
-- Salário bruto = salário base + subsídios + horas extras + prémios
-- INSS do trabalhador = 3% da base sujeita
-- INSS da empresa = 8% da base sujeita
-- IRT calculado por tabela progressiva do Grupo A
-- Isenção de IRT até **100.000 Kz**
-- Desconto por falta = salário base / 30 x número de faltas
-- Horas extras normais = 50%
-- Horas extras em feriado ou descanso semanal = 100%
-- Subsídio de férias = salário base
-- Subsídio de Natal (13.º) = salário base
+## Modulos tecnicos de calculo
 
-## Estrutura técnica
+- IRT: `electron/services/core/irt/irtCalculator.js`
+- INSS: `electron/services/core/inss/inssCalculator.js`
+- folha/engine: `electron/services/core/payroll/salaryEngine.js`
+- faltas/assiduidade: `electron/services/core/payroll/absenceCalculator.js`
+- orquestracao de processamento: `electron/services/payroll.js`
 
-O cálculo fiscal foi organizado em módulos dedicados:
+## Regras tecnicas aplicadas
 
-- [electron/services/core/fiscal/index.js](C:/Users/nunes/Documents/Pagamentos/electron/services/core/fiscal/index.js)
-- [electron/services/core/irt/irtCalculator.js](C:/Users/nunes/Documents/Pagamentos/electron/services/core/irt/irtCalculator.js)
-- [electron/services/core/inss/inssCalculator.js](C:/Users/nunes/Documents/Pagamentos/electron/services/core/inss/inssCalculator.js)
-- [electron/services/core/payroll/salaryEngine.js](C:/Users/nunes/Documents/Pagamentos/electron/services/core/payroll/salaryEngine.js)
-- [electron/services/core/payroll/absenceCalculator.js](C:/Users/nunes/Documents/Pagamentos/electron/services/core/payroll/absenceCalculator.js)
+- salario bruto: salario base + subsidios + bonus + horas extra
+- desconto por falta/licenca sem vencimento: base diaria * dias
+- base de INSS e IRT derivada da composicao fiscal dos itens
+- INSS funcionario e INSS empresa aplicados por taxa
+- IRT progressivo por escaloes configurados no perfil fiscal ativo
+- salario liquido calculado apos deducoes legais e deducoes de assiduidade
 
-## Regras removidas
+## Auditoria tecnica de calculo
 
-O sistema deixa de considerar regras fiscais legadas anteriores ao regime atualmente em vigor.
+- cada processamento grava `summary_json` em `payroll_runs`
+- exportacao rastreavel de auditoria de calculo:
+  - `DatabaseService.exportPayrollCalculationAudit`
+  - saida JSON + CSV em pasta de auditoria
 
-## Observação operacional
+## Itens de validacao externa pendente
 
-O perfil fiscal padrão do sistema entra em vigor em **2020-09**, para alinhar o motor com a aplicação da Lei n.º 28/20 aos rendimentos do Grupo A.
+- validacao formal contabilistica/fiscal do output em ambiente real
+- validacao final de layouts/formato bancario PS2/PSX com bancos
+- validacao operacional externa de entrega AGT
+
+Ver checklist: `docs/validacao-externa-pendente/CHECKLIST_VALIDACAO_EXTERNA.md`

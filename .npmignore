@@ -1,0 +1,15 @@
+node_modules/
+dist/
+dist-electron/
+logs/
+artifacts/
+licensing-server/storage/
+*.p12
+*.pem
+*.key
+*.sqlite
+*.sqlite.enc
+*.db
+.env
+.env.*
+Kwanza Folha.zip
