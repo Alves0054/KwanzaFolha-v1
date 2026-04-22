@@ -126,6 +126,16 @@ jobs:
       - name: Validate release readiness (preflight)
         run: npm run release:validate
 
+      - name: Validate version matches tag
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}".Trim()
+          $expected = $tag -replace '^v',''
+          $pkg = node -p "require('./package.json').version"
+          if ($pkg -ne $expected) {
+            throw "package.json version ($pkg) nao corresponde ao tag ($expected). Atualize a versao antes de publicar."
+          }
+
       - name: Resolve release channel
         shell: pwsh
         run: |
