@@ -11,7 +11,6 @@ const CRITICAL_FILES = [
   { path: "electron/services/installation-identity.js", packaged: true, development: true },
   { path: "electron/services/anti-tamper.js", packaged: true, development: true },
   { path: "electron/services/core/create-app-services.js", packaged: true, development: true },
-  { path: "licensing-server/server.js", packaged: false, development: true },
   { path: "package.json", packaged: false, development: true }
 ];
 
