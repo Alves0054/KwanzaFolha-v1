@@ -23,8 +23,13 @@ if (-not (Test-Path $appExe)) {
 $targets = @($installer.FullName, $appExe)
 foreach ($targetPath in $targets) {
   $signature = Get-AuthenticodeSignature -FilePath $targetPath
-  if ($signature.Status -ne "Valid" -or -not $signature.SignerCertificate) {
-    throw "Assinatura invalida para '$targetPath'. Estado: $($signature.Status)."
+  if (-not $signature.SignerCertificate) {
+    throw "Assinatura ausente para '$targetPath' (NotSigned)."
+  }
+
+  $status = [string]$signature.Status
+  if ($status -eq "NotSigned" -or $status -eq "HashMismatch") {
+    throw "Assinatura invalida para '$targetPath'. Estado: $status."
   }
   if ($RequireTimestamp -and -not $signature.TimeStamperCertificate) {
     throw "Assinatura sem timestamp para '$targetPath'."

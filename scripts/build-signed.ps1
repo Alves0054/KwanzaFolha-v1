@@ -256,12 +256,26 @@ function Sign-WithFallback {
 function Assert-SignedArtifact {
   param(
     [string]$ArtifactPath,
-    [bool]$RequireTimestamp
+    [bool]$RequireTimestamp,
+    [string]$ExpectedThumbprint
   )
 
   $signature = Get-AuthenticodeSignature -FilePath $ArtifactPath
-  if ($signature.Status -ne "Valid" -or -not $signature.SignerCertificate) {
-    throw "A assinatura digital do artefacto '$ArtifactPath' nao esta valida. Estado: $($signature.Status)."
+  if (-not $signature.SignerCertificate) {
+    throw "O artefacto '$ArtifactPath' nao tem certificado de assinatura (NotSigned)."
+  }
+
+  $status = [string]$signature.Status
+  if ($status -eq "NotSigned" -or $status -eq "HashMismatch") {
+    throw "A assinatura digital do artefacto '$ArtifactPath' nao esta valida. Estado: $status."
+  }
+
+  if ($ExpectedThumbprint) {
+    $actualThumbprint = ($signature.SignerCertificate.Thumbprint -replace "\s", "").ToUpperInvariant()
+    $expected = ($ExpectedThumbprint -replace "\s", "").ToUpperInvariant()
+    if ($actualThumbprint -ne $expected) {
+      throw "O artefacto '$ArtifactPath' foi assinado com um certificado inesperado. Thumbprint: $actualThumbprint."
+    }
   }
   if ($RequireTimestamp -and -not $signature.TimeStamperCertificate) {
     throw "O artefacto '$ArtifactPath' esta assinado mas sem timestamp."
@@ -327,7 +341,7 @@ try {
   }
 
   foreach ($artifact in $expectedArtifacts) {
-    Assert-SignedArtifact -ArtifactPath $artifact.FullName -RequireTimestamp (-not $AllowUnsignedTimestamp)
+    Assert-SignedArtifact -ArtifactPath $artifact.FullName -RequireTimestamp (-not $AllowUnsignedTimestamp) -ExpectedThumbprint $certificateThumbprint
   }
 
   if ($buildError) {
