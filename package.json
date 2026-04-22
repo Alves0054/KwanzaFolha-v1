@@ -29,7 +29,7 @@
     "smoke:packaged:e2e": "powershell -ExecutionPolicy Bypass -File scripts\\smoke-packaged-e2e.ps1",
     "verify:packaged:main": "node scripts\\verify-packaged-main-syntax.js --output dist-electron",
     "test": "npm run test:node",
-    "test:node": "node tests\\run-tests.js",
+    "test:node": "cross-env NODE_ENV=test KWANZA_ALLOW_NODE_NATIVE_REBUILD=1 node tests\\run-tests.js",
     "test:node:abi": "npm run native:rebuild:node && node tests\\run-tests.js",
     "build": "npm run integrity:generate && vite build && electron-builder",
     "build:installer": "npm run integrity:generate && vite build && electron-builder --win nsis",

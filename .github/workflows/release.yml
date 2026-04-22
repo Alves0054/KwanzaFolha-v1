@@ -28,6 +28,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -98,6 +100,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -191,9 +195,12 @@ jobs:
       - name: Publish draft GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
           draft: true
           prerelease: ${{ contains(github.ref_name, '-beta') }}
           body_path: dist-electron/release-notes-template.md
+          fail_on_unmatched_files: true
           files: |
             dist-electron/KwanzaFolha-Setup-*.exe
             dist-electron/KwanzaFolha-Setup-*.exe.blockmap

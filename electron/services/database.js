@@ -4,10 +4,51 @@ const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 // Em runtime Electron usamos o driver com SQLCipher. Em runtime Node (testes/unitarios),
 // carregamos `better-sqlite3` para evitar erros de ABI (NODE_MODULE_VERSION).
+const { execFileSync } = require("child_process");
+
+function loadBetterSqlite3ForNode() {
+  try {
+    // eslint-disable-next-line global-require
+    const driver = require("better-sqlite3");
+
+    // O melhor-sqlite3 só tenta carregar o binário nativo no primeiro "new Database".
+    // Fazemos um self-test aqui para detetar ABI mismatch cedo (antes de quebrar o arranque/testes).
+    try {
+      const probe = new driver(":memory:");
+      probe.close();
+    } catch (probeError) {
+      throw probeError;
+    }
+
+    return driver;
+  } catch (error) {
+    const message = String(error?.message || error);
+    const isAbiMismatch = /NODE_MODULE_VERSION|compiled against a different Node\.js version/i.test(message);
+    const allowAutoRebuild = process.env.KWANZA_ALLOW_NODE_NATIVE_REBUILD === "1" || process.env.NODE_ENV === "test";
+    if (!isAbiMismatch || !allowAutoRebuild || process.platform !== "win32") {
+      throw error;
+    }
+
+    // Quando a build desktop faz rebuild para Electron, o node_modules fica com ABI do Electron.
+    // Para manter testes/validadores Node estáveis, fazemos rebuild para Node apenas em modo teste.
+    console.warn("[DB][ABI] better-sqlite3 ABI mismatch. Rebuilding for Node runtime...");
+    execFileSync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "scripts\\rebuild-node-native.ps1"],
+      { cwd: path.join(__dirname, "..", ".."), stdio: "inherit" }
+    );
+
+    // eslint-disable-next-line global-require
+    const driver = require("better-sqlite3");
+    const probe = new driver(":memory:");
+    probe.close();
+    return driver;
+  }
+}
+
 const Database = process.versions?.electron
   ? require("better-sqlite3-multiple-ciphers")
-  : require("better-sqlite3");
-const { execFileSync } = require("child_process");
+  : loadBetterSqlite3ForNode();
 const {
   buildFiscalProfile,
   buildDefaultFiscalProfile,
