@@ -21,6 +21,7 @@ dist-electron/
 *.sqlite.enc
 *.db
 licensing-server/
+licensing-server.local/
 licensing-server/storage/
 
 # Secrets and local config
