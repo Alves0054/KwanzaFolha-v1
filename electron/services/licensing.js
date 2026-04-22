@@ -659,6 +659,27 @@ class LicensingService {
       trialDurationDays = Number(payload.trial_duration_days || trialDurationDays || TRIAL_DAYS);
     }
 
+    // Migração segura: se uma instalação antiga iniciou trial com menos dias (ex.: 7),
+    // estendemos para TRIAL_DAYS apenas dentro da janela de TRIAL_DAYS (sem reset de data).
+    if (!signedTrial?.ok) {
+      const legacyDuration = Number(trialCache?.trial_duration_days || 0);
+      if (trialStartedAt && legacyDuration > 0 && legacyDuration < TRIAL_DAYS) {
+        const candidateExpire = addDaysToIso(trialStartedAt, TRIAL_DAYS);
+        const candidateStillActive = Date.now() <= new Date(candidateExpire).getTime();
+        if (candidateStillActive) {
+          trialDurationDays = TRIAL_DAYS;
+          try {
+            this.saveTrialCache({
+              ...trialCache,
+              trial_duration_days: TRIAL_DAYS,
+              upgraded_from_days: legacyDuration,
+              upgraded_at: nowIso()
+            });
+          } catch {}
+        }
+      }
+    }
+
     if (!trialStartedAt) {
       return {
         ok: false,
