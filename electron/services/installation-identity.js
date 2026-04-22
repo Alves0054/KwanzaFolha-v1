@@ -429,11 +429,45 @@ if ($signature.SignerCertificate) { $thumbprint = $signature.SignerCertificate.T
       const result = safeJsonParse(output, {});
       const normalizedThumbprint = safeString(result.thumbprint).toUpperCase();
       const status = String(result.status || "").toLowerCase();
+      const hasSigner = Boolean(normalizedThumbprint);
       const matchesExpectedThumbprint = Boolean(
         normalizedThumbprint &&
         normalizedAllowedThumbprints.includes(normalizedThumbprint)
       );
       if (status !== "valid") {
+        // Em Windows reais, certificados self-signed ou cadeias não instaladas podem aparecer como UnknownError/NotTrusted
+        // apesar do ficheiro estar efetivamente assinado. Para não bloquear a app injustamente, aceitamos como "warning"
+        // quando existe um signer presente, mantendo o bloqueio apenas para NotSigned/HashMismatch/Thumbprint mismatch.
+        if (hasSigner) {
+          const isUnsigned = status === "notsigned";
+          const isHashMismatch = status === "hashmismatch";
+          if (isHashMismatch) {
+            return {
+              ok: false,
+              code: "hash_mismatch",
+              message: "O executavel parece ter sido alterado apos a assinatura (HashMismatch).",
+              result
+            };
+          }
+          if (normalizedAllowedThumbprints.length > 0 && !matchesExpectedThumbprint) {
+            return {
+              ok: false,
+              code: "thumbprint_mismatch",
+              message: "O thumbprint do executavel nao corresponde ao certificado esperado.",
+              result
+            };
+          }
+          if (!isUnsigned) {
+            return {
+              ok: true,
+              warning: true,
+              code: "signed_but_untrusted",
+              message:
+                "Executavel assinado, mas a cadeia de confianca nao foi validada neste Windows. Instale a build oficial assinada (certificado confiavel) para eliminar este aviso.",
+              result
+            };
+          }
+        }
         if (matchesExpectedThumbprint) {
           return {
             ok: true,

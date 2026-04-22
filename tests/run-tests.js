@@ -2,8 +2,38 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { execFileSync } = require("node:child_process");
 const bcrypt = require("bcryptjs");
-const BetterSqlite3 = require("better-sqlite3");
+
+function loadBetterSqlite3WithAbiRecovery() {
+  try {
+    // eslint-disable-next-line global-require
+    return require("better-sqlite3");
+  } catch (error) {
+    const message = String(error?.message || error);
+    const isAbiMismatch = /NODE_MODULE_VERSION|compiled against a different Node\.js version/i.test(message);
+    if (!isAbiMismatch || process.platform !== "win32") {
+      throw error;
+    }
+
+    console.warn("[TEST][ABI] better-sqlite3 ABI mismatch detected. Rebuilding for Node runtime...");
+    try {
+      execFileSync(
+        "powershell.exe",
+        ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "scripts\\rebuild-node-native.ps1"],
+        { cwd: path.join(__dirname, ".."), stdio: "inherit" }
+      );
+    } catch (rebuildError) {
+      throw error;
+    }
+
+    // Retry once after rebuild.
+    // eslint-disable-next-line global-require
+    return require("better-sqlite3");
+  }
+}
+
+const BetterSqlite3 = loadBetterSqlite3WithAbiRecovery();
 
 const {
   DatabaseService,

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-22T10:55:41.019Z",
+  "generatedAt": "2026-04-22T11:17:23.564Z",
   "files": [
     {
       "path": "electron/bootstrap.js",
@@ -33,7 +33,7 @@
     },
     {
       "path": "electron/services/installation-identity.js",
-      "sha256": "8e1c31c56a6840d538295c503a95bc462e3586c3150b398b7b7da8e269363797",
+      "sha256": "8b94156030fc61b3d49331a47439fb19a25d26763838d2c07bd19f4ba726c9e5",
       "packaged": true,
       "development": true
     },
@@ -51,7 +51,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "1447a844312c7b029f87b47ef1247658d062da0391fe2d4c1cffba72dc89cf3b",
+      "sha256": "0835aa118a278af129b4ac7a12612e958dab96e81de76b126787e50b4720bbe5",
       "packaged": false,
       "development": true
     }

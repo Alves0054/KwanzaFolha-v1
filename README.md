@@ -29,7 +29,7 @@ Aplicacao desktop (Electron + React + SQLite) para processamento salarial e oper
 - Dominio fiscal: `electron/services/core/fiscal`, `core/irt`, `core/inss`, `core/payroll`
 - Persistencia: `electron/services/database.js` + dominos extraidos em `electron/services/core/db/domains`
 - Frontend: `src/` (app-shell, features, entities, ui)
-- Servidor de licenciamento: `licensing-server/server.js`
+- Servidor de licenciamento: **nao incluído neste repositório** (deploy separado)
 
 ## Scripts suportados
 
