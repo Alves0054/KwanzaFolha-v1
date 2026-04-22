@@ -11,7 +11,7 @@ O Kwanza Folha é um software de gestão de folha salarial e recursos humanos, d
 O Kwanza Folha é licenciado, e não vendido. A licença concedida ao cliente é limitada, revogável, não exclusiva e intransmissível, destinando-se apenas ao uso interno da empresa licenciada.
 
 3. Período gratuito
-O software pode disponibilizar um período inicial de teste gratuito de 7 (sete) dias. Após o fim desse período, o acesso ao sistema poderá ser bloqueado até à ativação de uma licença válida.
+O software pode disponibilizar um período inicial de teste gratuito de  30 (trinta) dias. Após o fim desse período, o acesso ao sistema poderá ser bloqueado até à ativação de uma licença válida.
 
 4. Assinatura e validade
 O Kwanza Folha opera por assinatura mensal. A licença ativa concede acesso ao sistema pelo prazo contratado, com validade de 30 (trinta) dias, renovável mediante pagamento.
