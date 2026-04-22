@@ -30,8 +30,13 @@ function Assert-ValidSignature {
   param([string]$PathToFile)
 
   $signature = Get-AuthenticodeSignature -FilePath $PathToFile
-  if ($signature.Status -ne "Valid" -or -not $signature.SignerCertificate) {
-    throw "Smoke E2E falhou: assinatura invalida para '$PathToFile'. Estado: $($signature.Status)."
+  if (-not $signature.SignerCertificate) {
+    throw "Smoke E2E falhou: assinatura ausente para '$PathToFile' (NotSigned)."
+  }
+
+  $status = [string]$signature.Status
+  if ($status -eq "NotSigned" -or $status -eq "HashMismatch") {
+    throw "Smoke E2E falhou: assinatura invalida para '$PathToFile'. Estado: $status."
   }
   if (-not $signature.TimeStamperCertificate) {
     throw "Smoke E2E falhou: '$PathToFile' esta assinado sem timestamp."

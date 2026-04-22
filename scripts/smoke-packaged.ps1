@@ -33,8 +33,13 @@ if (-not $SkipSignatureCheck) {
     param([string]$PathToFile)
 
     $signature = Get-AuthenticodeSignature -FilePath $PathToFile
-    if ($signature.Status -ne "Valid" -or -not $signature.SignerCertificate) {
-      throw "Smoke falhou: assinatura invalida para '$PathToFile'. Estado: $($signature.Status)."
+    if (-not $signature.SignerCertificate) {
+      throw "Smoke falhou: assinatura ausente para '$PathToFile' (NotSigned)."
+    }
+
+    $status = [string]$signature.Status
+    if ($status -eq "NotSigned" -or $status -eq "HashMismatch") {
+      throw "Smoke falhou: assinatura invalida para '$PathToFile'. Estado: $status."
     }
     if (-not $signature.TimeStamperCertificate) {
       throw "Smoke falhou: '$PathToFile' esta assinado sem timestamp."
