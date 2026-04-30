@@ -1,4 +1,4 @@
-# Guia de Publicação, Licenciamento e Plano Financeiro
+﻿# Guia de Publicação, Licenciamento e Plano Financeiro
 
 Este documento explica como colocar o **Kwanza Folha** online, como funciona o ciclo completo da licença e como estruturar um plano financeiro inicial para operar o produto como software pago.
 
@@ -115,7 +115,7 @@ Hoje o projeto já faz quase todo o ciclo.
 1. o cliente instala o aplicativo
 2. regista a empresa e o primeiro administrador
 3. começa um período gratuito de 15 dias
-4. durante esses 7 dias pode usar o sistema normalmente
+4. durante esses 15 dias pode usar o sistema normalmente
 5. quando o teste termina, o app bloqueia
 6. o cliente compra ou ativa a licença
 7. depois da ativação, o sistema funciona offline até à data de expiração
@@ -278,7 +278,7 @@ O fluxo é praticamente o mesmo:
 ### 3.1. Já está pronto
 
 - registo inicial da empresa
-- 7 dias gratuitos
+- 15 dias gratuitos
 - bloqueio após expiração do teste
 - compra da licença no app
 - geração de referência
@@ -333,10 +333,13 @@ O plano abaixo é uma proposta realista para começar a operar comercialmente.
 
 ### 4.1. Receita do produto
 
-Plano atual:
+Planos comerciais:
 
-- **KwanzaFolha Mensal**
-- **15.000 Kz por cliente por mês**
+- **Starter** — 7.500 Kz/mês (até 10 funcionários, até 1 PC/dispositivo)
+- **Básico** — 12.500 Kz/mês (até 25 funcionários, até 2 PCs/dispositivos)
+- **Profissional** — 15.000 Kz/mês (até 50 funcionários, até 3 PCs/dispositivos)
+- **Empresa** — 28.000 Kz/mês (até 100 funcionários, até 4 PCs/dispositivos)
+- **Business** — 48.500 Kz/mês (até 200 funcionários, até 6 PCs/dispositivos)
 
 ### 4.2. Estrutura financeira recomendada
 
@@ -548,4 +551,3 @@ Para ficar totalmente pronto para mercado, o trabalho principal agora é:
 - automação da confirmação do pagamento
 - publicação comercial
 - operação financeira e suporte
-

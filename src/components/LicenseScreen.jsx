@@ -1,4 +1,4 @@
-import AppIcon from "./AppIcon";
+﻿import AppIcon from "./AppIcon";
 import brandLogo from "../assets/logos/logo-light.png";
 
 function formatKz(value) {
@@ -6,13 +6,15 @@ function formatKz(value) {
 }
 
 const FALLBACK_PLAN = {
-  code: "kwanzafolha-mensal",
-  name: "KwanzaFolha Mensal",
+  code: "profissional",
+  name: "Profissional",
   price: 15000,
   periodDays: 30,
+  maxEmployees: 50,
+  maxDevices: 3,
   features: [
-    "Acesso completo ao sistema",
-    "Múltiplos utilizadores dentro da empresa",
+    "Até 50 funcionários ativos",
+    "Até 3 PCs/dispositivos por licença",
     "Validade de 30 dias",
     "Renovação mensal"
   ]
@@ -38,7 +40,10 @@ export default function LicenseScreen({
   const isDeveloperActive = licenseState?.status === "developer_active";
   const isExpired = licenseState?.status === "expired";
   const isTrialExpired = licenseState?.status === "trial_expired";
-  const plan = plans?.[0] || FALLBACK_PLAN;
+  const availablePlans = plans?.length ? plans : [FALLBACK_PLAN];
+  const selectedPlanCode = String(purchaseForm?.plan || availablePlans?.[0]?.code || FALLBACK_PLAN.code).trim().toLowerCase();
+  const selectedPlan = availablePlans.find((candidate) => candidate.code === selectedPlanCode) || availablePlans[0] || FALLBACK_PLAN;
+  const plan = selectedPlan;
 
   const title = isDeveloperActive
     ? "LICENÇA TÉCNICA DE DESENVOLVIMENTO"
@@ -51,10 +56,10 @@ export default function LicenseScreen({
   const description = isDeveloperActive
     ? "Esta instalação local está em modo técnico de desenvolvimento para permitir edição, testes e manutenção do sistema sem bloqueio comercial."
     : isExpired
-      ? "Sua licença do KwanzaFolha expirou. Renove para continuar usando o sistema."
+      ? "Sua licença do Kwanza Folha expirou. Renove para continuar usando o sistema."
       : isTrialExpired
-        ? "Os 30 dias gratuitos já terminaram. Para continuar, renove ou compre a licença KwanzaFolha Mensal."
-        : "Ative a sua licença ou conclua a compra da assinatura mensal para continuar a usar o Kwanza Folha.";
+        ? "Os 15 dias gratuitos já terminaram. Para continuar, renove ou compre um plano mensal."
+        : "Ative a sua licença ou conclua a compra/renovação do plano mensal para continuar a usar o Kwanza Folha.";
 
   const returnMode = isExpired ? "renew" : "purchase";
   const paymentInstructions = paymentState?.paymentInstructions || {};
@@ -236,17 +241,36 @@ export default function LicenseScreen({
                   <p>Preencha os dados da empresa para gerar a referência de pagamento da assinatura mensal.</p>
                 </div>
 
-                <div className="license-plan-card license-plan-card--active license-plan-card--single">
-                  <div className="license-plan-card__headline">
-                    <strong>{plan.name}</strong>
-                    <span>{formatKz(plan.price)} por mês</span>
-                  </div>
-                  <small className="license-plan-card__meta">Validade de {plan.periodDays} dias com renovação mensal.</small>
-                  <ul className="license-plan-features">
-                    {(plan.features || FALLBACK_PLAN.features).map((feature) => (
-                      <li key={feature}>{feature}</li>
-                    ))}
-                  </ul>
+                <div className="license-plan-grid" role="list">
+                  {availablePlans.map((candidate) => {
+                    const isActive = candidate.code === selectedPlanCode;
+                    return (
+                      <button
+                        key={candidate.code}
+                        type="button"
+                        className={isActive ? "license-plan-card license-plan-card--active" : "license-plan-card"}
+                        onClick={() =>
+                          setPurchaseForm((current) => ({
+                            ...current,
+                            plan: candidate.code
+                          }))
+                        }
+                      >
+                        <div className="license-plan-card__headline">
+                          <strong>{candidate.name}</strong>
+                          <span>{formatKz(candidate.price)} por mês</span>
+                        </div>
+                        <small className="license-plan-card__meta">
+                          Validade de {candidate.periodDays || 30} dias com renovação mensal.
+                        </small>
+                        <ul className="license-plan-features">
+                          {(candidate.features || FALLBACK_PLAN.features).map((feature) => (
+                            <li key={feature}>{feature}</li>
+                          ))}
+                        </ul>
+                      </button>
+                    );
+                  })}
                 </div>
 
                 <form className="auth-form auth-form--register" onSubmit={handleCreateLicensePayment}>

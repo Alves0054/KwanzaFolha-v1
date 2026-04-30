@@ -6,6 +6,8 @@ function createLicensingCore(service) {
     getStatus: (force = false) => service.getLicenseStatus(force),
     getGuardResult: () => service.getLicenseGuardResult(),
     getPlans: () => service.getPlans(),
+    getApiBaseUrlState: () => service.getApiBaseUrlState(),
+    setApiBaseUrl: (apiBaseUrl) => service.setApiBaseUrl(apiBaseUrl),
     createPaymentReference: (payload) => service.createPaymentReference(payload),
     checkPaymentStatus: (reference) => service.checkPaymentStatus(reference),
     activateLicense: (payload) => service.activateLicense(payload),

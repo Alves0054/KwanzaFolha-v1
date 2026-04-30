@@ -17,7 +17,7 @@ Aplicacao desktop (Electron + React + SQLite) para processamento salarial e oper
 
 ## Trial e licenciamento (estado real)
 
-- trial padrao: **30 dias**
+- trial padrao: **15 dias**
 - quando o trial termina, o sistema entra em estado bloqueado para uso comercial
 - modo tecnico (`developer-license.json` e `KWANZA_DEV_LICENSE_MODE=1`) so e aceite em runtime local de desenvolvimento
 - build empacotada de producao exige fluxo comercial normal de licenca

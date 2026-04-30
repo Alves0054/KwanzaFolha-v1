@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-22T11:17:23.564Z",
+  "generatedAt": "2026-04-30T15:42:32.880Z",
   "files": [
     {
       "path": "electron/bootstrap.js",
@@ -9,19 +9,19 @@
     },
     {
       "path": "electron/main.js",
-      "sha256": "82c932070bb23de87bef8ea363a6ff3349ff796cc9dbae833753242bc8285a71",
+      "sha256": "19e94e792cacb67e5cba82b971366ce51910904067c5f021e6da97c992234760",
       "packaged": true,
       "development": true
     },
     {
       "path": "electron/services/licensing.js",
-      "sha256": "3575037b11de90dc8f4ad309cb2531bf27ab60c43bc93ba741186c2ca0671449",
+      "sha256": "e676bb69c75e6e97b2e4157e6360dd2f9d2233e41e5dfacb203e5eaaab58e1d4",
       "packaged": true,
       "development": true
     },
     {
       "path": "electron/services/database.js",
-      "sha256": "903a8477bf346b4e0d83e631bce724b1926da6525709b8c75597d230d9f44dcc",
+      "sha256": "d01be32a6f968a8eee7b5714b2fc87362d45ed7afced2955b2e52559ceeaab40",
       "packaged": true,
       "development": true
     },
@@ -45,13 +45,13 @@
     },
     {
       "path": "electron/services/core/create-app-services.js",
-      "sha256": "fc617fea39071a3c11019a6bda90dd9d5a66793d8b3c2a64f9ced101832c10a7",
+      "sha256": "3a8de2f29b0dc37c6f4ee59406238f967764d8146968d0a60e9e43fd0f3612ff",
       "packaged": true,
       "development": true
     },
     {
       "path": "package.json",
-      "sha256": "0835aa118a278af129b4ac7a12612e958dab96e81de76b126787e50b4720bbe5",
+      "sha256": "86c4d239e37984719673d55bc61095dc5987b175608251712a3ccafdeece48ac",
       "packaged": false,
       "development": true
     }

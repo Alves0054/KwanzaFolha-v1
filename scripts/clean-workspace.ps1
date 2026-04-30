@@ -1,5 +1,6 @@
 param(
-  [switch]$DryRun
+  [switch]$DryRun,
+  [switch]$All
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,12 +20,27 @@ $targets = @(
   "artifacts-payroll.sqlite"
 )
 
+if ($All) {
+  $targets += @(
+    "dist",
+    "dist-electron",
+    "logs",
+    "kwanza-folha.sqlite",
+    "kwanza-folha.sqlite.enc",
+    "kwanza-folha.runtime.sqlite",
+    "licensing-server.local\\storage",
+    "licensing-server.local\\config\\settings.json",
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".env.development"
+  )
+}
+
 $artifactPatterns = @(
   "artifacts/activate-test.json",
   "artifacts/cron-line.txt",
   "artifacts/kwanza-folha-debug.sqlite",
-  "artifacts/licensing-server-cloud",
-  "artifacts/licensing-server-cloud.zip",
   "artifacts/payment-create.json",
   "artifacts/payment-status.json",
   "artifacts/remote-proxy",
@@ -34,6 +50,9 @@ $artifactPatterns = @(
 )
 
 function Remove-Target([string]$relativePath) {
+  if ($relativePath.StartsWith(".\\")) {
+    $relativePath = $relativePath.Substring(2)
+  }
   $fullPath = Join-Path $root $relativePath
   if (-not (Test-Path $fullPath)) {
     return
@@ -57,6 +76,39 @@ foreach ($pattern in $artifactPatterns) {
     $relativePath = Resolve-Path -Relative $_.FullName
     Remove-Target $relativePath
   }
+}
+
+if ($All) {
+  $sensitiveNamePatterns = @(
+    "*.sqlite",
+    "*.sqlite.enc",
+    "*.db",
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".env.development",
+    ".env.test",
+    "*.p12",
+    "*.pfx",
+    "*.key",
+    "license-private.pem"
+  )
+
+  Get-ChildItem -Path $root -Recurse -File -Force -ErrorAction SilentlyContinue |
+    Where-Object {
+      $_.FullName -notmatch "\\\\node_modules\\\\" -and
+        $_.FullName -notmatch "\\\\.git\\\\" -and
+        $_.FullName -notmatch "\\\\artifacts\\\\licensing-server-cloud\\\\"
+    } |
+    ForEach-Object {
+      foreach ($pattern in $sensitiveNamePatterns) {
+        if ($_.Name -like $pattern) {
+          $relativePath = Resolve-Path -Relative $_.FullName
+          Remove-Target $relativePath
+          break
+        }
+      }
+    }
 }
 
 Get-ChildItem -Path (Join-Path $root "artifacts") -Directory -Recurse -ErrorAction SilentlyContinue |

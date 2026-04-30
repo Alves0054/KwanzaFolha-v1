@@ -1,4 +1,4 @@
-import { angolaBanks } from "../../utils/payroll";
+﻿import { angolaBanks } from "../../utils/payroll";
 
 function resolveLicenseTone(status) {
   if (status === "active") return "success";
@@ -43,7 +43,7 @@ export default function UserSection({
   downloadUpdate,
   installUpdate
 }) {
-  const currentPlan = licenseState?.plan || licensePlans?.[0]?.name || "KwanzaFolha Mensal";
+  const currentPlan = licenseState?.plan || licensePlans?.[0]?.name || "Plano mensal";
 
   return (
     <>

@@ -1160,7 +1160,7 @@ class PdfService {
       }));
   }
 
-  drawRightText(page, text, rightX, y, font, size) {
+  drawRightText(page, text, rightX, y, font, size, color = rgb(0, 0, 0)) {
     const value = String(text || "");
     const width = font.widthOfTextAtSize(value, size);
     page.drawText(value, {
@@ -1168,7 +1168,7 @@ class PdfService {
       y,
       font,
       size,
-      color: rgb(0, 0, 0)
+      color
     });
   }
 
@@ -1774,7 +1774,10 @@ class PdfService {
 
     const chartHistory = this.buildChargesHistory(monthRef);
     const admissions = employees.filter((employee) => String(employee.hire_date || "").slice(0, 7) === monthRef);
-    const inactiveEmployees = employees.filter((employee) => String(employee.status || "").toLowerCase() !== "active");
+    const inactiveEmployees = employees.filter((employee) => {
+      const status = String(employee.status || "").trim().toLowerCase();
+      return status && status !== "active" && status !== "ativo";
+    });
     const changesWithBonuses = runs.filter((run) => Number(run.bonuses_total || 0) > 0);
     const changesWithAllowances = runs.filter((run) => Number(run.allowances_total || 0) > 0);
 
@@ -1783,6 +1786,7 @@ class PdfService {
       monthRef,
       monthLabel,
       previousMonthRef,
+      rows: runs,
       currentSummary,
       previousSummary,
       totalAllowances,
@@ -2016,20 +2020,17 @@ class PdfService {
       size: 14,
       color: rgb(1, 1, 1)
     });
-    page.drawText(title, {
+    const sectionLabel = `Secao ${section}`;
+    const sectionWidth = Math.min(120, font.widthOfTextAtSize(sectionLabel, 10) + 10);
+    const titleMaxWidth = width - REPORT_MARGIN * 2 - sectionWidth - 18;
+    page.drawText(this.fitText(title, bold, 21, titleMaxWidth), {
       x: REPORT_MARGIN,
       y: height - 106,
       font: bold,
       size: 21,
       color: REPORT_COLORS.title
     });
-    page.drawText(`Secao ${section}`, {
-      x: width - REPORT_MARGIN - 80,
-      y: height - 103,
-      font,
-      size: 10,
-      color: REPORT_COLORS.subtitle
-    });
+    this.drawRightText(page, sectionLabel, width - REPORT_MARGIN, height - 103, font, 10, REPORT_COLORS.subtitle);
     page.drawLine({
       start: { x: REPORT_MARGIN, y: height - 116 },
       end: { x: width - REPORT_MARGIN, y: height - 116 },
@@ -2759,6 +2760,36 @@ class PdfService {
     let line = "";
 
     words.forEach((word) => {
+      if (font.widthOfTextAtSize(word, size) > maxWidth) {
+        if (line) {
+          lines.push(line);
+          line = "";
+        }
+
+        const chunks = [];
+        let chunk = "";
+        for (const ch of String(word)) {
+          const candidate = `${chunk}${ch}`;
+          if (chunk && font.widthOfTextAtSize(candidate, size) > maxWidth) {
+            chunks.push(chunk);
+            chunk = ch;
+          } else {
+            chunk = candidate;
+          }
+        }
+        if (chunk) {
+          chunks.push(chunk);
+        }
+        chunks.forEach((piece, index) => {
+          if (index === chunks.length - 1) {
+            line = piece;
+            return;
+          }
+          lines.push(piece);
+        });
+        return;
+      }
+
       const candidate = line ? `${line} ${word}` : word;
       if (font.widthOfTextAtSize(candidate, size) > maxWidth && line) {
         lines.push(line);
@@ -4124,7 +4155,7 @@ class PdfService {
 
   drawAnnualEmployeeTablePages({ doc, company, data, font, bold, logo, startPageNumber }) {
     const pages = [];
-    const pageCapacity = 14;
+    const pageCapacity = 18;
     for (let index = 0; index < data.employeeRows.length || index === 0; index += pageCapacity) {
       const page = doc.addPage(A4_LANDSCAPE);
       pages.push(page);
@@ -4149,8 +4180,8 @@ class PdfService {
   drawAnnualEmployeeTable({ page, rows, font, bold }) {
     const { width, height } = page.getSize();
     const topY = height - 165;
-    const rowHeight = 22;
-    const columns = [
+    const rowHeight = 19;
+    const columns = this.normalizeTabularColumns([
       { key: "index", label: "Nº", x: REPORT_MARGIN, width: 28, align: "center" },
       { key: "name", label: "Nome completo", x: REPORT_MARGIN + 32, width: 164 },
       { key: "jobTitle", label: "Cargo", x: REPORT_MARGIN + 200, width: 118 },
@@ -4160,28 +4191,30 @@ class PdfService {
       { key: "overtimeTotal", label: "Horas extras", x: REPORT_MARGIN + 584, width: 76, align: "right", money: true },
       { key: "deductionsTotal", label: "Descontos", x: REPORT_MARGIN + 664, width: 74, align: "right", money: true },
       { key: "netTotal", label: "Líquido anual", x: REPORT_MARGIN + 742, width: 78, align: "right", money: true }
-    ];
+    ], REPORT_MARGIN, width - REPORT_MARGIN * 2);
+    const tableRightX = columns[columns.length - 1].x + columns[columns.length - 1].width;
+    const tableWidth = tableRightX - REPORT_MARGIN;
 
-    page.drawRectangle({ x: REPORT_MARGIN, y: topY - 14, width: width - REPORT_MARGIN * 2, height: 22, color: REPORT_COLORS.title });
+    page.drawRectangle({ x: REPORT_MARGIN, y: topY - 14, width: tableWidth, height: 20, color: REPORT_COLORS.title });
     columns.forEach((column) => {
-      page.drawText(column.label, { x: column.x + 2, y: topY - 6, font: bold, size: 7.6, color: rgb(1, 1, 1) });
+      page.drawText(this.fitText(column.label, bold, 7.1, column.width - 4), { x: column.x + 2, y: topY - 6, font: bold, size: 7.1, color: rgb(1, 1, 1) });
     });
 
     let y = topY - 36;
     rows.forEach((row, rowIndex) => {
-      page.drawRectangle({ x: REPORT_MARGIN, y: y - 4, width: width - REPORT_MARGIN * 2, height: rowHeight, color: rowIndex % 2 === 0 ? REPORT_COLORS.altFill : rgb(1, 1, 1) });
+      page.drawRectangle({ x: REPORT_MARGIN, y: y - 4, width: tableWidth, height: rowHeight, color: rowIndex % 2 === 0 ? REPORT_COLORS.altFill : rgb(1, 1, 1) });
       columns.forEach((column) => {
         const raw = row[column.key];
         const text = column.money ? this.formatCompactNumber(raw) : String(raw ?? "");
         if (column.align === "right") {
-          this.drawRightAlignedWithin(page, text, column.x + column.width - 2, y + 3, font, 7.8, column.width - 4);
+          this.drawRightAlignedWithin(page, text, column.x + column.width - 2, y + 3, font, 7.1, column.width - 4);
           return;
         }
         if (column.align === "center") {
-          this.drawCenteredText(page, text, column.x, y + 3, column.width, font, 7.8, REPORT_COLORS.text);
+          this.drawCenteredText(page, text, column.x, y + 3, column.width, font, 7.1, REPORT_COLORS.text);
           return;
         }
-        page.drawText(this.fitText(text, font, 7.8, column.width - 4), { x: column.x + 2, y: y + 3, font, size: 7.8, color: REPORT_COLORS.text });
+        page.drawText(this.fitText(text, font, 7.1, column.width - 4), { x: column.x + 2, y: y + 3, font, size: 7.1, color: REPORT_COLORS.text });
       });
       y -= rowHeight;
     });

@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld("payrollAPI", {
   quitApplication: () => ipcRenderer.invoke("app:quit"),
   getLicenseStatus: () => ipcRenderer.invoke("license:get-status"),
   getLicensePlans: () => ipcRenderer.invoke("license:get-plans"),
+  getLicenseApiBaseUrl: () => ipcRenderer.invoke("license:get-api-base-url"),
+  setLicenseApiBaseUrl: (apiBaseUrl) => ipcRenderer.invoke("license:set-api-base-url", { apiBaseUrl }),
   createLicensePayment: (payload) => ipcRenderer.invoke("license:create-payment", payload),
   checkLicensePayment: (payload) => ipcRenderer.invoke("license:check-payment", payload),
   activateLicense: (payload) => ipcRenderer.invoke("license:activate", payload),

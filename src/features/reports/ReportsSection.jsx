@@ -156,7 +156,7 @@ export default function ReportsSection({
             </button>
           ))}
           <label>
-            Banco para exportação CSV
+            Banco para exportação bancária
             <select value={selectedBankCode} onChange={(event) => setSelectedBankCode(event.target.value)}>
               {banks.map((bank) => (
                 <option key={bank.code} value={bank.code}>
@@ -166,16 +166,16 @@ export default function ReportsSection({
             </select>
           </label>
           <div className="full-span empty-note">
-            Os ficheiros PS2 e PSX usam sempre o banco e a conta de origem configurados na empresa.
+            O CSV é universal e identifica cada pagamento como PS2 ou PSX. Os ficheiros PS2 e PSX são gerados em Excel.
           </div>
           <button type="button" className="secondary-btn" onClick={() => exportBankPayroll("csv")}>
             Exportar CSV bancário
           </button>
           <button type="button" className="secondary-btn" onClick={() => exportBankPayroll("ps2")}>
-            Exportar ficheiro PS2
+            Exportar PS2 em Excel
           </button>
           <button type="button" className="secondary-btn" onClick={() => exportBankPayroll("psx")}>
-            Exportar ficheiro PSX
+            Exportar PSX em Excel
           </button>
         </ActionGrid>
       </SectionCard>

@@ -2,53 +2,36 @@
 const fs = require("fs");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
-// Em runtime Electron usamos o driver com SQLCipher. Em runtime Node (testes/unitarios),
-// carregamos `better-sqlite3` para evitar erros de ABI (NODE_MODULE_VERSION).
 const { execFileSync } = require("child_process");
 
-function loadBetterSqlite3ForNode() {
+let SqliteDriver = null;
+function getSqliteDriver() {
+  if (SqliteDriver) {
+    return SqliteDriver;
+  }
+
+  if (process.versions?.electron) {
+    // eslint-disable-next-line global-require
+    SqliteDriver = require("better-sqlite3-multiple-ciphers");
+    return SqliteDriver;
+  }
+
+  // Node runtime (testes/scripts): não fazemos rebuild automático aqui.
   try {
     // eslint-disable-next-line global-require
-    const driver = require("better-sqlite3");
-
-    // O melhor-sqlite3 só tenta carregar o binário nativo no primeiro "new Database".
-    // Fazemos um self-test aqui para detetar ABI mismatch cedo (antes de quebrar o arranque/testes).
-    try {
-      const probe = new driver(":memory:");
-      probe.close();
-    } catch (probeError) {
-      throw probeError;
-    }
-
-    return driver;
+    SqliteDriver = require("better-sqlite3");
+    return SqliteDriver;
   } catch (error) {
     const message = String(error?.message || error);
     const isAbiMismatch = /NODE_MODULE_VERSION|compiled against a different Node\.js version/i.test(message);
-    const allowAutoRebuild = process.env.KWANZA_ALLOW_NODE_NATIVE_REBUILD === "1" || process.env.NODE_ENV === "test";
-    if (!isAbiMismatch || !allowAutoRebuild || process.platform !== "win32") {
-      throw error;
+    if (isAbiMismatch) {
+      throw new Error(
+        "Modulo SQLite nativo incompatível (NODE_MODULE_VERSION). Execute `npm run test:node:abi` (rebuild para Node) ou reinstale dependências."
+      );
     }
-
-    // Quando a build desktop faz rebuild para Electron, o node_modules fica com ABI do Electron.
-    // Para manter testes/validadores Node estáveis, fazemos rebuild para Node apenas em modo teste.
-    console.warn("[DB][ABI] better-sqlite3 ABI mismatch. Rebuilding for Node runtime...");
-    execFileSync(
-      "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "scripts\\rebuild-node-native.ps1"],
-      { cwd: path.join(__dirname, "..", ".."), stdio: "inherit" }
-    );
-
-    // eslint-disable-next-line global-require
-    const driver = require("better-sqlite3");
-    const probe = new driver(":memory:");
-    probe.close();
-    return driver;
+    throw error;
   }
 }
-
-const Database = process.versions?.electron
-  ? require("better-sqlite3-multiple-ciphers")
-  : loadBetterSqlite3ForNode();
 const {
   buildFiscalProfile,
   buildDefaultFiscalProfile,
@@ -133,6 +116,7 @@ const DEFAULT_SETTINGS = {
   smtpPassword: "",
   smtpFromName: "Kwanza Folha",
   smtpFromEmail: "",
+  licenseApiBaseUrl: "",
   attendanceDelayPenaltyThresholdMinutes: 240,
   attendanceDelayPenaltyEquivalentDays: 0.5,
   attendanceAutoSyncEnabled: false,
@@ -156,6 +140,20 @@ const ATTENDANCE_DEVICE_PROFILES = ["generic", "zkteco", "hikvision", "anviz", "
 const ATTENDANCE_IMPORT_MODES = ["manual", "watched_folder"];
 const ATTENDANCE_SYNC_STATUSES = ["processed", "duplicate", "error"];
 const BCRYPT_ROUNDS = 10;
+const MIN_PASSWORD_LENGTH = 8;
+
+function validatePasswordStrength(password) {
+  const normalized = String(password || "");
+  if (normalized.trim().length < MIN_PASSWORD_LENGTH) {
+    return { ok: false, message: `A palavra-passe deve ter pelo menos ${MIN_PASSWORD_LENGTH} caracteres.` };
+  }
+  const hasLetter = /[A-Za-zÀ-ÿ]/.test(normalized);
+  const hasNumber = /\d/.test(normalized);
+  if (!hasLetter || !hasNumber) {
+    return { ok: false, message: "A palavra-passe deve conter pelo menos uma letra e um número." };
+  }
+  return { ok: true };
+}
 const SESSION_STATE_VERSION = 1;
 const SESSION_SECRET_BYTES = 32;
 const DATA_PROTECTION_VERSION = 1;
@@ -533,6 +531,22 @@ function resolveDomesticAccountNumber(row) {
 function resolveBankExportCode(code) {
   const normalized = String(code || "").trim().toUpperCase();
   return BANK_EXPORT_CODES[normalized] || normalized;
+}
+
+function resolveDestinationBankCode(row) {
+  const explicitBankCode = String(row?.bank_code || "").trim().toUpperCase();
+  if (explicitBankCode) {
+    return explicitBankCode;
+  }
+
+  const registryCode = extractAngolaBankRegistryCode(row?.iban);
+  return resolveBankCodeFromRegistryCode(registryCode) || registryCode;
+}
+
+function resolveBankPaymentType(destinationBankCode, originBankCode) {
+  return String(destinationBankCode || "").trim().toUpperCase() === String(originBankCode || "").trim().toUpperCase()
+    ? "PS2"
+    : "PSX";
 }
 
 function hashFileContent(content) {
@@ -1319,6 +1333,7 @@ class DatabaseService {
     let connection = null;
 
     try {
+      const Database = getSqliteDriver();
       connection = new Database(this.dbPath);
       this.applySqlCipherPragmas(connection);
       this.verifySqlCipherConnection(connection);
@@ -1342,6 +1357,7 @@ class DatabaseService {
 
       if (migratedLegacyPlaintext) {
         try {
+          const Database = getSqliteDriver();
           connection = new Database(this.dbPath);
           this.applySqlCipherPragmas(connection);
           this.verifySqlCipherConnection(connection);
@@ -1363,6 +1379,7 @@ class DatabaseService {
         const recovery = this.recoverRuntimeDatabaseFromCorruption(error);
         if (recovery.ok) {
           try {
+            const Database = getSqliteDriver();
             connection = new Database(this.dbPath);
             this.applySqlCipherPragmas(connection);
             this.verifySqlCipherConnection(connection);
@@ -1558,6 +1575,7 @@ class DatabaseService {
       return false;
     }
 
+    const Database = getSqliteDriver();
     const plainDb = new Database(targetPath);
     try {
       plainDb.pragma("journal_mode = DELETE");
@@ -1621,6 +1639,7 @@ class DatabaseService {
           fs.copyFileSync(candidate, this.dbPath);
         }
 
+        const Database = getSqliteDriver();
         const probe = new Database(this.dbPath);
         this.applySqlCipherPragmas(probe);
         this.verifySqlCipherConnection(probe);
@@ -1663,6 +1682,7 @@ class DatabaseService {
     safeUnlink(`${this.dbPath}-wal`);
     safeUnlink(`${this.dbPath}-shm`);
 
+    const Database = getSqliteDriver();
     const fresh = new Database(this.dbPath);
     try {
       this.applySqlCipherPragmas(fresh);
@@ -1677,6 +1697,7 @@ class DatabaseService {
 
   openFreshRuntimeConnection() {
     this.createFreshRuntimeDatabase();
+    const Database = getSqliteDriver();
     const connection = new Database(this.dbPath);
     try {
       this.applySqlCipherPragmas(connection);
@@ -1768,6 +1789,7 @@ class DatabaseService {
     }
 
     try {
+      const Database = getSqliteDriver();
       const db = new Database(filePath, { readonly: true, fileMustExist: true });
       this.applySqlCipherPragmas(db);
       this.verifySqlCipherConnection(db);
@@ -2733,33 +2755,20 @@ class DatabaseService {
     }
 
     const merged = this.buildVersionedFiscalSettings(current, payload);
+    // SMTP local (manual) foi descontinuado: a recuperação de palavra-passe usa serviço online.
+    merged.smtpHost = "";
+    merged.smtpPort = 587;
+    merged.smtpSecure = false;
+    merged.smtpUser = "";
+    merged.smtpPassword = "";
+    merged.smtpFromName = "";
+    merged.smtpFromEmail = "";
     const impactedClosedMonths = this.getClosedFiscalImpactMonths(current, merged);
     if (impactedClosedMonths.length) {
       return {
         ok: false,
         message: `Existem períodos fechados afetados pela nova versão fiscal (${impactedClosedMonths.join(", ")}). Reabra-os antes de alterar a regra legal aplicada.`
       };
-    }
-    const hasSmtpData = [
-      merged.smtpHost,
-      merged.smtpUser,
-      merged.smtpPassword,
-      merged.smtpFromEmail
-    ].some((value) => String(value || "").trim());
-
-    if (hasSmtpData) {
-      if (!String(merged.smtpHost || "").trim()) {
-        return { ok: false, message: "Indique o servidor SMTP antes de guardar as definições de e-mail." };
-      }
-      if (!Number(merged.smtpPort || 0)) {
-        return { ok: false, message: "Indique uma porta SMTP válida." };
-      }
-      if (!String(merged.smtpUser || "").trim() || !String(merged.smtpPassword || "").trim()) {
-        return { ok: false, message: "Indique o utilizador e a palavra-passe SMTP." };
-      }
-      if (!isValidEmail(merged.smtpFromEmail)) {
-        return { ok: false, message: "Indique um e-mail remetente válido." };
-      }
     }
 
     this.db.prepare("UPDATE system_settings SET json = ?, updated_at = ? WHERE id = 1").run(
@@ -3119,10 +3128,10 @@ class DatabaseService {
       normalizedCredential
     );
     if (!user || !user.active) {
-      return { ok: false, message: "Utilizador não encontrado ou inativo." };
+      return { ok: false, message: "Credenciais inválidas." };
     }
     if (!verifyPassword(password, user.password_hash)) {
-      return { ok: false, message: "Palavra-passe inválida." };
+      return { ok: false, message: "Credenciais inválidas." };
     }
 
     if (needsPasswordRehash(user.password_hash)) {
@@ -3293,8 +3302,9 @@ class DatabaseService {
       return { ok: false, message: "Empresa, NIF, nome do administrador, utilizador e palavra-passe são obrigatórios." };
     }
 
-    if (password.length < 4) {
-      return { ok: false, message: "A palavra-passe deve ter pelo menos 4 caracteres." };
+    const passwordValidation = validatePasswordStrength(password);
+    if (!passwordValidation.ok) {
+      return passwordValidation;
     }
 
     if (companyEmail && !isValidEmail(companyEmail)) {
@@ -3422,6 +3432,10 @@ class DatabaseService {
         const password = String(payload.password || "").trim();
         if (!password) {
           return { ok: false, message: "Defina uma palavra-passe inicial para o utilizador." };
+        }
+        const passwordValidation = validatePasswordStrength(password);
+        if (!passwordValidation.ok) {
+          return passwordValidation;
         }
 
         this.db.prepare(`
@@ -3590,8 +3604,9 @@ class DatabaseService {
     }
 
     const nextPassword = String(newPassword || "").trim();
-    if (nextPassword.length < 4) {
-      return { ok: false, message: "A nova palavra-passe deve ter pelo menos 4 caracteres." };
+    const passwordValidation = validatePasswordStrength(nextPassword);
+    if (!passwordValidation.ok) {
+      return passwordValidation;
     }
 
     const user = this.db.prepare(`
@@ -3664,8 +3679,9 @@ class DatabaseService {
     }
 
     const nextPassword = String(newPassword || "").trim();
-    if (nextPassword.length < 4) {
-      return { ok: false, message: "A nova palavra-passe deve ter pelo menos 4 caracteres." };
+    const passwordValidation = validatePasswordStrength(nextPassword);
+    if (!passwordValidation.ok) {
+      return passwordValidation;
     }
 
     if (!resetByAdmin) {
@@ -6881,7 +6897,10 @@ class DatabaseService {
         employees.nif,
         employees.bi,
         employees.document_type,
-        employees.social_security_number
+        employees.social_security_number,
+        employees.iban,
+        employees.bank_code,
+        employees.bank_account
       FROM payroll_runs
       INNER JOIN employees ON employees.id = payroll_runs.employee_id
       ${query.whereClause}
@@ -7923,6 +7942,8 @@ class DatabaseService {
     const company = this.getCompanyProfile();
     const bankCode = String(bank?.code || "GENERICO").trim().toUpperCase();
     const bankName = String(bank?.name || "Banco").trim();
+    const originBankCode = String(company.origin_bank_code || bankCode).trim().toUpperCase() || bankCode;
+    const originAccount = normalizeBankAccount(company.origin_account);
     const payrollRows =
       typeof this.listPayrollRuns === "function"
         ? this.listPayrollRuns(normalizedFilters)
@@ -7934,6 +7955,8 @@ class DatabaseService {
               payroll_runs.employee_id,
               employees.full_name,
               employees.iban,
+              employees.bank_code,
+              employees.bank_account,
               employees.nif,
               employees.bi,
               employees.department,
@@ -7952,6 +7975,8 @@ class DatabaseService {
       generated_at: row.generated_at,
       full_name: row.full_name,
       iban: row.iban,
+      bank_code: row.bank_code,
+      bank_account: row.bank_account,
       nif: row.nif,
       bi: row.bi,
       department: row.department,
@@ -7971,6 +7996,17 @@ class DatabaseService {
       };
     }
 
+    const enrichedRows = rows.map((row) => {
+      const destinationBankCode = resolveDestinationBankCode(row);
+      const destinationAccount = resolveDomesticAccountNumber(row);
+      return {
+        ...row,
+        destinationBankCode,
+        destinationAccount,
+        bankPaymentType: resolveBankPaymentType(destinationBankCode, originBankCode)
+      };
+    });
+
     const headers = [
       "Empresa",
       "NIF Empresa",
@@ -7979,7 +8015,11 @@ class DatabaseService {
       "IBAN",
       "Valor Líquido",
       "Moeda",
+      "Tipo de Conta (PS2/PSX)",
+      "Banco de Origem",
+      "Conta de Origem",
       "Banco de Destino",
+      "Conta de Destino",
       "Referência",
       "Categoria",
       "Departamento",
@@ -7987,7 +8027,7 @@ class DatabaseService {
       "BI do Beneficiário"
     ];
 
-    const csvRows = rows.map((row, index) => ([
+    const csvRows = enrichedRows.map((row, index) => ([
       company.name || "",
       company.nif || "",
       row.month_ref,
@@ -7995,7 +8035,11 @@ class DatabaseService {
       row.iban,
       Number(row.net_salary || 0).toFixed(2),
       "AOA",
-      bankName,
+      row.bankPaymentType,
+      originBankCode,
+      originAccount,
+      row.destinationBankCode,
+      row.destinationAccount,
       `SALÁRIO ${row.month_ref} ${String(index + 1).padStart(3, "0")}`,
       row.contract_type || row.job_title || "",
       row.department || "",
@@ -8011,7 +8055,7 @@ class DatabaseService {
     const output = path.join(targetDir, fileName);
     fs.writeFileSync(output, `\uFEFF${content}`, "utf8");
 
-    return { ok: true, path: output, fileName, count: rows.length, bank: bankName };
+    return { ok: true, path: output, fileName, count: enrichedRows.length, bank: bankName, format: "csv" };
   }
 
   exportBankPayrollFile(bank, filters, format = "ps2") {
@@ -8021,7 +8065,8 @@ class DatabaseService {
     const companyOriginBankCode = String(company.origin_bank_code || "").trim().toUpperCase();
     const bankCode = companyOriginBankCode || selectedBankCode || "GENERICO";
     const bankName = String(bank?.name || bankCode || "Banco").trim();
-    const normalizedFormat = String(format || "ps2").trim().toLowerCase();
+    const requestedFormat = String(format || "ps2").trim().toLowerCase();
+    const normalizedFormat = requestedFormat === "psx" ? "psx" : "ps2";
     const payrollRows =
       typeof this.listPayrollRuns === "function"
         ? this.listPayrollRuns(normalizedFilters)
@@ -8064,7 +8109,7 @@ class DatabaseService {
 
     const enrichedRows = rows.map((row) => ({
       ...row,
-      destinationBankCode: String(row.bank_code || "").trim().toUpperCase(),
+      destinationBankCode: resolveDestinationBankCode(row),
       destinationAccount: resolveDomesticAccountNumber(row)
     }));
 
@@ -8091,32 +8136,45 @@ class DatabaseService {
       };
     }
 
-    const content = exportRows
-      .map((row) => {
-        const amount = String(Math.round(Number(row.net_salary || 0)));
-        const name = String(row.full_name || "").trim().toUpperCase();
-        if (normalizedFormat === "ps2") {
-          return ["PS2", originAccount, row.destinationAccount, amount, name, "AOA"].join(";");
-        }
-        return [
-          "PSX",
-          originAccount,
-          resolveBankExportCode(row.destinationBankCode),
-          row.destinationAccount,
-          amount,
-          name,
-          "AOA"
-        ].join(";");
-      })
-      .join("\r\n");
+    const headers = [
+      "Tipo",
+      "Período",
+      "Conta de Origem",
+      "Banco de Origem",
+      "Código Banco Destino",
+      "Conta de Destino",
+      "Valor",
+      "Moeda",
+      "Beneficiário",
+      "IBAN"
+    ];
+
+    const excelRows = exportRows.map((row) => [
+      normalizedFormat.toUpperCase(),
+      row.month_ref,
+      originAccount,
+      bankCode,
+      resolveBankExportCode(row.destinationBankCode),
+      row.destinationAccount,
+      Number(row.net_salary || 0).toFixed(2),
+      "AOA",
+      String(row.full_name || "").trim().toUpperCase(),
+      row.iban || ""
+    ]);
+
+    const content = buildExcelTableDocument(
+      `Pagamentos ${normalizedFormat.toUpperCase()} - ${normalizedFilters.periodLabel}`,
+      headers,
+      excelRows
+    );
 
     const targetDir = path.join(this.bankExportsDir, bankCode);
     fs.mkdirSync(targetDir, { recursive: true });
-    const fileName = `${bankCode.toLowerCase()}-salarios-${normalizedFormat}-${normalizedFilters.periodFileLabel}.txt`;
+    const fileName = `${bankCode.toLowerCase()}-salarios-${normalizedFormat}-${normalizedFilters.periodFileLabel}.xls`;
     const output = path.join(targetDir, fileName);
     fs.writeFileSync(output, content, "utf8");
 
-    return { ok: true, path: output, fileName, count: exportRows.length, bank: bankName, format: normalizedFormat };
+    return { ok: true, path: output, fileName, count: exportRows.length, bank: bankName, format: normalizedFormat, fileFormat: "xls" };
   }
 
   createBackup(label = "backup") {

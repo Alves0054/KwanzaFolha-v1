@@ -2,15 +2,19 @@ param(
   [ValidateSet("installer", "all")]
   [string]$Target = "all",
   [string]$CertificatePath = "",
+  [string]$CertificateThumbprint = "",
   [string]$CertificatePassword = "",
   [string]$TimestampServer = "https://timestamp.digicert.com",
-  [bool]$AllowUnsignedTimestamp = $false
+  [switch]$AllowUnsignedTimestamp
 )
 
 $ErrorActionPreference = "Stop"
 
 function Resolve-CertificatePath {
-  param([string]$PreferredPath)
+  param(
+    [string]$PreferredPath,
+    [string]$PreferredThumbprint
+  )
 
   if ($PreferredPath -and (Test-Path $PreferredPath)) {
     return @{
@@ -41,6 +45,17 @@ function Resolve-CertificatePath {
     }
   }
 
+  $storeThumbprint = @($PreferredThumbprint, $env:KWANZA_CERTIFICATE_THUMBPRINT, $env:KWANZA_AUTHENTICODE_THUMBPRINT) |
+    Where-Object { $_ -and $_.Trim() } |
+    Select-Object -First 1
+  if ($storeThumbprint) {
+    return @{
+      Path = ""
+      IsTemporary = $false
+      StoreOnly = $true
+    }
+  }
+
   throw "Nao encontrei um certificado de assinatura. Defina -CertificatePath, KWANZA_CERTIFICATE_PATH ou KWANZA_CERTIFICATE_BASE64."
 }
 
@@ -63,15 +78,20 @@ function Resolve-CertificatePassword {
 function Resolve-CertificateThumbprint {
   param(
     [string]$CertPath,
-    [string]$CertPassword
+    [string]$CertPassword,
+    [string]$PreferredThumbprint = ""
   )
 
+  if ($PreferredThumbprint) {
+    return ($PreferredThumbprint -replace "\s", "").ToUpperInvariant()
+  }
+
   try {
-    if ($CertPassword) {
+    if ($CertPath -and $CertPassword) {
       $securePassword = ConvertTo-SecureString $CertPassword -AsPlainText -Force
       $pfxData = Get-PfxData -FilePath $CertPath -Password $securePassword -ErrorAction Stop
       $cert = $pfxData.EndEntityCertificates | Select-Object -First 1
-    } else {
+    } elseif ($CertPath) {
       $cert = Get-PfxCertificate -FilePath $CertPath -ErrorAction Stop
     }
     if ($cert -and $cert.Thumbprint) {
@@ -86,6 +106,25 @@ function Resolve-CertificateThumbprint {
       Select-Object -First 1
     if ($match -and $match.Thumbprint) {
       return ($match.Thumbprint -replace "\s", "").ToUpperInvariant()
+    }
+  } catch {}
+
+  return ""
+}
+
+function Resolve-ConfiguredSignerThumbprint {
+  param([string]$RootDir)
+
+  $licenseSourcePath = Join-Path $RootDir "electron\config\license-source.js"
+  if (-not (Test-Path $licenseSourcePath)) {
+    return ""
+  }
+
+  try {
+    $content = Get-Content -LiteralPath $licenseSourcePath -Raw
+    $match = [regex]::Match($content, "expectedSignerThumbprint\s*:\s*[""']([A-Fa-f0-9\s]+)[""']")
+    if ($match.Success) {
+      return (($match.Groups[1].Value) -replace "\s", "").ToUpperInvariant()
     }
   } catch {}
 
@@ -199,6 +238,40 @@ function Get-SigningTargets {
   return $targets
 }
 
+function Get-PackagedRuntimeTargets {
+  param([string]$OutputDir)
+
+  $targets = New-Object System.Collections.Generic.List[string]
+  foreach ($candidate in @(
+    (Join-Path $OutputDir "win-unpacked\Kwanza Folha.exe"),
+    (Join-Path $OutputDir "win-unpacked\resources\elevate.exe")
+  )) {
+    if ((Test-Path $candidate) -and -not $targets.Contains($candidate)) {
+      $null = $targets.Add($candidate)
+    }
+  }
+
+  return $targets
+}
+
+function Get-InstallerTargets {
+  param([string]$OutputDir)
+
+  $targets = New-Object System.Collections.Generic.List[string]
+  foreach ($artifact in (Get-ChildItem -Path (Join-Path $OutputDir "KwanzaFolha-Setup-*.exe") -File -ErrorAction SilentlyContinue)) {
+    if (-not $targets.Contains($artifact.FullName)) {
+      $null = $targets.Add($artifact.FullName)
+    }
+  }
+  foreach ($candidate in @((Join-Path $OutputDir "__uninstaller-nsis-kwanza-folha.exe"))) {
+    if ((Test-Path $candidate) -and -not $targets.Contains($candidate)) {
+      $null = $targets.Add($candidate)
+    }
+  }
+
+  return $targets
+}
+
 function Sign-WithFallback {
   param(
     [string]$SignToolPath,
@@ -211,9 +284,11 @@ function Sign-WithFallback {
   )
 
   foreach ($server in $TimestampServers) {
-    & $SignToolPath sign /fd SHA256 /td SHA256 /tr $server /f $CertPath /p $CertPassword /d "Kwanza Folha" /du "https://github.com/Alves0054/KwanzaFolha-v1" $FilePath
-    if ($LASTEXITCODE -eq 0) {
-      return @{ Signed = $true; Timestamped = $true; TimestampServer = $server }
+    if ($CertPath) {
+      & $SignToolPath sign /fd SHA256 /td SHA256 /tr $server /f $CertPath /p $CertPassword /d "Kwanza Folha" /du "https://github.com/Alves0054/KwanzaFolha-v1" $FilePath
+      if ($LASTEXITCODE -eq 0) {
+        return @{ Signed = $true; Timestamped = $true; TimestampServer = $server }
+      }
     }
 
     if ($CertThumbprint) {
@@ -223,9 +298,11 @@ function Sign-WithFallback {
       }
     }
 
-    & $SignToolPath sign /fd SHA256 /t $server /f $CertPath /p $CertPassword /d "Kwanza Folha" /du "https://github.com/Alves0054/KwanzaFolha-v1" $FilePath
-    if ($LASTEXITCODE -eq 0) {
-      return @{ Signed = $true; Timestamped = $true; TimestampServer = $server }
+    if ($CertPath) {
+      & $SignToolPath sign /fd SHA256 /t $server /f $CertPath /p $CertPassword /d "Kwanza Folha" /du "https://github.com/Alves0054/KwanzaFolha-v1" $FilePath
+      if ($LASTEXITCODE -eq 0) {
+        return @{ Signed = $true; Timestamped = $true; TimestampServer = $server }
+      }
     }
 
     if ($CertThumbprint) {
@@ -237,9 +314,11 @@ function Sign-WithFallback {
   }
 
   if ($AllowMissingTimestamp) {
-    & $SignToolPath sign /fd SHA256 /f $CertPath /p $CertPassword /d "Kwanza Folha" /du "https://github.com/Alves0054/KwanzaFolha-v1" $FilePath
-    if ($LASTEXITCODE -eq 0) {
-      return @{ Signed = $true; Timestamped = $false; TimestampServer = "" }
+    if ($CertPath) {
+      & $SignToolPath sign /fd SHA256 /f $CertPath /p $CertPassword /d "Kwanza Folha" /du "https://github.com/Alves0054/KwanzaFolha-v1" $FilePath
+      if ($LASTEXITCODE -eq 0) {
+        return @{ Signed = $true; Timestamped = $false; TimestampServer = "" }
+      }
     }
 
     if ($CertThumbprint) {
@@ -251,6 +330,39 @@ function Sign-WithFallback {
   }
 
   return @{ Signed = $false; Timestamped = $false; TimestampServer = "" }
+}
+
+function Sign-Targets {
+  param(
+    [System.Collections.Generic.List[string]]$Targets,
+    [string]$SignToolPath,
+    [string]$CertPath,
+    [string]$CertPassword,
+    [string]$CertThumbprint,
+    [System.Collections.Generic.List[string]]$TimestampServers,
+    [bool]$AllowMissingTimestamp
+  )
+
+  foreach ($targetPath in $Targets) {
+    $result = Sign-WithFallback `
+      -SignToolPath $SignToolPath `
+      -FilePath $targetPath `
+      -CertPath $CertPath `
+      -CertPassword $CertPassword `
+      -CertThumbprint $CertThumbprint `
+      -TimestampServers $TimestampServers `
+      -AllowMissingTimestamp $AllowMissingTimestamp
+
+    if (-not $result.Signed) {
+      throw "Falhou a assinatura manual do artefacto '$targetPath'."
+    }
+
+    if ($result.Timestamped) {
+      Write-Host "Assinado com timestamp em '$targetPath' via $($result.TimestampServer)." -ForegroundColor Green
+    } else {
+      Write-Warning "Assinado sem timestamp em '$targetPath'."
+    }
+  }
 }
 
 function Assert-SignedArtifact {
@@ -284,20 +396,33 @@ function Assert-SignedArtifact {
 
 $root = Split-Path -Parent $PSScriptRoot
 $outputDir = Join-Path $root "dist-electron"
-$certificate = Resolve-CertificatePath -PreferredPath $CertificatePath
-$resolvedPassword = Resolve-CertificatePassword -PreferredPassword $CertificatePassword
+$requestedThumbprint = @($CertificateThumbprint, $env:KWANZA_CERTIFICATE_THUMBPRINT, $env:KWANZA_AUTHENTICODE_THUMBPRINT) |
+  Where-Object { $_ -and $_.Trim() } |
+  Select-Object -First 1
+$configuredThumbprint = Resolve-ConfiguredSignerThumbprint -RootDir $root
+$requestedThumbprint = @($requestedThumbprint, $configuredThumbprint) |
+  Where-Object { $_ -and $_.Trim() } |
+  Select-Object -First 1
+$certificate = Resolve-CertificatePath -PreferredPath $CertificatePath -PreferredThumbprint $requestedThumbprint
+$resolvedPassword = if ($certificate.Path) { Resolve-CertificatePassword -PreferredPassword $CertificatePassword } else { "" }
 $certificateThumbprint = Resolve-CertificateThumbprint `
   -CertPath $certificate.Path `
-  -CertPassword $resolvedPassword
+  -CertPassword $resolvedPassword `
+  -PreferredThumbprint $requestedThumbprint
 $timestampServers = Resolve-TimestampServers -PrimaryServer $TimestampServer
 
 Set-Location $root
 
 try {
-  $env:CSC_LINK = $certificate.Path
-  $env:CSC_KEY_PASSWORD = $resolvedPassword
-  $env:WIN_CSC_LINK = $certificate.Path
-  $env:WIN_CSC_KEY_PASSWORD = $resolvedPassword
+  if ($certificate.Path) {
+    $env:CSC_LINK = $certificate.Path
+    $env:CSC_KEY_PASSWORD = $resolvedPassword
+    $env:WIN_CSC_LINK = $certificate.Path
+    $env:WIN_CSC_KEY_PASSWORD = $resolvedPassword
+  } elseif ($certificateThumbprint) {
+    $env:CSC_NAME = $certificateThumbprint
+    $env:WIN_CSC_NAME = $certificateThumbprint
+  }
   $env:CSC_IDENTITY_AUTO_DISCOVERY = "false"
   $env:USE_HARD_LINKS = "false"
   $env:ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES = "true"
@@ -307,38 +432,44 @@ try {
   $buildError = $null
   try {
     switch ($Target) {
-      "installer" { npm run build:installer }
-      default { npm run build:installer }
+      "installer" { npm run build:installer:unsigned }
+      default { npm run build:installer:unsigned }
+    }
+    if ($LASTEXITCODE -ne 0) {
+      throw "A build interna sem assinatura falhou com exit code $LASTEXITCODE."
     }
   } catch {
     $buildError = $_
-    Write-Warning "A build reportou falha durante assinatura automatica. Vou aplicar assinatura manual com fallback."
+    throw "A build comercial foi interrompida antes da assinatura: $($_.Exception.Message)"
   }
 
   $expectedArtifacts = Get-ExpectedArtifacts -OutputDir $outputDir -TargetName $Target
-  $signingTargets = Get-SigningTargets -ExpectedArtifacts $expectedArtifacts -OutputDir $outputDir
   $signToolPath = Get-SignToolPath
 
-  foreach ($targetPath in $signingTargets) {
-    $result = Sign-WithFallback `
-      -SignToolPath $signToolPath `
-      -FilePath $targetPath `
-      -CertPath $certificate.Path `
-      -CertPassword $resolvedPassword `
-      -CertThumbprint $certificateThumbprint `
-      -TimestampServers $timestampServers `
-      -AllowMissingTimestamp $AllowUnsignedTimestamp
+  $runtimeTargets = Get-PackagedRuntimeTargets -OutputDir $outputDir
+  Sign-Targets `
+    -Targets $runtimeTargets `
+    -SignToolPath $signToolPath `
+    -CertPath $certificate.Path `
+    -CertPassword $resolvedPassword `
+    -CertThumbprint $certificateThumbprint `
+    -TimestampServers $timestampServers `
+    -AllowMissingTimestamp $AllowUnsignedTimestamp
 
-    if (-not $result.Signed) {
-      throw "Falhou a assinatura manual do artefacto '$targetPath'."
-    }
-
-    if ($result.Timestamped) {
-      Write-Host "Assinado com timestamp em '$targetPath' via $($result.TimestampServer)." -ForegroundColor Green
-    } else {
-      Write-Warning "Assinado sem timestamp em '$targetPath'."
-    }
+  .\node_modules\.bin\electron-builder.cmd --win nsis --prepackaged "dist-electron\win-unpacked"
+  if ($LASTEXITCODE -ne 0) {
+    throw "A recriacao do instalador a partir da pasta assinada falhou com exit code $LASTEXITCODE."
   }
+
+  $installerTargets = Get-InstallerTargets -OutputDir $outputDir
+  Sign-Targets `
+    -Targets $installerTargets `
+    -SignToolPath $signToolPath `
+    -CertPath $certificate.Path `
+    -CertPassword $resolvedPassword `
+    -CertThumbprint $certificateThumbprint `
+    -TimestampServers $timestampServers `
+    -AllowMissingTimestamp $AllowUnsignedTimestamp
 
   foreach ($artifact in $expectedArtifacts) {
     Assert-SignedArtifact -ArtifactPath $artifact.FullName -RequireTimestamp (-not $AllowUnsignedTimestamp) -ExpectedThumbprint $certificateThumbprint
@@ -353,8 +484,10 @@ try {
   foreach ($envName in @(
     "CSC_LINK",
     "CSC_KEY_PASSWORD",
+    "CSC_NAME",
     "WIN_CSC_LINK",
     "WIN_CSC_KEY_PASSWORD",
+    "WIN_CSC_NAME",
     "CSC_IDENTITY_AUTO_DISCOVERY",
     "USE_HARD_LINKS",
     "ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES",

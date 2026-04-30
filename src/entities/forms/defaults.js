@@ -182,6 +182,7 @@ export const initialSettings = {
   fiscalProfileNotes: "",
   allowanceTypes: "",
   bonusTypes: "",
+  licenseApiBaseUrl: "",
   smtpHost: "",
   smtpPort: 587,
   smtpSecure: false,
@@ -241,7 +242,7 @@ export const initialLicenseActivationForm = {
 };
 
 export const initialLicensePurchaseForm = {
-  plan: "kwanzafolha-mensal",
+  plan: "profissional",
   empresa: "",
   nif: "",
   email: "",

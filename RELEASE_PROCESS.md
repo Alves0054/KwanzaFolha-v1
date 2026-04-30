@@ -8,25 +8,28 @@ Garantir release comercial reprodutivel, assinada, validada e auditavel.
 
 1. `npm ci`
 2. `npm test`
-3. `npm run release:validate` (preflight)
-4. build (`npm run build:installer` em PR; `scripts/prepare-release.ps1` em tag)
-5. `npm run release:validate:packaged`
-6. `npm run verify:packaged:main`
-7. smoke test empacotado (`smoke-packaged` e `smoke-packaged:e2e`)
-8. validacao de assinatura (`scripts/verify-release-signatures.ps1`)
-9. gerar `SHA256SUMS.txt`, `release-manifest.json`, `release-notes-template.md`
-10. publicar GitHub Release em draft
+3. `npm run security:scan` (bloqueia ficheiros sensíveis antes da build)
+4. `npm run release:validate` (preflight)
+5. build (`npm run build:installer` em PR; `scripts/prepare-release.ps1` em tag)
+6. `npm run release:validate:packaged`
+7. `npm run verify:packaged:main`
+8. smoke test empacotado (`smoke-packaged` e `smoke-packaged:e2e`)
+9. validacao de assinatura (`scripts/verify-release-signatures.ps1`)
+10. gerar `SHA256SUMS.txt`, `release-manifest.json`, `release-notes-template.md`
+11. publicar GitHub Release em draft
 
 ## Fluxo manual local
 
 1. `npm install`
 2. `npm test`
-3. `npm run release:validate`
-4. `npm run release:prepare` ou `npm run release:prepare:beta`
-5. `npm run release:validate:packaged`
-6. validar assinaturas:
+3. opcional: `npm run clean:workspace -- -All` (remove bases/logs/artifacts para validação limpa)
+4. `npm run security:scan`
+5. `npm run release:validate`
+6. `npm run release:prepare` ou `npm run release:prepare:beta`
+7. `npm run release:validate:packaged`
+8. validar assinaturas:
    - `powershell -ExecutionPolicy Bypass -File scripts/verify-release-signatures.ps1 -OutputDir dist-electron -RequireTimestamp`
-7. validar smoke local:
+9. validar smoke local:
    - `npm run smoke:packaged`
    - `npm run smoke:packaged:e2e`
 

@@ -276,9 +276,11 @@ button.danger:not(.link-btn):hover:not(:disabled) {
   position: fixed;
   inset: 0;
   z-index: 40;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
   padding: 24px;
+  overflow: auto;
 }
 
 .auth-card {
@@ -292,6 +294,8 @@ button.danger:not(.link-btn):hover:not(:disabled) {
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(340px, 0.95fr);
   gap: 16px;
+  max-height: calc(100vh - (var(--space-6) * 2));
+  overflow: auto;
 }
 
 .auth-card__brand,
@@ -420,10 +424,12 @@ button.danger:not(.link-btn):hover:not(:disabled) {
   position: relative;
   z-index: 1;
   width: min(1120px, 100%);
+  max-height: calc(100vh - 48px);
 }
 
 .license-modal {
   position: relative;
+  overflow: auto;
 }
 
 .license-modal__close {
@@ -442,26 +448,53 @@ button.danger:not(.link-btn):hover:not(:disabled) {
 
 .license-plan-card,
 .license-payment-card {
-  padding: 16px;
+  padding: 12px;
+  background: var(--surface-color);
+}
+
+.license-plan-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.license-plan-card {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  align-content: start;
+  justify-items: start;
+  gap: 5px;
+  min-height: 0;
+  padding: 9px 10px;
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+.license-plan-card:hover:not(:disabled) {
+  border-color: var(--blue-300);
   background: var(--surface-muted);
 }
 
 .license-plan-card--active {
-  border-color: var(--blue-400);
-  background: var(--blue-50);
-}
-
-[data-theme="dark"] .license-plan-card--active {
+  border-color: var(--primary-color);
   background: rgba(55, 138, 221, 0.12);
 }
 
-.license-plan-card--single {
-  margin-bottom: 16px;
+[data-theme="dark"] .license-plan-card--active {
+  border-color: var(--blue-300);
+  background: rgba(55, 138, 221, 0.16);
 }
 
 .license-plan-card__headline {
-  display: grid;
-  gap: 4px;
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  line-height: 1.15;
 }
 
 .license-plan-card__headline strong,
@@ -470,16 +503,31 @@ button.danger:not(.link-btn):hover:not(:disabled) {
   display: block;
 }
 
+.license-plan-card__headline strong {
+  font-size: 12px;
+}
+
+.license-plan-card__headline span {
+  font-size: 11px;
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+
 .license-plan-card__meta {
-  margin-top: 4px;
+  margin-top: 0;
+  font-size: 10.5px;
+  line-height: 1.25;
 }
 
 .license-plan-features {
-  margin: 10px 0 0;
-  padding-left: 16px;
+  margin: 4px 0 0;
+  padding-left: 14px;
   display: grid;
-  gap: 4px;
+  gap: 2px;
   color: var(--text-secondary);
+  font-size: 10.5px;
+  line-height: 1.25;
 }
 
 .license-payment-card {

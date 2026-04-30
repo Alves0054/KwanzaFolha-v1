@@ -23,7 +23,6 @@ function createAppServices({
     secureStorage,
     installationIdentity
   });
-  const mailer = new MailerService({ database, productName: app.getName() });
   const licensing = new LicensingService({
     app,
     userDataPath,
@@ -33,6 +32,7 @@ function createAppServices({
     secureStorage,
     installationIdentity
   });
+  const mailer = new MailerService({ database, licensing, productName: app.getName() });
   const payrollCore = createPayrollCore(database);
   const pdf = new PdfService(database);
   const updater = new UpdaterService({

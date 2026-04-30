@@ -5,35 +5,36 @@ const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const bcrypt = require("bcryptjs");
 
-function loadBetterSqlite3WithAbiRecovery() {
+let BetterSqlite3 = null;
+let dbNativeAvailable = true;
+try {
+  // eslint-disable-next-line global-require
+  BetterSqlite3 = require("better-sqlite3");
   try {
-    // eslint-disable-next-line global-require
-    return require("better-sqlite3");
-  } catch (error) {
-    const message = String(error?.message || error);
-    const isAbiMismatch = /NODE_MODULE_VERSION|compiled against a different Node\.js version/i.test(message);
-    if (!isAbiMismatch || process.platform !== "win32") {
-      throw error;
+    const probe = new BetterSqlite3(":memory:");
+    probe.close();
+  } catch (probeError) {
+    const probeMessage = String(probeError?.message || probeError);
+    const isAbiMismatch = /NODE_MODULE_VERSION|compiled against a different Node\.js version/i.test(probeMessage);
+    dbNativeAvailable = !isAbiMismatch;
+    BetterSqlite3 = null;
+    if (isAbiMismatch) {
+      console.warn("[TEST][ABI] better-sqlite3 ABI mismatch on probe. DB tests will be skipped. Run `npm run test:node:abi` to rebuild for Node.");
+    } else {
+      console.warn("[TEST] better-sqlite3 probe failed. DB tests will be skipped.", probeMessage);
     }
-
-    console.warn("[TEST][ABI] better-sqlite3 ABI mismatch detected. Rebuilding for Node runtime...");
-    try {
-      execFileSync(
-        "powershell.exe",
-        ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "scripts\\rebuild-node-native.ps1"],
-        { cwd: path.join(__dirname, ".."), stdio: "inherit" }
-      );
-    } catch (rebuildError) {
-      throw error;
-    }
-
-    // Retry once after rebuild.
-    // eslint-disable-next-line global-require
-    return require("better-sqlite3");
+  }
+} catch (error) {
+  const message = String(error?.message || error);
+  const isAbiMismatch = /NODE_MODULE_VERSION|compiled against a different Node\.js version/i.test(message);
+  dbNativeAvailable = !isAbiMismatch;
+  BetterSqlite3 = null;
+  if (isAbiMismatch) {
+    console.warn("[TEST][ABI] better-sqlite3 ABI mismatch. DB tests will be skipped. Run `npm run test:node:abi` to rebuild for Node.");
+  } else {
+    console.warn("[TEST] better-sqlite3 unavailable. DB tests will be skipped.", message);
   }
 }
-
-const BetterSqlite3 = loadBetterSqlite3WithAbiRecovery();
 
 const {
   DatabaseService,
@@ -67,13 +68,22 @@ const { buildFiscalProfile, resolveFiscalProfileForMonth } = require("../electro
 const { hasPermission, getPermissionDeniedMessage } = require("../electron/services/permissions");
 const { buildReleaseManifest, collectReleaseArtifacts, writeReleaseBundle } = require("../scripts/release-artifacts");
 const { parseArgs: parseReleaseValidationArgs, validateReleaseReadiness } = require("../scripts/validate-release-readiness");
-const { DEFAULT_LICENSE_PLAN } = require("../shared/license-plans");
+const {
+  scanDirectory: scanSensitiveFiles,
+  classifyForbidden: classifySensitivePath
+} = require("../scripts/validate-no-sensitive-files");
+const { LICENSE_PLANS, DEFAULT_LICENSE_PLAN } = require("../shared/license-plans");
+const { enforceEmployeeLimit, canActivateDevice } = require("../shared/domain/licensing-limits");
 let LicensingServer = null;
 try {
   ({ LicensingServer } = require("../licensing-server/server"));
 } catch {
   // O repositório comercial desktop não inclui o servidor. Os testes de servidor são opcionais.
-  LicensingServer = null;
+  try {
+    ({ LicensingServer } = require("../licensing-server.local/server"));
+  } catch {
+    LicensingServer = null;
+  }
 }
 
 const brackets = DEFAULT_SETTINGS.irtBrackets;
@@ -95,8 +105,55 @@ function runTest(name, fn) {
   pendingTests.push(execution);
 }
 
+function runDbTest(name, fn) {
+  if (!dbNativeAvailable) {
+    console.log(`SKIP ${name} (SQLite nativo indisponivel)`);
+    return;
+  }
+  runTest(name, fn);
+}
+
 function makeTempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
+
+function createSignedLicenseToken(service, overrides = {}) {
+  const keyPair = require("node:crypto").generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: "spki", format: "pem" },
+    privateKeyEncoding: { type: "pkcs8", format: "pem" }
+  });
+  service.getPublicKey = () => keyPair.publicKey;
+  const payload = {
+    serial_key: "KWZ-ABCD-EF12-3456-7890",
+    plan: DEFAULT_LICENSE_PLAN.name,
+    max_users: null,
+    max_employees: DEFAULT_LICENSE_PLAN.maxEmployees,
+    max_devices: DEFAULT_LICENSE_PLAN.maxDevices,
+    start_date: "2026-04-01",
+    expire_date: "2099-04-30",
+    status: "active",
+    email: "cliente@empresa.ao",
+    company_name: "Empresa Teste",
+    device_hash: service.buildDeviceHash(),
+    install_id: service.getInstallationFingerprint().installId,
+    hardware_snapshot: service.getInstallationFingerprint().hardwareSnapshot,
+    issued_at: new Date().toISOString(),
+    ...overrides
+  };
+
+  const payloadBuffer = Buffer.from(JSON.stringify(payload), "utf8");
+  const signer = require("node:crypto").createSign("RSA-SHA256");
+  signer.update(payloadBuffer);
+  signer.end();
+  const token = `${payloadBuffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "")}.${signer
+    .sign(keyPair.privateKey)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "")}`;
+
+  return { token, payload, publicKey: keyPair.publicKey };
 }
 
 function buildAoIban(bankRegistryCode, accountDigits = "00000000000000000") {
@@ -235,7 +292,7 @@ runTest("Fontes fiscais centrais nao referenciam UCF nem a regra de Janeiro de 2
   }
 });
 
-runTest("DatabaseService ativa foreign keys e regista migracoes formais", () => {
+runDbTest("DatabaseService ativa foreign keys e regista migracoes formais", () => {
   const basePath = makeTempDir("kwanza-db-schema-");
   const documentsPath = makeTempDir("kwanza-documents-schema-");
   const service = new DatabaseService(basePath, documentsPath);
@@ -260,7 +317,7 @@ runTest("DatabaseService ativa foreign keys e regista migracoes formais", () => 
   }
 });
 
-runTest("DatabaseService migra base legada e preserva dados principais", () => {
+runDbTest("DatabaseService migra base legada e preserva dados principais", () => {
   const basePath = makeTempDir("kwanza-db-legacy-");
   const documentsPath = makeTempDir("kwanza-documents-legacy-");
   const legacyDbPath = path.join(basePath, "kwanza-folha.sqlite");
@@ -364,7 +421,7 @@ runTest("DatabaseService migra base legada e preserva dados principais", () => {
   }
 });
 
-runTest("DatabaseService recupera automaticamente quando a base runtime esta corrompida", () => {
+runDbTest("DatabaseService recupera automaticamente quando a base runtime esta corrompida", () => {
   const basePath = makeTempDir("kwanza-db-corrupted-");
   const documentsPath = makeTempDir("kwanza-documents-corrupted-");
   const programDataPath = path.join(basePath, "ProtectedData");
@@ -383,7 +440,7 @@ runTest("DatabaseService recupera automaticamente quando a base runtime esta cor
   }
 });
 
-runTest("Repositorio documental guarda anexos, sinaliza validade e remove ficheiro gerido", () => {
+runDbTest("Repositorio documental guarda anexos, sinaliza validade e remove ficheiro gerido", () => {
   const basePath = makeTempDir("kwanza-db-documents-");
   const documentsPath = makeTempDir("kwanza-documents-repo-");
   const service = new DatabaseService(basePath, documentsPath);
@@ -1160,6 +1217,55 @@ runTest("Correio eletrónico valida campos SMTP obrigatórios antes de enviar", 
   assert.match(result.message, /SMTP/i);
 });
 
+runTest("Planos comerciais declaram preços e limites de funcionários/dispositivos", () => {
+  const snapshot = LICENSE_PLANS.map((plan) => ({
+    code: plan.code,
+    name: plan.name,
+    price: plan.price,
+    maxEmployees: plan.maxEmployees,
+    maxDevices: plan.maxDevices
+  }));
+
+  assert.deepEqual(snapshot, [
+    { code: "starter", name: "Starter", price: 7500, maxEmployees: 10, maxDevices: 1 },
+    { code: "basico", name: "Básico", price: 12500, maxEmployees: 25, maxDevices: 2 },
+    { code: "profissional", name: "Profissional", price: 15000, maxEmployees: 50, maxDevices: 3 },
+    { code: "empresa", name: "Empresa", price: 28000, maxEmployees: 100, maxDevices: 4 },
+    { code: "business", name: "Business", price: 48500, maxEmployees: 200, maxDevices: 6 }
+  ]);
+
+  assert.equal(DEFAULT_LICENSE_PLAN.code, "profissional");
+});
+
+runTest("Limites de licenciamento bloqueiam funcionários e dispositivos extra", () => {
+  assert.deepEqual(enforceEmployeeLimit({ existingActiveEmployees: 9, maxEmployees: 10 }), {
+    ok: true,
+    maxEmployees: 10,
+    currentActiveEmployees: 9
+  });
+  assert.deepEqual(enforceEmployeeLimit({ existingActiveEmployees: 10, maxEmployees: 10 }), {
+    ok: false,
+    reason: "employee_limit_reached",
+    maxEmployees: 10,
+    currentActiveEmployees: 10
+  });
+
+  const devices = ["hash-1", "hash-2"];
+  assert.deepEqual(canActivateDevice({ existingDeviceHashes: devices, deviceHash: "hash-2", maxDevices: 2 }), {
+    ok: true,
+    allowed: true,
+    alreadyRegistered: true,
+    totalDevices: 2
+  });
+  assert.deepEqual(canActivateDevice({ existingDeviceHashes: devices, deviceHash: "hash-3", maxDevices: 2 }), {
+    ok: false,
+    allowed: false,
+    reason: "device_limit_reached",
+    totalDevices: 2,
+    maxDevices: 2
+  });
+});
+
 runTest("Licença local cifrada valida token assinado e expiração offline", () => {
   const userDataPath = makeTempDir("kwanza-license-cache-");
   const service = new LicensingService({
@@ -1179,6 +1285,8 @@ runTest("Licença local cifrada valida token assinado e expiração offline", ()
     serial_key: "KWZ-ABCD-EF12-3456-7890",
     plan: DEFAULT_LICENSE_PLAN.name,
     max_users: null,
+    max_employees: DEFAULT_LICENSE_PLAN.maxEmployees,
+    max_devices: DEFAULT_LICENSE_PLAN.maxDevices,
     start_date: "2026-04-01",
     expire_date: "2099-04-30",
     status: "active",
@@ -1211,6 +1319,244 @@ runTest("Licença local cifrada valida token assinado e expiração offline", ()
   assert.equal(status.plan, DEFAULT_LICENSE_PLAN.name);
 });
 
+runTest("App sem licenca local entra no fluxo de ativacao", () => {
+  const service = new LicensingService({
+    app: { isPackaged: false },
+    userDataPath: makeTempDir("kwanza-license-missing-"),
+    currentVersion: "1.0.0",
+    productName: "Kwanza Folha"
+  });
+
+  const status = service.getLicenseStatus(true);
+  assert.equal(status.canUseApp, false);
+  assert.equal(status.requiresLicense, true);
+  assert.equal(status.status, "missing");
+});
+
+runTest("Compra de licenca gera referencia com plano normalizado", async () => {
+  const service = new LicensingService({
+    app: { isPackaged: false },
+    userDataPath: makeTempDir("kwanza-license-payment-create-"),
+    currentVersion: "1.0.0",
+    productName: "Kwanza Folha"
+  });
+  let captured = null;
+  service.apiRequest = async (route, payload) => {
+    captured = { route, payload };
+    return { ok: true, reference: "123456789012", amount: 15000, plan: payload.plan };
+  };
+
+  const result = await service.createPaymentReference({ empresa: "Empresa", email: "cliente@empresa.ao", plan: "PROFISSIONAL" });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.reference, "123456789012");
+  assert.equal(captured.route, "/payment/create");
+  assert.equal(captured.payload.plan, "profissional");
+});
+
+runTest("Pagamento confirmado devolve serial_key para ativacao local", async () => {
+  const service = new LicensingService({
+    app: { isPackaged: false },
+    userDataPath: makeTempDir("kwanza-license-payment-status-"),
+    currentVersion: "1.0.0",
+    productName: "Kwanza Folha"
+  });
+  service.apiRequest = async (route, payload) => {
+    assert.equal(route, "/payment/status");
+    assert.equal(payload.reference, "123456789012");
+    return {
+      ok: true,
+      status: "paid",
+      reference: payload.reference,
+      serial_key: "KWZ-F533-EC81-93D9-DB09",
+      expire_date: "2099-04-30"
+    };
+  };
+
+  const result = await service.checkPaymentStatus("123456789012");
+
+  assert.equal(result.ok, true);
+  assert.equal(result.status, "paid");
+  assert.equal(result.serial_key, "KWZ-F533-EC81-93D9-DB09");
+});
+
+runTest("Licenciamento ativa localmente apos receber serial_key e valida offline no reinicio", async () => {
+  const userDataPath = makeTempDir("kwanza-license-activate-offline-");
+  const service = new LicensingService({
+    app: { isPackaged: false },
+    userDataPath,
+    currentVersion: "1.0.0",
+    productName: "Kwanza Folha"
+  });
+  const signed = createSignedLicenseToken(service, {
+    serial_key: "KWZ-F533-EC81-93D9-DB09",
+    email: "cliente@empresa.ao"
+  });
+  service.apiRequest = async (route, payload) => {
+    assert.equal(route, "/license/activate");
+    assert.equal(payload.serial_key, "KWZ-F533-EC81-93D9-DB09");
+    assert.equal(payload.email, "cliente@empresa.ao");
+    return {
+      ok: true,
+      license_token: signed.token,
+      expire_date: signed.payload.expire_date,
+      plan: signed.payload.plan,
+      max_users: signed.payload.max_users,
+      max_employees: signed.payload.max_employees,
+      max_devices: signed.payload.max_devices,
+      serial_key: signed.payload.serial_key
+    };
+  };
+
+  const activation = await service.activateLicense({
+    email: "CLIENTE@EMPRESA.AO",
+    serialKey: "kwz-f533-ec81-93d9-db09"
+  });
+
+  assert.equal(activation.ok, true);
+  assert.equal(activation.canUseApp, true);
+  assert.equal(activation.serialKey, "KWZ-F533-EC81-93D9-DB09");
+
+  const restartedService = new LicensingService({
+    app: { isPackaged: false },
+    userDataPath,
+    currentVersion: "1.0.0",
+    productName: "Kwanza Folha"
+  });
+  restartedService.getPublicKey = () => signed.publicKey;
+  restartedService.apiRequest = async () => {
+    throw new Error("Servidor nao deve ser chamado para validacao offline.");
+  };
+
+  const offlineStatus = restartedService.getLicenseStatus(true);
+  assert.equal(offlineStatus.ok, true);
+  assert.equal(offlineStatus.canUseApp, true);
+  assert.equal(offlineStatus.serialKey, "KWZ-F533-EC81-93D9-DB09");
+});
+
+runTest("Licenca expirada bloqueia acesso offline", () => {
+  const service = new LicensingService({
+    app: { isPackaged: false },
+    userDataPath: makeTempDir("kwanza-license-expired-offline-"),
+    currentVersion: "1.0.0",
+    productName: "Kwanza Folha"
+  });
+  const signed = createSignedLicenseToken(service, {
+    expire_date: "2000-01-01"
+  });
+  service.saveLocalLicense({
+    license_token: signed.token,
+    serial_key: signed.payload.serial_key,
+    integrity: service.buildRuntimeIntegrity()
+  });
+
+  const status = service.getLicenseStatus(true);
+  assert.equal(status.status, "expired");
+  assert.equal(status.canUseApp, false);
+});
+
+runTest("Licenca assinada por chave diferente mostra erro de assinatura claro", () => {
+  const service = new LicensingService({
+    app: { isPackaged: false },
+    userDataPath: makeTempDir("kwanza-license-signature-mismatch-"),
+    currentVersion: "1.0.0",
+    productName: "Kwanza Folha"
+  });
+  const signed = createSignedLicenseToken(service);
+  const otherKeyPair = require("node:crypto").generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: "spki", format: "pem" },
+    privateKeyEncoding: { type: "pkcs8", format: "pem" }
+  });
+  service.getPublicKey = () => otherKeyPair.publicKey;
+  service.saveLocalLicense({
+    license_token: signed.token,
+    serial_key: signed.payload.serial_key,
+    integrity: service.buildRuntimeIntegrity()
+  });
+
+  const status = service.getLicenseStatus(true);
+  assert.equal(status.status, "license_signature_mismatch");
+  assert.equal(status.canUseApp, false);
+  assert.match(status.message, /chave privada do servidor/i);
+});
+
+runTest("Licenca recusada quando o dispositivo nao corresponde a ativacao", () => {
+  const service = new LicensingService({
+    app: { isPackaged: false },
+    userDataPath: makeTempDir("kwanza-license-device-mismatch-"),
+    currentVersion: "1.0.0",
+    productName: "Kwanza Folha"
+  });
+  const signed = createSignedLicenseToken(service, {
+    device_hash: "outro-dispositivo"
+  });
+  service.saveLocalLicense({
+    license_token: signed.token,
+    serial_key: signed.payload.serial_key,
+    integrity: service.buildRuntimeIntegrity()
+  });
+
+  const status = service.getLicenseStatus(true);
+  assert.equal(status.status, "tampered");
+  assert.equal(status.canUseApp, false);
+  assert.match(status.message, /outro dispositivo/i);
+});
+
+runTest("Integridade de runtime nao bloqueia ativacao quando app.asar esta indisponivel", () => {
+  const service = new LicensingService({
+    app: { isPackaged: true },
+    userDataPath: makeTempDir("kwanza-license-missing-asar-"),
+    currentVersion: "1.0.0",
+    productName: "Kwanza Folha"
+  });
+
+  const missingPath = path.join(makeTempDir("kwanza-missing-asar-"), "resources", "app.asar");
+  assert.equal(service.checksumFile(missingPath), "");
+  assert.doesNotThrow(() => service.buildRuntimeIntegrity());
+  const integrity = service.buildRuntimeIntegrity();
+  assert.equal(typeof integrity.executableChecksum, "string");
+  assert.equal(typeof integrity.appChecksum, "string");
+});
+
+runTest("Falha de gravacao local durante ativacao mostra erro claro", async () => {
+  const service = new LicensingService({
+    app: { isPackaged: false },
+    userDataPath: makeTempDir("kwanza-license-storage-failure-"),
+    currentVersion: "1.0.0",
+    productName: "Kwanza Folha",
+    secureStorage: {
+      storeSecret() {
+        throw new Error("sem permissao");
+      },
+      loadSecret() {
+        return "";
+      },
+      removeSecret() {}
+    }
+  });
+  const signed = createSignedLicenseToken(service);
+  service.apiRequest = async () => ({
+    ok: true,
+    license_token: signed.token,
+    expire_date: signed.payload.expire_date,
+    plan: signed.payload.plan,
+    max_users: signed.payload.max_users,
+    max_employees: signed.payload.max_employees,
+    max_devices: signed.payload.max_devices,
+    serial_key: signed.payload.serial_key
+  });
+
+  const result = await service.activateLicense({
+    email: "cliente@empresa.ao",
+    serialKey: signed.payload.serial_key
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.status, "local_storage_failed");
+  assert.match(result.message, /gravar a licenca local/i);
+});
+
 runTest("Licenciamento permite o registo inicial antes da compra da licença", () => {
   const service = new LicensingService({
     app: { isPackaged: false },
@@ -1237,7 +1583,7 @@ runTest("Licenciamento permite o registo inicial antes da compra da licença", (
   assert.equal(status.canUseApp, true);
 });
 
-runTest("Licenciamento mantém 30 dias gratuitos ativos após o registo inicial", () => {
+runTest("Licenciamento mantém 15 dias gratuitos ativos após o registo inicial", () => {
   const service = new LicensingService({
     app: { isPackaged: false },
     userDataPath: makeTempDir("kwanza-license-trial-"),
@@ -1261,11 +1607,11 @@ runTest("Licenciamento mantém 30 dias gratuitos ativos após o registo inicial"
   const status = service.getLicenseStatus(true);
   assert.equal(status.status, "trial_active");
   assert.equal(status.canUseApp, true);
-  assert.equal(status.trialDaysTotal, 30);
+  assert.equal(status.trialDaysTotal, 15);
   assert.ok(status.trialDaysRemaining >= 1);
 });
 
-runTest("Licenciamento bloqueia o aplicativo quando os 30 dias gratuitos terminam", () => {
+runTest("Licenciamento bloqueia o aplicativo quando os 15 dias gratuitos terminam", () => {
   const service = new LicensingService({
     app: { isPackaged: false },
     userDataPath: makeTempDir("kwanza-license-expired-trial-"),
@@ -1275,7 +1621,7 @@ runTest("Licenciamento bloqueia o aplicativo quando os 30 dias gratuitos termina
       getLicenseTrialContext() {
         return {
           setupRequired: false,
-          trialStartedAt: new Date(Date.now() - 31 * 86400000).toISOString(),
+          trialStartedAt: new Date(Date.now() - 16 * 86400000).toISOString(),
           companyName: "Empresa Exemplo",
           companyEmail: "empresa@exemplo.ao",
           companyPhone: "923000000",
@@ -1289,7 +1635,7 @@ runTest("Licenciamento bloqueia o aplicativo quando os 30 dias gratuitos termina
   const status = service.getLicenseStatus(true);
   assert.equal(status.status, "trial_expired");
   assert.equal(status.canUseApp, false);
-  assert.match(status.message, /30 dias/i);
+  assert.match(status.message, /15 dias/i);
 });
 
 runTest("Licenciamento tecnico de desenvolvimento libera a edicao local por 1 ano", () => {
@@ -1635,23 +1981,15 @@ runTest("Licenciamento reutiliza referencia pendente no mesmo checkout", () => {
   });
 });
 
-runTest("Licenciamento comercial fica suspenso por omissão", () => {
+runTest("Licenciamento comercial fica ativo por omissao", () => {
   const service = {
-    settings: {
-      sales: {}
-    },
+    settings: {},
+    createDefaultSettings: LicensingServer.prototype.createDefaultSettings,
     getSalesSettings: LicensingServer.prototype.getSalesSettings,
-    isCommercialLicensingEnabled: LicensingServer.prototype.isCommercialLicensingEnabled,
-    getCommercialLicensingMessage: LicensingServer.prototype.getCommercialLicensingMessage
+    isCommercialLicensingEnabled: LicensingServer.prototype.isCommercialLicensingEnabled
   };
 
-  const result = LicensingServer.prototype.createPayment.call(service, {
-    company_name: "Empresa Piloto",
-    email: "piloto@empresa.ao"
-  });
-
-  assert.equal(result.ok, false);
-  assert.match(result.message, /temporariamente suspenso/i);
+  assert.equal(LicensingServer.prototype.isCommercialLicensingEnabled.call(service), true);
 });
 
 runTest("Confirmacao de pagamento retoma entrega pendente sem duplicar a confirmacao principal", async () => {
@@ -1698,6 +2036,195 @@ runTest("Confirmacao de pagamento retoma entrega pendente sem duplicar a confirm
   assert.equal(confirmedReference, "123456789012");
   assert.equal(deliveredInvoicePath, "C:\\temp\\invoice.pdf");
   assert.equal(result.invoice_number, "FT-20260406-0001");
+});
+
+runTest("E-mail de licenca inclui cliente, pagamento, serial e fatura anexada", async () => {
+  const nodemailer = require("nodemailer");
+  const originalCreateTransport = nodemailer.createTransport;
+  let capturedMail = null;
+
+  nodemailer.createTransport = () => ({
+    async sendMail(message) {
+      capturedMail = message;
+      return { messageId: "email-teste" };
+    }
+  });
+
+  const service = {
+    settings: {
+      issuer: {
+        emailSubject: "Sua licença do Kwanza Folha"
+      },
+      smtp: {
+        host: "smtp.example.ao",
+        port: 587,
+        secure: false,
+        user: "licencas@example.ao",
+        password: "segredo",
+        fromName: "Kwanza Folha",
+        fromEmail: "licencas@example.ao"
+      }
+    },
+    getSmtpConfig: LicensingServer.prototype.getSmtpConfig
+  };
+
+  try {
+    const result = await LicensingServer.prototype.sendLicenseEmail.call(service, {
+      user: {
+        empresa: "Empresa Teste",
+        nif: "5000000001",
+        email: "cliente@empresa.ao",
+        telefone: "+244923000001"
+      },
+      payment: {
+        reference: "123456789012",
+        amount: 15000,
+        paid_at: "2026-04-30T10:00:00.000Z"
+      },
+      invoice: {
+        invoice_number: "FT-20260430-0001"
+      },
+      license: {
+        plan: "Profissional",
+        serial_key: "KWZ-F533-EC81-93D9-DB09",
+        start_date: "2026-04-30",
+        expire_date: "2026-05-30",
+        max_employees: 50,
+        max_devices: 3
+      },
+      invoicePath: "C:\\temp\\FT-20260430-0001.pdf"
+    });
+
+    assert.equal(result.ok, true);
+    assert.ok(capturedMail);
+    assert.equal(capturedMail.to, "cliente@empresa.ao");
+    assert.match(capturedMail.text, /Empresa Teste/);
+    assert.match(capturedMail.text, /123456789012/);
+    assert.match(capturedMail.text, /KWZ-F533-EC81-93D9-DB09/);
+    assert.match(capturedMail.text, /FT-20260430-0001/);
+    assert.match(capturedMail.html, /Pagamento concluido/);
+    assert.match(capturedMail.html, /Fatura/);
+    assert.equal(capturedMail.attachments.length, 1);
+    assert.equal(capturedMail.attachments[0].filename, "FT-20260430-0001.pdf");
+  } finally {
+    nodemailer.createTransport = originalCreateTransport;
+  }
+});
+
+runDbTest("Admin remove licenca comprada com palavra-passe e preserva fatura/pagamento", () => {
+  if (!LicensingServer) {
+    console.log("INFO licensing-server ausente; teste de remocao admin ignorado.");
+    return;
+  }
+
+  const db = new BetterSqlite3(":memory:");
+  const service = {
+    db,
+    settings: {
+      admin: {
+        username: "admin",
+        passwordHash: bcrypt.hashSync("segredo-admin", 10)
+      }
+    },
+    getAdminAuthSettings: LicensingServer.prototype.getAdminAuthSettings,
+    verifyAdminPassword: LicensingServer.prototype.verifyAdminPassword,
+    runDbTransaction: LicensingServer.prototype.runDbTransaction,
+    getLicenseBySerial: LicensingServer.prototype.getLicenseBySerial,
+    getDeviceById: LicensingServer.prototype.getDeviceById,
+    removePurchasedLicense: LicensingServer.prototype.removePurchasedLicense,
+    removeRegisteredDevice: LicensingServer.prototype.removeRegisteredDevice
+  };
+  LicensingServer.prototype.setupSchema.call(service);
+
+  const now = new Date().toISOString();
+  const userId = db
+    .prepare("INSERT INTO users (empresa, email, telefone, nif, created_at) VALUES (?, ?, ?, ?, ?)")
+    .run("Empresa Teste", "cliente@empresa.ao", "923000000", "5000000001", now).lastInsertRowid;
+  const licenseId = db
+    .prepare(`
+      INSERT INTO licenses (user_id, serial_key, plan, max_users, max_employees, max_devices, start_date, expire_date, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+    `)
+    .run(userId, "KWZ-ADMIN-0001-0002-0003", "starter", 10, 10, 1, "2026-04-30", "2026-05-30", now, now)
+    .lastInsertRowid;
+  const paymentId = db
+    .prepare("INSERT INTO payments (user_id, reference, amount, plan, status, valid_until, serial_key, created_at, paid_at) VALUES (?, ?, ?, ?, 'paid', ?, ?, ?, ?)")
+    .run(userId, "123456789012", 7500, "starter", "2026-05-01", "KWZ-ADMIN-0001-0002-0003", now, now)
+    .lastInsertRowid;
+  db.prepare("INSERT INTO invoices (user_id, license_id, invoice_number, amount, pdf_path, created_at, payment_id) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(userId, licenseId, "FT-20260430-0002", 7500, "invoice.pdf", now, paymentId);
+  db.prepare("INSERT INTO devices (license_id, device_hash, device_name, app_version, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(licenseId, "hash-1", "PC Rececao", "1.0.6", now, now);
+
+  const denied = service.removePurchasedLicense({
+    serial_key: "KWZ-ADMIN-0001-0002-0003",
+    admin_password: "errada"
+  });
+  assert.equal(denied.ok, false);
+  assert.equal(db.prepare("SELECT status FROM licenses WHERE id = ?").get(licenseId).status, "active");
+
+  const removed = service.removePurchasedLicense({
+    serial_key: "KWZ-ADMIN-0001-0002-0003",
+    admin_password: "segredo-admin"
+  });
+  assert.equal(removed.ok, true);
+  assert.equal(removed.removed_devices, 1);
+  assert.equal(db.prepare("SELECT status FROM licenses WHERE id = ?").get(licenseId).status, "removed");
+  assert.equal(db.prepare("SELECT COUNT(*) AS total FROM devices WHERE license_id = ?").get(licenseId).total, 0);
+  assert.equal(db.prepare("SELECT COUNT(*) AS total FROM payments WHERE id = ?").get(paymentId).total, 1);
+  assert.equal(db.prepare("SELECT COUNT(*) AS total FROM invoices WHERE license_id = ?").get(licenseId).total, 1);
+
+  db.close();
+});
+
+runDbTest("Admin remove maquina registada com palavra-passe", () => {
+  if (!LicensingServer) {
+    console.log("INFO licensing-server ausente; teste de remocao de maquina ignorado.");
+    return;
+  }
+
+  const db = new BetterSqlite3(":memory:");
+  const service = {
+    db,
+    settings: {
+      admin: {
+        username: "admin",
+        passwordHash: bcrypt.hashSync("segredo-admin", 10)
+      }
+    },
+    getAdminAuthSettings: LicensingServer.prototype.getAdminAuthSettings,
+    verifyAdminPassword: LicensingServer.prototype.verifyAdminPassword,
+    runDbTransaction: LicensingServer.prototype.runDbTransaction,
+    getLicenseBySerial: LicensingServer.prototype.getLicenseBySerial,
+    getDeviceById: LicensingServer.prototype.getDeviceById,
+    removeRegisteredDevice: LicensingServer.prototype.removeRegisteredDevice
+  };
+  LicensingServer.prototype.setupSchema.call(service);
+
+  const now = new Date().toISOString();
+  const userId = db
+    .prepare("INSERT INTO users (empresa, email, telefone, nif, created_at) VALUES (?, ?, ?, ?, ?)")
+    .run("Empresa Teste", "cliente@empresa.ao", "923000000", "5000000001", now).lastInsertRowid;
+  const licenseId = db
+    .prepare(`
+      INSERT INTO licenses (user_id, serial_key, plan, max_users, max_employees, max_devices, start_date, expire_date, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+    `)
+    .run(userId, "KWZ-ADMIN-0004-0005-0006", "starter", 10, 10, 1, "2026-04-30", "2026-05-30", now, now)
+    .lastInsertRowid;
+  const deviceId = db
+    .prepare("INSERT INTO devices (license_id, device_hash, device_name, app_version, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(licenseId, "hash-1", "PC Rececao", "1.0.6", now, now).lastInsertRowid;
+
+  const denied = service.removeRegisteredDevice({ device_id: deviceId, admin_password: "errada" });
+  assert.equal(denied.ok, false);
+  assert.equal(db.prepare("SELECT COUNT(*) AS total FROM devices WHERE id = ?").get(deviceId).total, 1);
+
+  const removed = service.removeRegisteredDevice({ device_id: deviceId, admin_password: "segredo-admin" });
+  assert.equal(removed.ok, true);
+  assert.equal(db.prepare("SELECT COUNT(*) AS total FROM devices WHERE id = ?").get(deviceId).total, 0);
+
+  db.close();
 });
 
 runTest("Build empacotada recusa servidor de licenciamento sem HTTPS", async () => {
@@ -2775,12 +3302,14 @@ runTest("GestÃ£o de utilizadores cria e remove utilizador com resposta context
   const createResult = DatabaseService.prototype.saveUser.call(service, {
     full_name: "Operador Teste",
     username: "operador.teste",
-    password: "1234",
+    password: "segredo123",
     role: "operador",
     active: true
   });
   assert.equal(createResult.ok, true);
   assert.equal(runRecorder.length, 1);
+  assert.ok(runRecorder[0].password_hash);
+  assert.ok(!Object.prototype.hasOwnProperty.call(runRecorder[0], "password"));
   const created = createResult.users.find((item) => item.username === "operador.teste");
   assert.ok(created);
 
@@ -2792,7 +3321,7 @@ runTest("GestÃ£o de utilizadores cria e remove utilizador com resposta context
 runTest("Exportação bancária falha com mensagem específica quando não há salários processados", () => {
   const service = {
     getCompanyProfile() {
-      return { name: "Empresa Teste", nif: "50014781" };
+      return { name: "Empresa Teste", nif: "50014781", origin_bank_code: "ATLANTICO", origin_account: "300200100999" };
     },
     bankExportsDir: makeTempDir("kwanza-bank-empty-"),
     db: {
@@ -2811,7 +3340,7 @@ runTest("Exportação bancária gera CSV quando existe folha processada", () => 
   const targetDir = makeTempDir("kwanza-bank-full-");
   const service = {
     getCompanyProfile() {
-      return { name: "Empresa Teste", nif: "50014781" };
+      return { name: "Empresa Teste", nif: "50014781", origin_bank_code: "ATLANTICO", origin_account: "300200100999" };
     },
     bankExportsDir: targetDir,
     db: {
@@ -2825,6 +3354,8 @@ runTest("Exportação bancária gera CSV quando existe folha processada", () => 
                 generated_at: new Date().toISOString(),
                 full_name: "Maria Fernandes",
                 iban: "AO62000600000123456789311",
+                bank_code: "ATLANTICO",
+                bank_account: "000001234567",
                 nif: "50014781",
                 bi: "123456789LA042",
                 department: "RH",
@@ -2844,6 +3375,49 @@ runTest("Exportação bancária gera CSV quando existe folha processada", () => 
   const content = fs.readFileSync(result.path, "utf8");
   assert.match(content, /Empresa Teste/);
   assert.match(content, /Maria Fernandes/);
+  assert.match(content, /Tipo de Conta \(PS2\/PSX\)/);
+  assert.match(content, /PS2/);
+  assert.match(content, /300200100999/);
+  assert.match(content, /000001234567/);
+});
+
+runTest("Lista de salários inclui dados bancários atuais do funcionário", () => {
+  let capturedSql = "";
+  const service = {
+    db: {
+      prepare(sql) {
+        capturedSql = sql;
+        return {
+          all() {
+            return [
+              {
+                id: 1,
+                month_ref: "2026-04",
+                employee_id: 1,
+                gross_salary: 200000,
+                net_salary: 150000,
+                mandatory_deductions: 50000,
+                absence_deduction: 0,
+                summary_json: "{}",
+                full_name: "Maria Fernandes",
+                iban: "AO62000600000123456789311",
+                bank_code: "BAI",
+                bank_account: "00000123456789311"
+              }
+            ];
+          }
+        };
+      }
+    }
+  };
+
+  const rows = DatabaseService.prototype.listPayrollRuns.call(service, { monthRef: "2026-04" });
+  assert.match(capturedSql, /employees\.iban/);
+  assert.match(capturedSql, /employees\.bank_code/);
+  assert.match(capturedSql, /employees\.bank_account/);
+  assert.equal(rows[0].iban, "AO62000600000123456789311");
+  assert.equal(rows[0].bank_code, "BAI");
+  assert.equal(rows[0].bank_account, "00000123456789311");
 });
 
 runTest("Updater devolve mensagem clara quando a configuraÃ§Ã£o estÃ¡ incompleta", () => {
@@ -3101,7 +3675,7 @@ runTest("Exportação oficial gera ficheiros PS2 e PSX com o formato esperado", 
   const targetDir = makeTempDir("kwanza-bank-official-");
   const service = {
     getCompanyProfile() {
-      return { name: "Empresa Teste", nif: "50014781", origin_account: "300200100999" };
+      return { name: "Empresa Teste", nif: "50014781", origin_bank_code: "ATLANTICO", origin_account: "300200100999" };
     },
     bankExportsDir: targetDir,
     db: {
@@ -3139,8 +3713,15 @@ runTest("Exportação oficial gera ficheiros PS2 e PSX com o formato esperado", 
     "ps2"
   );
   assert.equal(ps2.ok, true);
+  assert.match(ps2.fileName, /\.xls$/);
   const ps2Content = fs.readFileSync(ps2.path, "utf8");
-  assert.match(ps2Content, /^PS2;300200100999;000123456789;250000;JOAO MANUEL PEDRO;AOA$/m);
+  assert.match(ps2Content, /<html>/);
+  assert.match(ps2Content, /Pagamentos PS2/);
+  assert.match(ps2Content, /<td>PS2<\/td>/);
+  assert.match(ps2Content, /<td>300200100999<\/td>/);
+  assert.match(ps2Content, /<td>000123456789<\/td>/);
+  assert.match(ps2Content, /<td>250000\.00<\/td>/);
+  assert.match(ps2Content, /<td>JOAO MANUEL PEDRO<\/td>/);
 
   const psx = DatabaseService.prototype.exportBankPayrollFile.call(
     service,
@@ -3149,8 +3730,15 @@ runTest("Exportação oficial gera ficheiros PS2 e PSX com o formato esperado", 
     "psx"
   );
   assert.equal(psx.ok, true);
+  assert.match(psx.fileName, /\.xls$/);
   const psxContent = fs.readFileSync(psx.path, "utf8");
-  assert.match(psxContent, /^PSX;300200100999;BAI;004567891234;180000;MARIA JOSE ALFREDO;AOA$/m);
+  assert.match(psxContent, /<html>/);
+  assert.match(psxContent, /Pagamentos PSX/);
+  assert.match(psxContent, /<td>PSX<\/td>/);
+  assert.match(psxContent, /<td>BAI<\/td>/);
+  assert.match(psxContent, /<td>004567891234<\/td>/);
+  assert.match(psxContent, /<td>180000\.00<\/td>/);
+  assert.match(psxContent, /<td>MARIA JOSE ALFREDO<\/td>/);
 });
 
 runTest("PdfService bloqueia relatórios sem salários processados", async () => {
@@ -3623,6 +4211,203 @@ runTest("Base e backups ficam cifrados em repouso sem perder compatibilidade com
   assert.equal(fs.existsSync(`${dbPath}-shm`), false);
   assert.equal(fs.existsSync(encryptedDbPath), true);
   assert.ok(!fs.readFileSync(encryptedDbPath, "utf8").includes("estado-restaurado"));
+});
+
+runTest("Release/seguranca: nodemailer esta em 8.0.5+", () => {
+  const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+  const lockJson = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package-lock.json"), "utf8"));
+
+  const declared = String(packageJson?.dependencies?.nodemailer || "");
+  assert.ok(/\^8\./.test(declared), "nodemailer deve estar declarado com versao 8.x");
+
+  const installed = String(lockJson?.packages?.["node_modules/nodemailer"]?.version || "");
+  const [major, minor, patch] = installed.split(".").map((value) => Number(value));
+  assert.equal(major, 8);
+  assert.ok(minor > 0 || patch >= 5, "nodemailer instalado deve ser >= 8.0.5");
+});
+
+runTest("Release/seguranca: package-lock.json alinha com package.json", () => {
+  const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+  const lockJson = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package-lock.json"), "utf8"));
+  assert.equal(lockJson.version, packageJson.version);
+  assert.equal(lockJson?.packages?.[""]?.version, packageJson.version);
+});
+
+runTest("Security scan bloqueia ficheiros sensiveis e permite templates", () => {
+  const temp = makeTempDir("kwanza-sensitive-scan-");
+  fs.mkdirSync(path.join(temp, "config"), { recursive: true });
+  fs.writeFileSync(path.join(temp, "README.md"), "ok");
+  fs.writeFileSync(path.join(temp, "config", "settings.production.example.json"), "{}");
+
+  assert.doesNotThrow(() => scanSensitiveFiles(temp, "temp"));
+
+  fs.writeFileSync(path.join(temp, ".env"), "SECRET=1");
+  assert.throws(() => scanSensitiveFiles(temp, "temp"), /\.env/i);
+});
+
+runTest("Release validate faz fallback para filesystem quando git falha", () => {
+  const rootDir = makeTempDir("kwanza-release-validate-");
+
+  const requiredDocs = [
+    "README.md",
+    "SECURITY.md",
+    "RELEASE-POLICY.md",
+    "RELEASE-CHECKLIST.md",
+    "RELEASE_PROCESS.md",
+    "RELEASE_NOTES_TEMPLATE.md",
+    "COMPLIANCE_GAP_REPORT.md",
+    "SUPPORT_RUNBOOK.md",
+    "INCIDENT_RESPONSE.md",
+    "LICENSING_OPERATIONS.md"
+  ];
+  requiredDocs.forEach((name) => fs.writeFileSync(path.join(rootDir, name), ""));
+
+  fs.mkdirSync(path.join(rootDir, "electron", "config"), { recursive: true });
+  fs.writeFileSync(
+    path.join(rootDir, "electron", "config", "license-source.js"),
+    "module.exports = { apiBaseUrl: 'https://license.example.ao' };"
+  );
+
+  const scripts = {
+    test: "node -e \"process.exit(0)\"",
+    "test:node": "node -e \"process.exit(0)\"",
+    build: "npm run build:signed",
+    "build:unsigned": "node -e \"process.exit(0)\"",
+    "build:installer": "npm run build:signed:installer",
+    "build:installer:unsigned": "node -e \"process.exit(0)\"",
+    "build:signed": "powershell -ExecutionPolicy Bypass -File scripts\\build-signed.ps1 -Target all",
+    "build:signed:installer": "powershell -ExecutionPolicy Bypass -File scripts\\build-signed.ps1 -Target installer",
+    "release:prepare": "node -e \"process.exit(0)\"",
+    "release:prepare:beta": "node -e \"process.exit(0)\"",
+    "smoke:packaged": "node -e \"process.exit(0)\"",
+    "smoke:packaged:e2e": "node -e \"process.exit(0)\"",
+    "verify:packaged:main": "node -e \"process.exit(0)\""
+  };
+
+  fs.writeFileSync(
+    path.join(rootDir, "package.json"),
+    JSON.stringify({ name: "tmp", version: "1.0.0", scripts }, null, 2)
+  );
+
+  const originalSkip = process.env.KWANZA_RELEASE_SKIP_GIT;
+  process.env.KWANZA_RELEASE_SKIP_GIT = "1";
+  try {
+    const result = validateReleaseReadiness({ rootDir, phase: "preflight" });
+    assert.equal(result.ok, true);
+    assert.equal(result.trackedFilesCheck.method, "filesystem");
+
+    fs.writeFileSync(path.join(rootDir, ".env"), "SECRET=1");
+    assert.throws(() => validateReleaseReadiness({ rootDir, phase: "preflight" }), /filesystem/i);
+  } finally {
+    process.env.KWANZA_RELEASE_SKIP_GIT = originalSkip;
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+runTest("clean-workspace.ps1 suporta -All (dry run)", () => {
+  const rootDir = path.join(__dirname, "..");
+  const markerDirs = ["dist-electron", "artifacts", "logs"];
+  const existedBefore = new Map();
+  const createdMarkers = [];
+  try {
+    markerDirs.forEach((dirName) => {
+      const dirPath = path.join(rootDir, dirName);
+      const existed = fs.existsSync(dirPath);
+      existedBefore.set(dirName, existed);
+      if (!existed) {
+        fs.mkdirSync(dirPath, { recursive: true });
+        createdMarkers.push(dirName);
+      }
+      fs.writeFileSync(path.join(dirPath, ".tmp-test-clean-workspace"), "x");
+    });
+
+    const output = execFileSync(
+      "powershell",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(rootDir, "scripts", "clean-workspace.ps1"), "-DryRun", "-All"],
+      { cwd: rootDir, encoding: "utf8" }
+    );
+
+    assert.match(output, /remove dist-electron/i);
+    assert.match(output, /remove logs/i);
+  } finally {
+    markerDirs.forEach((dirName) => {
+      const dirPath = path.join(rootDir, dirName);
+      const markerPath = path.join(dirPath, ".tmp-test-clean-workspace");
+      try {
+        fs.rmSync(markerPath, { force: true });
+      } catch {}
+      if (createdMarkers.includes(dirName)) {
+        fs.rmSync(dirPath, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+runTest("prepare-licensing-cloud-package.ps1 falha claramente quando licensing-server nao existe", () => {
+  const rootDir = path.join(__dirname, "..");
+  try {
+    execFileSync(
+      "powershell",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(rootDir, "scripts", "prepare-licensing-cloud-package.ps1")],
+      { cwd: rootDir, encoding: "utf8", stdio: "pipe" }
+    );
+    throw new Error("Expected failure");
+  } catch (error) {
+    const output = String(error?.stdout || "") + String(error?.stderr || "");
+    assert.match(output, /Nao existe 'licensing-server'/i);
+  }
+});
+
+runTest("prepare-licensing-cloud-package.ps1 cria pacote seguro quando servidor existe", () => {
+  const rootDir = path.join(__dirname, "..");
+  const tempServerDir = path.join(rootDir, ".tmp-licensing-server");
+  const outputZip = path.join(rootDir, "artifacts", "tmp-licensing-cloud.zip");
+  const extractDir = makeTempDir("kwanza-lic-cloud-extract-");
+
+  fs.rmSync(tempServerDir, { recursive: true, force: true });
+  fs.mkdirSync(path.join(tempServerDir, "config"), { recursive: true });
+  fs.writeFileSync(path.join(tempServerDir, "server.js"), "console.log('ok');");
+  fs.writeFileSync(path.join(tempServerDir, "DEPLOY-CLOUD.md"), "# deploy");
+  fs.writeFileSync(
+    path.join(tempServerDir, "config", "settings.production.example.json"),
+    JSON.stringify({ smtp: { password: "ALTERAR" }, webhook: { secret: "ALTERAR" }, admin: { passwordHash: "ALTERAR" } }, null, 2)
+  );
+
+  fs.mkdirSync(path.join(rootDir, "artifacts"), { recursive: true });
+  fs.rmSync(outputZip, { force: true });
+
+  try {
+    execFileSync(
+      "powershell",
+      [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        path.join(rootDir, "scripts", "prepare-licensing-cloud-package.ps1"),
+        "-LicensingServerDir",
+        ".tmp-licensing-server",
+        "-OutputZipPath",
+        "artifacts\\tmp-licensing-cloud.zip"
+      ],
+      { cwd: rootDir, encoding: "utf8" }
+    );
+
+    assert.equal(fs.existsSync(outputZip), true);
+
+    execFileSync(
+      "powershell",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", `Expand-Archive -LiteralPath \"${outputZip}\" -DestinationPath \"${extractDir}\" -Force`],
+      { cwd: rootDir, encoding: "utf8" }
+    );
+
+    assert.doesNotThrow(() => scanSensitiveFiles(extractDir, "cloud-package"));
+  } finally {
+    fs.rmSync(tempServerDir, { recursive: true, force: true });
+    fs.rmSync(outputZip, { force: true });
+    fs.rmSync(extractDir, { recursive: true, force: true });
+    fs.rmSync(path.join(rootDir, "artifacts", "licensing-server-cloud"), { recursive: true, force: true });
+  }
 });
 
 Promise.all(pendingTests).then(() => {

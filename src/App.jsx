@@ -86,6 +86,28 @@ function buildDocumentAlertDescription(rows = [], variant = "expiring") {
     : `${firstRow.title} de ${ownerLabel} e mais ${remaining} documento(s) estão a expirar e exigem acompanhamento.`;
 }
 
+function isStartupDegradedLicensingMessage(message) {
+  return /servi(c|ç)os principais ainda n[aã]o ficaram dispon|modulo local de ativa(c|ç)[aã]o ainda n[aã]o iniciou|activation_pending_services/i.test(
+    String(message || "")
+  );
+}
+
+function isActivationPendingResult(result) {
+  return Boolean(
+    result?.licenseStored ||
+      ["activation_pending_services", "activation_blocked_by_integrity", "activation_services_unavailable"].includes(
+        String(result?.status || "")
+      )
+  );
+}
+
+function getActivationPendingFeedback(result) {
+  if (result?.message) {
+    return result.message;
+  }
+  return "Licença recebida com sucesso. Reinicie o aplicativo para concluir a ativação.";
+}
+
 function normalizeBootstrapData(data = {}) {
   const settings = data?.settings || {};
   return {
@@ -135,6 +157,8 @@ export default function App() {
   const [licenseMode, setLicenseMode] = useState("activate");
   const [licenseActivationForm, setLicenseActivationForm] = useState(initialLicenseActivationForm);
   const [licensePurchaseForm, setLicensePurchaseForm] = useState(initialLicensePurchaseForm);
+  const [licenseApiState, setLicenseApiState] = useState({ ok: true, candidate: "", resolved: "", source: "default", message: "" });
+  const [licenseApiUrlForm, setLicenseApiUrlForm] = useState("");
   const [licensePaymentState, setLicensePaymentState] = useState({
     reference: "",
     amount: 0,
@@ -487,9 +511,12 @@ export default function App() {
   }
 
   async function refreshLicenseState() {
-    const [statusResult, plansResult] = await Promise.all([
+    const [statusResult, plansResult, apiStateResult] = await Promise.all([
       window.payrollAPI.getLicenseStatus(),
-      window.payrollAPI.getLicensePlans()
+      window.payrollAPI.getLicensePlans(),
+      typeof window.payrollAPI.getLicenseApiBaseUrl === "function"
+        ? window.payrollAPI.getLicenseApiBaseUrl().catch(() => null)
+        : Promise.resolve(null)
     ]);
 
     const nextStatus = statusResult || {
@@ -500,6 +527,10 @@ export default function App() {
 
     setLicenseState(nextStatus);
     setLicensePlans(plansResult?.plans || []);
+    if (apiStateResult) {
+      setLicenseApiState(apiStateResult);
+      setLicenseApiUrlForm((current) => current || String(apiStateResult.candidate || apiStateResult.resolved || "").trim());
+    }
 
     if (!nextStatus.canUseApp) {
       const suggestedMode =
@@ -1013,7 +1044,7 @@ export default function App() {
         ? `Registo concluído com sucesso. A sessão foi iniciada e a licença técnica de desenvolvimento está ativa até ${
             nextLicenseState.expireDate || "-"
           }.`
-        : `Registo concluído com sucesso. A sessão foi iniciada e o período gratuito de 30 dias está ativo${
+        : `Registo concluído com sucesso. A sessão foi iniciada e o período gratuito de 15 dias está ativo${
             nextLicenseState.trialExpireAt
               ? ` até ${new Date(nextLicenseState.trialExpireAt).toLocaleDateString("pt-PT")}`
               : ""
@@ -1094,12 +1125,48 @@ export default function App() {
 
   async function handleActivateLicense(event) {
     event.preventDefault();
-    const result = await window.payrollAPI.activateLicense({
-      email: licenseActivationForm.email,
-      serialKey: licenseActivationForm.serialKey
-    });
+
+    const invokeWithStartupRetry = async (fn) => {
+      const delays = [150, 250, 400, 700, 1200, 2000];
+      let last = null;
+      for (let attempt = 0; attempt < delays.length; attempt += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        last = await fn();
+        if (last?.ok) return last;
+        if (isActivationPendingResult(last)) return last;
+        if (!isStartupDegradedLicensingMessage(last?.message)) return last;
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+      }
+      return last;
+    };
+
+    let result = null;
+    try {
+      result = await invokeWithStartupRetry(() =>
+        window.payrollAPI.activateLicense({
+          email: licenseActivationForm.email,
+          serialKey: licenseActivationForm.serialKey
+        })
+      );
+    } catch (error) {
+      setFeedback(
+        contextualizeFeedback(
+          "Licenciamento",
+          error?.message,
+          "Não foi possível comunicar com o módulo de licenciamento."
+        )
+      );
+      return;
+    }
 
     if (!result?.ok) {
+      if (isActivationPendingResult(result)) {
+        setLicenseMode("activate");
+        setFeedback(getActivationPendingFeedback(result));
+        await refreshLicenseState().catch(() => null);
+        return;
+      }
       setFeedback(contextualizeFeedback("Licenciamento", result?.message, "Não foi possível ativar a licença."));
       return;
     }
@@ -1136,16 +1203,45 @@ export default function App() {
 
   async function handleCreateLicensePayment(event) {
     event.preventDefault();
+
+    const invokeWithStartupRetry = async (fn) => {
+      const delays = [150, 250, 400, 700, 1200, 2000];
+      let last = null;
+      for (let attempt = 0; attempt < delays.length; attempt += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        last = await fn();
+        if (last?.ok) return last;
+        if (isActivationPendingResult(last)) return last;
+        if (!isStartupDegradedLicensingMessage(last?.message)) return last;
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+      }
+      return last;
+    };
+
     const payload = {
       ...licensePurchaseForm,
       renewal: licenseMode === "renew",
       serial_key: licenseMode === "renew" ? licenseState.serialKey || licensePurchaseForm.serial_key : ""
     };
 
-    const result =
-      licenseMode === "renew"
-        ? await window.payrollAPI.renewLicense(payload)
-        : await window.payrollAPI.createLicensePayment(payload);
+    let result = null;
+    try {
+      result = await invokeWithStartupRetry(() =>
+        licenseMode === "renew"
+          ? window.payrollAPI.renewLicense(payload)
+          : window.payrollAPI.createLicensePayment(payload)
+      );
+    } catch (error) {
+      setFeedback(
+        contextualizeFeedback(
+          licenseMode === "renew" ? "Renovação da licença" : "Compra da licença",
+          error?.message,
+          "Não foi possível comunicar com o módulo de licenciamento."
+        )
+      );
+      return;
+    }
 
     if (!result?.ok) {
       setFeedback(
@@ -1176,7 +1272,36 @@ export default function App() {
       return;
     }
 
-    const result = await window.payrollAPI.checkLicensePayment({ reference: licensePaymentState.reference });
+    const invokeWithStartupRetry = async (fn) => {
+      const delays = [150, 250, 400, 700, 1200, 2000];
+      let last = null;
+      for (let attempt = 0; attempt < delays.length; attempt += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        last = await fn();
+        if (last?.ok) return last;
+        if (isActivationPendingResult(last)) return last;
+        if (!isStartupDegradedLicensingMessage(last?.message)) return last;
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+      }
+      return last;
+    };
+
+    let result = null;
+    try {
+      result = await invokeWithStartupRetry(() =>
+        window.payrollAPI.checkLicensePayment({ reference: licensePaymentState.reference })
+      );
+    } catch (error) {
+      setFeedback(
+        contextualizeFeedback(
+          "Pagamento da licença",
+          error?.message,
+          "Não foi possível comunicar com o módulo de licenciamento."
+        )
+      );
+      return;
+    }
     if (!result?.ok) {
       setFeedback(contextualizeFeedback("Pagamento da licença", result?.message, "Não foi possível verificar o pagamento."));
       return;
@@ -1197,13 +1322,34 @@ export default function App() {
       serialKey: result.serial_key || licensePaymentState.serialKey
     });
 
-    const activationResult = await window.payrollAPI.activateLicense({
-      email: licensePurchaseForm.email,
-      serialKey: result.serial_key || licensePaymentState.serialKey
-    });
+    let activationResult = null;
+    try {
+      const serialKey = result.serial_key || licensePaymentState.serialKey;
+      activationResult = await invokeWithStartupRetry(() =>
+        window.payrollAPI.activateLicense({
+          email: licensePurchaseForm.email,
+          serialKey
+        })
+      );
+    } catch (error) {
+      setLicenseMode("activate");
+      setFeedback(
+        contextualizeFeedback(
+          "Licenciamento",
+          error?.message,
+          "O pagamento foi confirmado, mas a ativação não pôde ser concluída."
+        )
+      );
+      return;
+    }
 
     if (!activationResult?.ok) {
       setLicenseMode("activate");
+      if (isActivationPendingResult(activationResult)) {
+        await refreshLicenseState().catch(() => null);
+        setFeedback(getActivationPendingFeedback(activationResult));
+        return;
+      }
       setFeedback(
         contextualizeFeedback(
           "Licenciamento",
@@ -1300,11 +1446,36 @@ export default function App() {
         setFeedback(contextualizeFeedback("Configurações", result?.message, "Não foi possível guardar as configurações."));
         return;
       }
+      // Mantém a configuração do servidor de licenças em secure storage (para funcionar antes do login e em casos de DB corrompida).
+      if (typeof window.payrollAPI.setLicenseApiBaseUrl === "function") {
+        try {
+          await window.payrollAPI.setLicenseApiBaseUrl(payload.licenseApiBaseUrl || "");
+        } catch {}
+      }
       await loadBootstrap();
       setFeedback("Configurações guardadas.");
     } catch {
       setFeedback("Tabela de IRT inválida. Reveja o JSON antes de guardar.");
     }
+  }
+
+  async function saveLicenseApiBaseUrl(event) {
+    event.preventDefault();
+    if (typeof window.payrollAPI?.setLicenseApiBaseUrl !== "function") {
+      setFeedback("Esta versão ainda não suporta a configuração do servidor de licenças.");
+      return;
+    }
+
+    const result = await window.payrollAPI.setLicenseApiBaseUrl(licenseApiUrlForm);
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("Servidor de licenças", result?.message, "Não foi possível guardar o servidor de licenças."));
+      return;
+    }
+    const refreshed = await window.payrollAPI.getLicenseApiBaseUrl().catch(() => null);
+    if (refreshed) {
+      setLicenseApiState(refreshed);
+    }
+    setFeedback("Servidor de licenças guardado. Tente novamente a compra/ativação.");
   }
 
   async function saveSalaryScale(event) {
@@ -3151,6 +3322,10 @@ export default function App() {
         plans={licensePlans}
         licenseMode={licenseMode}
         setLicenseMode={setLicenseMode}
+        licenseApiState={licenseApiState}
+        licenseApiUrlForm={licenseApiUrlForm}
+        setLicenseApiUrlForm={setLicenseApiUrlForm}
+        saveLicenseApiBaseUrl={saveLicenseApiBaseUrl}
         activationForm={licenseActivationForm}
         setActivationForm={setLicenseActivationForm}
         purchaseForm={licensePurchaseForm}
@@ -3582,6 +3757,10 @@ export default function App() {
             plans={licensePlans}
             licenseMode={licenseMode}
             setLicenseMode={setLicenseMode}
+            licenseApiState={licenseApiState}
+            licenseApiUrlForm={licenseApiUrlForm}
+            setLicenseApiUrlForm={setLicenseApiUrlForm}
+            saveLicenseApiBaseUrl={saveLicenseApiBaseUrl}
             activationForm={licenseActivationForm}
             setActivationForm={setLicenseActivationForm}
             purchaseForm={licensePurchaseForm}

@@ -9,23 +9,35 @@ function isValidEmail(value) {
 }
 
 class MailerService {
-  constructor({ database, productName = "Kwanza Folha" }) {
+  constructor({ database, licensing = null, productName = "Kwanza Folha" }) {
     this.database = database;
+    this.licensing = licensing;
     this.productName = productName;
   }
 
   getMailConfig() {
     const settings = this.database.getSystemSettings();
     const company = this.database.getCompanyProfile() || {};
+    const getEnv = (name) => String(process.env[name] || "").trim();
+    const envSecure = getEnv("KWANZA_SMTP_SECURE").toLowerCase();
+    const secure =
+      envSecure === "1" || envSecure === "true"
+        ? true
+        : envSecure === "0" || envSecure === "false"
+          ? false
+          : Boolean(settings.smtpSecure);
 
     return {
-      host: String(settings.smtpHost || "").trim(),
-      port: Number(settings.smtpPort || 0) || 587,
-      secure: Boolean(settings.smtpSecure),
-      user: String(settings.smtpUser || "").trim(),
-      password: String(settings.smtpPassword || "").trim(),
-      fromName: String(settings.smtpFromName || company.name || this.productName).trim(),
-      fromEmail: String(settings.smtpFromEmail || company.email || settings.smtpUser || "").trim(),
+      host: getEnv("KWANZA_SMTP_HOST") || String(settings.smtpHost || "").trim(),
+      port: Number(getEnv("KWANZA_SMTP_PORT") || settings.smtpPort || 0) || 587,
+      secure,
+      user: getEnv("KWANZA_SMTP_USER") || String(settings.smtpUser || "").trim(),
+      password: getEnv("KWANZA_SMTP_PASSWORD") || String(settings.smtpPassword || "").trim(),
+      fromName:
+        getEnv("KWANZA_SMTP_FROM_NAME") || String(settings.smtpFromName || company.name || this.productName).trim(),
+      fromEmail:
+        getEnv("KWANZA_SMTP_FROM_EMAIL") ||
+        String(settings.smtpFromEmail || company.email || settings.smtpUser || "").trim(),
       companyName: String(company.name || this.productName).trim() || this.productName
     };
   }
@@ -58,7 +70,64 @@ class MailerService {
     });
   }
 
-  async sendPasswordResetToken({ email, fullName, username, resetToken, expiresAt }) {
+  async sendPasswordResetTokenOnline({ email, fullName, username, resetToken, expiresAt }) {
+    if (!this.licensing?.getApiBaseUrl) {
+      return { ok: false, message: "Servico online de e-mail indisponivel (licensing nao inicializado)." };
+    }
+
+    if (typeof fetch !== "function") {
+      return { ok: false, message: "Esta versao nao suporta envio de e-mail via servico online." };
+    }
+
+    if (!isValidEmail(email)) {
+      return { ok: false, message: "O utilizador nao tem um e-mail valido para receber o codigo de redefinicao." };
+    }
+
+    let apiBaseUrl = "";
+    try {
+      apiBaseUrl = String(this.licensing.getApiBaseUrl() || "").trim().replace(/\/+$/, "");
+    } catch (error) {
+      return { ok: false, message: error?.message || "URL do servidor online invalida." };
+    }
+
+    try {
+      const fingerprint = this.licensing.getInstallationFingerprint?.() || {};
+      const response = await fetch(`${apiBaseUrl}/mail/password-reset`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        body: JSON.stringify({
+          product_name: this.productName,
+          email,
+          full_name: fullName || "",
+          username: username || "",
+          reset_token: resetToken || "",
+          expires_at: expiresAt || "",
+          install_id: fingerprint?.installId || "",
+          fingerprint_hash: fingerprint?.fingerprintHash || ""
+        })
+      });
+
+      if (!response.ok) {
+        return { ok: false, message: "Nao foi possivel contactar o servico online de e-mail." };
+      }
+
+      const payload = await response.json().catch(() => ({}));
+      if (!payload?.ok) {
+        return { ok: false, message: payload?.message || "Falha ao enviar o e-mail de redefinicao via servico online." };
+      }
+
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        message: `Nao foi possivel enviar o e-mail via servico online: ${error?.message || "erro desconhecido"}.`
+      };
+    }
+  }
+
+  async sendPasswordResetTokenSmtp({ email, fullName, username, resetToken, expiresAt }) {
     const validation = this.validateMailConfig();
     if (!validation.ok) {
       return validation;
@@ -123,8 +192,75 @@ class MailerService {
     }
   }
 
+  async sendPasswordResetToken(payload) {
+    const onlineResult = await this.sendPasswordResetTokenOnline(payload || {});
+    if (onlineResult.ok) {
+      return onlineResult;
+    }
+
+    const canFallbackToSmtp = Boolean(
+      String(process.env.KWANZA_SMTP_HOST || "").trim() ||
+        String(process.env.KWANZA_SMTP_USER || "").trim() ||
+        String(process.env.KWANZA_SMTP_PASSWORD || "").trim()
+    );
+    if (!canFallbackToSmtp) {
+      return onlineResult;
+    }
+
+    return this.sendPasswordResetTokenSmtp(payload || {});
+  }
+
   async sendPasswordResetCredentials(payload) {
     return this.sendPasswordResetToken(payload);
+  }
+
+  async sendTestEmail({ toEmail } = {}) {
+    const validation = this.validateMailConfig();
+    if (!validation.ok) {
+      return validation;
+    }
+
+    const config = validation.config;
+    const target = String(toEmail || config.fromEmail || "").trim();
+    if (!isValidEmail(target)) {
+      return { ok: false, message: "Indique um e-mail de destino válido para testar o SMTP." };
+    }
+
+    const transporter = this.createTransport(config);
+    const subject = `${config.companyName} - Teste de SMTP`;
+    const text = [
+      "Teste de envio de e-mail (SMTP) do Kwanza Folha.",
+      "",
+      `Servidor: ${config.host}:${config.port}`,
+      `Segurança (secure): ${config.secure ? "sim" : "nao"}`,
+      "",
+      `Emitido em: ${new Date().toLocaleString("pt-PT")}`
+    ].join("\n");
+
+    try {
+      await transporter.sendMail({
+        from: `"${config.fromName}" <${config.fromEmail}>`,
+        to: target,
+        subject,
+        text,
+        html: `<div style="font-family: Arial, Helvetica, sans-serif; color: #1b2742;">
+          <h2 style="color: #0c4da2;">Teste de SMTP</h2>
+          <p>Este e-mail confirma que o servidor SMTP foi configurado com sucesso no Kwanza Folha.</p>
+          <ul>
+            <li><strong>Servidor:</strong> ${config.host}:${config.port}</li>
+            <li><strong>Secure:</strong> ${config.secure ? "sim" : "nao"}</li>
+          </ul>
+          <p style="color: #64748b; font-size: 12px;">Emitido em ${new Date().toLocaleString("pt-PT")}.</p>
+        </div>`
+      });
+
+      return { ok: true, message: `E-mail de teste enviado para ${target}.` };
+    } catch (error) {
+      return {
+        ok: false,
+        message: `Falha ao enviar e-mail de teste: ${error.message || "erro desconhecido"}.`
+      };
+    }
   }
 }
 

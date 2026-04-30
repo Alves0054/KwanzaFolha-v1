@@ -228,12 +228,20 @@ tbody td {
   height: auto;
 }
 
-.splash-screen,
-.auth-shell {
+.splash-screen {
   min-height: 100vh;
   display: grid;
   place-items: center;
   padding: var(--space-6);
+}
+
+.auth-shell {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: var(--space-6);
+  overflow: auto;
 }
 
 .empty-note {

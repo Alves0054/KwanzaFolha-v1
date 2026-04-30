@@ -5,8 +5,17 @@ const crypto = require("crypto");
 const licenseSource = require("../config/license-source");
 const { LICENSE_PLANS, DEFAULT_LICENSE_PLAN } = require("../../shared/license-plans");
 
-const TRIAL_DAYS = 30;
+let defaultLogger = console;
+try {
+  // electron-log is available in the packaged app and gives support a persistent trace.
+  // Tests keep working with the console fallback.
+  // eslint-disable-next-line global-require
+  defaultLogger = require("electron-log");
+} catch {}
+
+const TRIAL_DAYS = 15;
 const DEVELOPMENT_LICENSE_DAYS = 365;
+const LICENSE_API_URL_SECRET = "licensing-api-url";
 const HARDWARE_CHANGE_WEIGHTS = {
   motherboardSerial: 30,
   cpuId: 20,
@@ -96,7 +105,8 @@ class LicensingService {
     productName,
     database,
     secureStorage = null,
-    installationIdentity = null
+    installationIdentity = null,
+    logger = null
   }) {
     this.app = app;
     this.userDataPath = userDataPath;
@@ -105,6 +115,7 @@ class LicensingService {
     this.database = database || null;
     this.secureStorage = secureStorage;
     this.installationIdentity = installationIdentity;
+    this.logger = logger || defaultLogger;
     this.config = licenseSource;
     this.licensePath = path.join(userDataPath, this.config.localLicenseFile || "license.json");
     this.legacyLicensePath = path.join(userDataPath, "license.dat");
@@ -114,6 +125,90 @@ class LicensingService {
     this.localTrialSecretName = "trial-cache";
     this.cachedStatus = null;
     this.lastCheckAt = 0;
+  }
+
+  log(level, message, details = {}) {
+    const writer = this.logger?.[level] || this.logger?.info || console.log;
+    try {
+      writer.call(this.logger, message, details);
+    } catch {}
+  }
+
+  getStoredApiBaseUrl() {
+    if (!this.secureStorage?.loadSecret) {
+      return "";
+    }
+    try {
+      return String(this.secureStorage.loadSecret(LICENSE_API_URL_SECRET) || "").trim();
+    } catch {
+      return "";
+    }
+  }
+
+  getSettingsApiBaseUrl() {
+    try {
+      const settings = this.database?.getSystemSettings ? this.database.getSystemSettings() : null;
+      return String(settings?.licenseApiBaseUrl || "").trim();
+    } catch {
+      return "";
+    }
+  }
+
+  getApiBaseUrlState() {
+    const stored = this.getStoredApiBaseUrl();
+    const settings = this.getSettingsApiBaseUrl();
+    const env = String(process.env.KWANZA_LICENSE_API_URL || "").trim();
+    const fallback = String(this.config.apiBaseUrl || "").trim();
+    const candidate = (env || stored || settings || fallback || "").replace(/\/+$/, "");
+
+    try {
+      const resolved = this.getApiBaseUrl();
+      return { ok: true, candidate, resolved, source: env ? "env" : stored ? "secure" : settings ? "settings" : "default" };
+    } catch (error) {
+      return {
+        ok: false,
+        candidate,
+        resolved: "",
+        source: env ? "env" : stored ? "secure" : settings ? "settings" : "default",
+        message: String(error?.message || error)
+      };
+    }
+  }
+
+  setApiBaseUrl(rawValue) {
+    const value = String(rawValue || "").trim().replace(/\/+$/, "");
+    if (!this.secureStorage?.storeSecret || !this.secureStorage?.removeSecret) {
+      return { ok: false, message: "Secure storage indisponivel para guardar a configuracao do servidor de licencas." };
+    }
+
+    if (!value) {
+      try {
+        this.secureStorage.removeSecret(LICENSE_API_URL_SECRET);
+      } catch {}
+      this.cachedStatus = null;
+      return { ok: true, apiBaseUrl: "", cleared: true };
+    }
+
+    if (this.app?.isPackaged) {
+      if (!value.startsWith("https://")) {
+        return { ok: false, message: "A aplicacao empacotada so permite servidores de licenciamento com HTTPS." };
+      }
+      if (/^https:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(value)) {
+        return { ok: false, message: "Nao e permitido configurar localhost como servidor de licencas em producao." };
+      }
+    }
+
+    try {
+      // valida URL sintaticamente
+      // eslint-disable-next-line no-new
+      new URL(value);
+    } catch {
+      return { ok: false, message: "URL do servidor de licencas invalida. Exemplo: https://license.suaempresa.ao" };
+    }
+
+    this.secureStorage.storeSecret(LICENSE_API_URL_SECRET, value, { mirror: true, entropy: LICENSE_API_URL_SECRET });
+    this.cachedStatus = null;
+    return { ok: true, apiBaseUrl: value };
   }
 
   getPlans() {
@@ -164,6 +259,8 @@ class LicensingService {
       requiresLicense: false,
       plan: "developer",
       maxUsers: 0,
+      maxEmployees: 0,
+      maxDevices: 0,
       trialDaysTotal: DEVELOPMENT_LICENSE_DAYS,
       trialDaysRemaining: daysRemainingFromNow(expireDate),
       trialStartedAt: startedAt,
@@ -185,8 +282,20 @@ class LicensingService {
     return fs.readFileSync(this.publicKeyPath, "utf8");
   }
 
+  getPublicKeyFingerprint() {
+    try {
+      return sha256(this.getPublicKey().replace(/\s+/g, "")).slice(0, 16);
+    } catch (error) {
+      this.log("warn", "[LICENSING] public key fingerprint unavailable", {
+        publicKeyPath: this.publicKeyPath,
+        error: String(error?.message || error)
+      });
+      return "";
+    }
+  }
+
   getApiBaseUrl() {
-    const configuredUrl = String(process.env.KWANZA_LICENSE_API_URL || this.config.apiBaseUrl || "")
+    const configuredUrl = String(process.env.KWANZA_LICENSE_API_URL || this.getStoredApiBaseUrl() || this.getSettingsApiBaseUrl() || this.config.apiBaseUrl || "")
       .trim()
       .replace(/\/+$/, "");
     const productionDefaultUrl = "https://license.alvesestudio.ao";
@@ -260,7 +369,7 @@ class LicensingService {
   }
 
   getAppChecksumTarget() {
-    if (this.app?.isPackaged) {
+    if (this.app?.isPackaged && process.resourcesPath) {
       const appAsarPath = path.join(process.resourcesPath, "app.asar");
       if (fs.existsSync(appAsarPath)) {
         return appAsarPath;
@@ -276,9 +385,27 @@ class LicensingService {
   }
 
   checksumFile(filePath) {
-    const hash = crypto.createHash("sha256");
-    hash.update(fs.readFileSync(filePath));
-    return hash.digest("hex");
+    const targetPath = String(filePath || "").trim();
+    if (!targetPath) {
+      return "";
+    }
+
+    try {
+      if (!fs.existsSync(targetPath) || fs.statSync(targetPath).isDirectory()) {
+        this.log("warn", "[LICENSING] checksum target unavailable", { filePath: targetPath });
+        return "";
+      }
+
+      const hash = crypto.createHash("sha256");
+      hash.update(fs.readFileSync(targetPath));
+      return hash.digest("hex");
+    } catch (error) {
+      this.log("warn", "[LICENSING] checksum target could not be read", {
+        filePath: targetPath,
+        error: String(error?.message || error)
+      });
+      return "";
+    }
   }
 
   buildRuntimeIntegrity() {
@@ -288,9 +415,9 @@ class LicensingService {
     return {
       appVersion: this.currentVersion,
       executablePath,
-      executableChecksum: fs.existsSync(executablePath) ? this.checksumFile(executablePath) : "",
+      executableChecksum: this.checksumFile(executablePath),
       appTarget,
-      appChecksum: fs.existsSync(appTarget) ? this.checksumFile(appTarget) : ""
+      appChecksum: this.checksumFile(appTarget)
     };
   }
 
@@ -344,16 +471,32 @@ class LicensingService {
   }
 
   saveLocalLicense(payload) {
-    const storedInProtectedCache = this.saveProtectedJson(this.localLicenseSecretName, payload);
-    if (!storedInProtectedCache) {
-      const deviceHash = this.buildDeviceHash();
-      fs.writeFileSync(this.licensePath, this.encryptLegacyLocalLicense(payload, deviceHash), "utf8");
-    }
-    if (storedInProtectedCache && fs.existsSync(this.licensePath)) {
-      fs.unlinkSync(this.licensePath);
-    }
-    if (storedInProtectedCache && this.legacyLicensePath !== this.licensePath && fs.existsSync(this.legacyLicensePath)) {
-      fs.unlinkSync(this.legacyLicensePath);
+    this.log("info", "[LICENSING] saving local license", {
+      serialKey: String(payload?.serial_key || "").trim(),
+      hasSecureStorage: Boolean(this.secureStorage?.storeSecret)
+    });
+    try {
+      const storedInProtectedCache = this.saveProtectedJson(this.localLicenseSecretName, payload);
+      if (!storedInProtectedCache) {
+        const deviceHash = this.buildDeviceHash();
+        fs.writeFileSync(this.licensePath, this.encryptLegacyLocalLicense(payload, deviceHash), "utf8");
+      }
+      if (storedInProtectedCache && fs.existsSync(this.licensePath)) {
+        fs.unlinkSync(this.licensePath);
+      }
+      if (storedInProtectedCache && this.legacyLicensePath !== this.licensePath && fs.existsSync(this.legacyLicensePath)) {
+        fs.unlinkSync(this.legacyLicensePath);
+      }
+      this.log("info", "[LICENSING] local license saved", {
+        serialKey: String(payload?.serial_key || "").trim(),
+        storage: storedInProtectedCache ? "secure-storage" : "encrypted-file"
+      });
+    } catch (error) {
+      this.log("error", "[LICENSING] failed to save local license", {
+        serialKey: String(payload?.serial_key || "").trim(),
+        error: String(error?.stack || error?.message || error)
+      });
+      throw new Error("Nao foi possivel gravar a licenca local. Verifique permissoes da base de dados e do armazenamento seguro.");
     }
   }
 
@@ -418,12 +561,29 @@ class LicensingService {
       verifier.end();
       const valid = verifier.verify(this.getPublicKey(), signature);
       if (!valid) {
-        return { ok: false, message: "A assinatura digital da licenca e invalida." };
+        this.log("error", "[LICENSING] license token signature mismatch", {
+          publicKeyFingerprint: this.getPublicKeyFingerprint(),
+          publicKeyPath: this.publicKeyPath
+        });
+        return {
+          ok: false,
+          status: "license_signature_mismatch",
+          message:
+            "A licenca foi emitida pelo servidor, mas a assinatura digital nao corresponde a esta versao do aplicativo. Verifique se a chave privada do servidor e a chave publica da build sao do mesmo par."
+        };
       }
       const payload = JSON.parse(payloadBuffer.toString("utf8"));
       return { ok: true, payload };
-    } catch {
-      return { ok: false, message: "Nao foi possivel validar o token de licenca." };
+    } catch (error) {
+      this.log("error", "[LICENSING] license token validation failed", {
+        publicKeyFingerprint: this.getPublicKeyFingerprint(),
+        error: String(error?.message || error)
+      });
+      return {
+        ok: false,
+        status: "license_token_invalid",
+        message: "Nao foi possivel validar o token de licenca recebido do servidor."
+      };
     }
   }
 
@@ -471,11 +631,18 @@ class LicensingService {
   }
 
   buildStatusFromLocalLicense(localLicense) {
+    this.log("info", "[LICENSING] validating local license offline", {
+      serialKey: String(localLicense?.serial_key || "").trim()
+    });
     const verification = this.verifySignedToken(localLicense?.license_token);
     if (!verification.ok) {
+      this.log("warn", "[LICENSING] offline validation failed: invalid token", {
+        serialKey: String(localLicense?.serial_key || "").trim(),
+        message: verification.message
+      });
       return {
         ok: false,
-        status: "invalid",
+        status: verification.status || "invalid",
         canUseApp: false,
         message: verification.message
       };
@@ -486,6 +653,9 @@ class LicensingService {
     const deviceHash = this.buildDeviceHash();
     const installation = this.getInstallationFingerprint();
     if (payload.device_hash !== deviceHash) {
+      this.log("warn", "[LICENSING] offline validation failed: device mismatch", {
+        serialKey: String(payload?.serial_key || localLicense?.serial_key || "").trim()
+      });
       return {
         ok: false,
         status: "tampered",
@@ -495,6 +665,9 @@ class LicensingService {
     }
 
     if (payload.install_id && installation.installId && payload.install_id !== installation.installId) {
+      this.log("warn", "[LICENSING] offline validation failed: installation mismatch", {
+        serialKey: String(payload?.serial_key || localLicense?.serial_key || "").trim()
+      });
       return {
         ok: false,
         status: "tampered",
@@ -508,6 +681,10 @@ class LicensingService {
       const currentHardware = this.getCanonicalHardwareSnapshot(this.buildHardwareSnapshot());
       const hardwareChangeScore = calculateHardwareChangeScore(expectedHardware, currentHardware);
       if (hardwareChangeScore >= 30) {
+        this.log("warn", "[LICENSING] offline validation requires hardware review", {
+          serialKey: String(payload?.serial_key || localLicense?.serial_key || "").trim(),
+          hardwareChangeScore
+        });
         return {
           ok: false,
           status: "review_required",
@@ -519,6 +696,10 @@ class LicensingService {
 
     const integrity = this.verifyLocalIntegrity(localLicense);
     if (!integrity.ok) {
+      this.log("warn", "[LICENSING] offline validation failed: local integrity", {
+        serialKey: String(payload?.serial_key || localLicense?.serial_key || "").trim(),
+        message: integrity.message
+      });
       return {
         ok: false,
         status: "tampered",
@@ -528,6 +709,10 @@ class LicensingService {
     }
 
     if (payload.status !== "active") {
+      this.log("warn", "[LICENSING] offline validation failed: license not active", {
+        serialKey: String(payload?.serial_key || localLicense?.serial_key || "").trim(),
+        status: payload.status || "invalid"
+      });
       return {
         ok: false,
         status: payload.status || "invalid",
@@ -537,17 +722,28 @@ class LicensingService {
     }
 
     if (today > normalizeDateIso(payload.expire_date)) {
+      this.log("warn", "[LICENSING] offline validation failed: expired", {
+        serialKey: String(payload?.serial_key || localLicense?.serial_key || "").trim(),
+        expireDate: payload.expire_date
+      });
       return {
         ok: false,
         status: "expired",
         canUseApp: false,
         plan: payload.plan,
         maxUsers: payload.max_users,
+        maxEmployees: payload.max_employees ?? payload.max_users ?? 0,
+        maxDevices: payload.max_devices ?? 0,
         serialKey: payload.serial_key,
         expireDate: payload.expire_date,
         message: "Sua licenca do Kwanza Folha expirou. Renove para continuar usando o sistema."
       };
     }
+
+    this.log("info", "[LICENSING] offline validation succeeded", {
+      serialKey: String(payload?.serial_key || localLicense?.serial_key || "").trim(),
+      expireDate: payload.expire_date
+    });
 
     return {
       ok: true,
@@ -555,6 +751,8 @@ class LicensingService {
       canUseApp: true,
       plan: payload.plan,
       maxUsers: payload.max_users,
+      maxEmployees: payload.max_employees ?? payload.max_users ?? 0,
+      maxDevices: payload.max_devices ?? 0,
       serialKey: payload.serial_key,
       expireDate: payload.expire_date,
       startDate: payload.start_date,
@@ -581,14 +779,63 @@ class LicensingService {
     };
   }
 
+  normalizeIsoOrEmpty(value) {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString();
+  }
+
+  shouldMigrateTrialStart(existing, candidateStartedAt, installation, trialContext) {
+    if (!existing?.trial_started_at) return false;
+    if (!candidateStartedAt) return false;
+    if (existing?.trial_token) return false; // token assinado manda
+    if (String(existing?.source || "") !== "anchored_local") return false;
+    if (Boolean(existing?.suspicious_reinstall)) return false;
+    // Só migramos se já existe prova de registo inicial (utilizador/admin).
+    if (trialContext?.setupRequired) return false;
+
+    const existingIso = this.normalizeIsoOrEmpty(existing.trial_started_at);
+    const candidateIso = this.normalizeIsoOrEmpty(candidateStartedAt);
+    if (!existingIso || !candidateIso) return false;
+
+    const existingTime = new Date(existingIso).getTime();
+    const candidateTime = new Date(candidateIso).getTime();
+    if (!(candidateTime > existingTime)) return false;
+
+    // Migração segura: corrigir casos em que o trial foi iniciado na data da instalação
+    // (installation.createdAt), mas deveria começar no registo inicial do utilizador/empresa.
+    const installationCreatedIso = this.normalizeIsoOrEmpty(installation?.createdAt);
+    if (!installationCreatedIso) return false;
+    const installationTime = new Date(installationCreatedIso).getTime();
+
+    const deltaExistingToInstall = Math.abs(existingTime - installationTime);
+    const oneDayMs = 86400000;
+    return deltaExistingToInstall <= oneDayMs;
+  }
+
   ensureAnchoredTrialCache() {
     const installation = this.getInstallationFingerprint();
     const existing = this.readTrialCache();
+    const trialContext = this.database?.getLicenseTrialContext ? this.database.getLicenseTrialContext() : null;
     if (existing?.trial_started_at) {
+      const candidateStartedAt = String(trialContext?.trialStartedAt || "").trim();
+      if (this.shouldMigrateTrialStart(existing, candidateStartedAt, installation, trialContext)) {
+        try {
+          return this.saveTrialCache({
+            ...existing,
+            trial_started_at: candidateStartedAt,
+            migrated_from_started_at: existing.trial_started_at,
+            migrated_at: nowIso(),
+            migration_reason: "trial_started_at_should_follow_company_registration"
+          });
+        } catch {
+          return existing;
+        }
+      }
       return existing;
     }
 
-    const trialContext = this.database?.getLicenseTrialContext ? this.database.getLicenseTrialContext() : null;
     const migratedTrial = this.buildTrialCacheFromLegacyContext(trialContext, installation);
     if (migratedTrial) {
       return this.saveTrialCache(migratedTrial);
@@ -598,10 +845,11 @@ class LicensingService {
       return null;
     }
 
+    const startedAt = String(trialContext?.trialStartedAt || "").trim() || nowIso();
     return this.saveTrialCache({
       install_id: installation.installId,
       fingerprint_hash: installation.fingerprintHash,
-      trial_started_at: installation.createdAt || nowIso(),
+      trial_started_at: startedAt,
       trial_duration_days: TRIAL_DAYS,
       suspicious_reinstall: Array.isArray(installation.riskFlags) && installation.riskFlags.includes("suspicious_reinstall"),
       source: "anchored_local",
@@ -633,7 +881,7 @@ class LicensingService {
         companyPhone: trialContext.companyPhone,
         companyNif: trialContext.companyNif,
         email: trialContext.adminEmail || trialContext.companyEmail,
-        message: "Conclua o registo inicial da empresa para iniciar o periodo gratuito de 30 dias."
+        message: `Conclua o registo inicial da empresa para iniciar o periodo gratuito de ${TRIAL_DAYS} dias.`
       };
     }
 
@@ -734,7 +982,7 @@ class LicensingService {
       companyPhone: trialContext.companyPhone,
       companyNif: trialContext.companyNif,
       email: trialContext.adminEmail || trialContext.companyEmail,
-      message: "O periodo gratuito de 30 dias do Kwanza Folha terminou. Compre ou ative a licenca mensal para continuar."
+      message: `O periodo gratuito de ${trialDurationDays} dias do Kwanza Folha terminou. Compre ou ative a licenca mensal para continuar.`
     };
   }
 
@@ -845,9 +1093,10 @@ class LicensingService {
   }
 
   async createPaymentReference(payload) {
+    const requestedPlan = String(payload?.plan || "").trim().toLowerCase();
     return this.apiRequest("/payment/create", {
       ...payload,
-      plan: DEFAULT_LICENSE_PLAN.code
+      plan: requestedPlan || DEFAULT_LICENSE_PLAN.code
     });
   }
 
@@ -856,12 +1105,18 @@ class LicensingService {
   }
 
   async activateLicense({ email, serialKey }) {
+    const normalizedSerialKey = String(serialKey || "").trim().toUpperCase();
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    this.log("info", "[LICENSING] starting local activation", {
+      email: normalizedEmail,
+      hasSerial: Boolean(normalizedSerialKey)
+    });
     const deviceHash = this.buildDeviceHash();
     const integrity = this.buildRuntimeIntegrity();
     const installation = this.getInstallationFingerprint();
     const result = await this.apiRequest("/license/activate", {
-      email,
-      serial_key: serialKey,
+      email: normalizedEmail,
+      serial_key: normalizedSerialKey,
       device_hash: deviceHash,
       device_name: os.hostname(),
       app_version: this.currentVersion,
@@ -872,6 +1127,11 @@ class LicensingService {
     });
 
     if (!result?.ok) {
+      this.log("warn", "[LICENSING] activation rejected by server", {
+        email: normalizedEmail,
+        serialKey: normalizedSerialKey,
+        message: result?.message || "unknown"
+      });
       return result;
     }
 
@@ -880,27 +1140,60 @@ class LicensingService {
       expire_date: result.expire_date,
       plan: result.plan,
       max_users: result.max_users,
-      serial_key: result.serial_key,
+      max_employees: result.max_employees,
+      max_devices: result.max_devices,
+      serial_key: result.serial_key || normalizedSerialKey,
       install_id: installation.installId,
       fingerprint_hash: installation.fingerprintHash,
       hardware_snapshot: installation.hardwareSnapshot,
       integrity,
       activated_at: nowIso()
     };
-    this.saveLocalLicense(localLicense);
-    if (this.secureStorage?.removeSecret) {
-      this.secureStorage.removeSecret(this.localTrialSecretName);
+    try {
+      this.saveLocalLicense(localLicense);
+      if (this.secureStorage?.removeSecret) {
+        this.secureStorage.removeSecret(this.localTrialSecretName);
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        status: "local_storage_failed",
+        message: error.message || "Nao foi possivel gravar a licenca local."
+      };
     }
+    const status = this.getLicenseStatus(true);
+    if (!status?.canUseApp) {
+      this.log("error", "[LICENSING] activation saved but offline validation failed", {
+        email: normalizedEmail,
+        serialKey: localLicense.serial_key,
+        status: status?.status || "invalid",
+        message: status?.message || ""
+      });
+      return {
+        ok: false,
+        status: status?.status || "invalid",
+        message:
+          status?.message ||
+          "A licenca foi gravada, mas a validacao local nao foi concluida neste dispositivo.",
+        localLicenseSaved: true
+      };
+    }
+
+    this.log("info", "[LICENSING] local activation completed", {
+      email: normalizedEmail,
+      serialKey: status.serialKey || localLicense.serial_key,
+      expireDate: status.expireDate || localLicense.expire_date
+    });
     return {
       ok: true,
-      ...this.getLicenseStatus(true)
+      ...status
     };
   }
 
   async renewLicense(payload) {
     return this.createPaymentReference({
       ...payload,
-      plan: DEFAULT_LICENSE_PLAN.code,
+      plan: String(payload?.plan || "").trim().toLowerCase() || DEFAULT_LICENSE_PLAN.code,
       renewal: true
     });
   }

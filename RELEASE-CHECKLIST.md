@@ -6,6 +6,7 @@
 - confirmar tag no formato `vX.Y.Z` ou `vX.Y.Z-beta.N`
 - confirmar `electron/config/update-source.js`
 - confirmar secrets de assinatura (`KWANZA_CERTIFICATE_BASE64`, `KWANZA_CERTIFICATE_PASSWORD`)
+- executar `npm run security:scan`
 - executar `npm run release:validate`
 
 ## Validacoes tecnicas obrigatorias

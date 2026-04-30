@@ -4,11 +4,14 @@ const fs = require("fs");
 const log = require("electron-log");
 const licenseSource = require("./config/license-source");
 const { createAppServices } = require("./services/core/create-app-services");
+const { LicensingService, createLicensingCore } = require("./services/core/licensing");
 const { SecureStorageService } = require("./services/secure-storage");
 const { InstallationIdentityService } = require("./services/installation-identity");
 const { AntiTamperService } = require("./services/anti-tamper");
 const { SupportDiagnosticsService } = require("./services/support-diagnostics");
 const { hasPermission, getPermissionDeniedMessage } = require("./services/permissions");
+const { enforceEmployeeLimit } = require("../shared/domain/licensing-limits");
+const { LICENSE_PLANS } = require("../shared/license-plans");
 
 const dataRoot = path.join(process.env.LOCALAPPDATA || path.join(app.getPath("home"), "AppData", "Local"), "KwanzaFolha");
 const appUserDataPath = path.join(dataRoot, "userData");
@@ -36,8 +39,202 @@ log.transports.file.resolvePath = () => path.join(app.getPath("logs"), "main.log
 
 let mainWindow;
 let services;
+let bootLicensingCore = null;
 let supportDiagnostics;
 let attendanceWatcher = null;
+let servicesReadyPromiseResolve = null;
+let servicesReadyPromiseReject = null;
+const servicesReadyPromise = new Promise((resolve, reject) => {
+  servicesReadyPromiseResolve = resolve;
+  servicesReadyPromiseReject = reject;
+});
+
+function markServicesReady(nextServices) {
+  log.info("[BOOT] services marked ready", {
+    hasDatabase: Boolean(nextServices?.database),
+    hasLicensingCore: Boolean(nextServices?.licensingCore)
+  });
+  if (servicesReadyPromiseResolve) {
+    servicesReadyPromiseResolve(nextServices);
+    servicesReadyPromiseResolve = null;
+    servicesReadyPromiseReject = null;
+  }
+}
+
+function markServicesFailed(error) {
+  log.error("[BOOT] services marked failed", {
+    message: String(error?.message || error || "unknown")
+  });
+  if (servicesReadyPromiseReject) {
+    servicesReadyPromiseReject(error || new Error("Falha ao inicializar os serviços principais."));
+    servicesReadyPromiseResolve = null;
+    servicesReadyPromiseReject = null;
+  }
+}
+
+function buildStartupDegradedMessage(fallback = "Os servicos principais ainda nao ficaram disponiveis.") {
+  const stagePrefix = startupIntegrityState?.stage ? `[${startupIntegrityState.stage}] ` : "";
+  return `${stagePrefix}${startupIntegrityState?.message || fallback}`;
+}
+
+function sanitizeActivationPayload(payload = {}) {
+  return {
+    email: String(payload?.email || "").trim().toLowerCase(),
+    serialKey: String(payload?.serialKey || payload?.serial_key || "").trim().toUpperCase()
+  };
+}
+
+function buildActivationPendingResponse(activationResult = {}, reason = "") {
+  const integrityBlocked = startupIntegrityState && startupIntegrityState.ok === false;
+  const technicalReason = integrityBlocked
+    ? startupIntegrityState.message || "Falha de integridade no arranque."
+    : reason || "O modulo local de ativacao ainda nao iniciou.";
+  const message = integrityBlocked
+    ? `A licenca foi recebida e gravada localmente, mas o arranque comercial esta bloqueado: ${technicalReason}`
+    : "Licenca recebida com sucesso. Reinicie o aplicativo para concluir a ativacao.";
+
+  return {
+    ok: false,
+    status: integrityBlocked ? "activation_blocked_by_integrity" : "activation_pending_services",
+    licenseStored: true,
+    canUseApp: false,
+    serialKey: activationResult?.serialKey || activationResult?.serial_key || "",
+    expireDate: activationResult?.expireDate || activationResult?.expire_date || "",
+    message,
+    technicalReason
+  };
+}
+
+async function activateLicenseThroughAvailableCore(payload, options = {}) {
+  const normalizedPayload = sanitizeActivationPayload(payload);
+  const source = String(options.source || "ipc").trim() || "ipc";
+
+  log.info("[LICENSING][ACTIVATE] activation requested", {
+    source,
+    email: normalizedPayload.email,
+    hasSerial: Boolean(normalizedPayload.serialKey),
+    servicesReady: Boolean(services?.licensingCore),
+    bootCoreReady: Boolean(bootLicensingCore)
+  });
+  recordSupportEvent("info", "licensing", "licensing.activate.requested", "Pedido de ativacao local recebido.", {
+    source,
+    email: normalizedPayload.email,
+    hasSerial: Boolean(normalizedPayload.serialKey),
+    servicesReady: Boolean(services?.licensingCore)
+  });
+
+  if (!normalizedPayload.serialKey) {
+    return { ok: false, message: "Introduza o serial da licenca antes de ativar." };
+  }
+
+  const readyServices = services?.licensingCore
+    ? services
+    : await waitForServicesReady({ timeoutMs: 30000 });
+
+  if (readyServices?.licensingCore) {
+    const result = await readyServices.licensingCore.activateLicense(normalizedPayload);
+    recordSupportEvent(
+      result?.ok ? "info" : "error",
+      "licensing",
+      "licensing.activate.local",
+      result?.ok ? "Licenca ativada pelo core principal." : result?.message || "Falha na ativacao pelo core principal.",
+      {
+        source,
+        email: normalizedPayload.email,
+        status: String(result?.status || "").trim(),
+        ok: Boolean(result?.ok)
+      }
+    );
+    return result;
+  }
+
+  if (!bootLicensingCore?.activateLicense) {
+    const message = buildStartupDegradedMessage("O modulo local de ativacao ainda nao iniciou.");
+    recordSupportEvent("error", "licensing", "licensing.activate.unavailable", message, {
+      source,
+      email: normalizedPayload.email,
+      startupIntegrity: startupIntegrityState
+    });
+    return {
+      ok: false,
+      status: "activation_services_unavailable",
+      message: `A licenca foi recebida, mas o modulo local de ativacao ainda nao iniciou. ${message}`
+    };
+  }
+
+  log.warn("[LICENSING][ACTIVATE] using boot licensing core because main services are unavailable", {
+    source,
+    email: normalizedPayload.email,
+    startupIntegrity: startupIntegrityState
+  });
+  recordSupportEvent("warn", "licensing", "licensing.activate.boot-core", "Ativacao encaminhada para o core independente de boot.", {
+    source,
+    email: normalizedPayload.email,
+    startupIntegrity: startupIntegrityState
+  });
+
+  const result = await bootLicensingCore.activateLicense(normalizedPayload);
+  if (!result?.ok) {
+    recordSupportEvent("error", "licensing", "licensing.activate.boot-core.failed", result?.message || "Falha na ativacao pelo core de boot.", {
+      source,
+      email: normalizedPayload.email,
+      status: String(result?.status || "").trim()
+    });
+    return result;
+  }
+
+  recordSupportEvent("warn", "licensing", "licensing.activate.boot-core.stored", "Licenca gravada pelo core de boot; app continua a aguardar servicos principais.", {
+    source,
+    email: normalizedPayload.email,
+    status: String(result?.status || "").trim(),
+    startupIntegrity: startupIntegrityState
+  });
+  return buildActivationPendingResponse(result, buildStartupDegradedMessage("Servicos principais indisponiveis apos a ativacao local."));
+}
+
+async function waitForServicesReady({ timeoutMs = 12000 } = {}) {
+  if (services) return services;
+
+  let timeout = null;
+  try {
+    const result = await Promise.race([
+      servicesReadyPromise,
+      new Promise((resolve) => {
+        timeout = setTimeout(() => resolve(null), timeoutMs);
+      })
+    ]);
+    return result || services || null;
+  } catch {
+    return services || null;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function createRateLimiter({ windowMs, max }) {
+  const buckets = new Map();
+
+  function consume(key) {
+    const now = Date.now();
+    const current = buckets.get(key);
+    if (!current || current.resetAt <= now) {
+      buckets.set(key, { count: 1, resetAt: now + windowMs });
+      return { ok: true };
+    }
+    if (current.count >= max) {
+      return { ok: false, retryAfterMs: Math.max(1, current.resetAt - now) };
+    }
+    current.count += 1;
+    buckets.set(key, current);
+    return { ok: true };
+  }
+
+  return { consume };
+}
+
+const loginRateLimiter = createRateLimiter({ windowMs: 60_000, max: 12 });
+const resetRequestRateLimiter = createRateLimiter({ windowMs: 15 * 60_000, max: 6 });
+const resetCompleteRateLimiter = createRateLimiter({ windowMs: 60_000, max: 10 });
 let attendanceSyncTimer = null;
 let startupIntegrityState = {
   ok: true,
@@ -264,27 +461,165 @@ function withAuth(handler) {
 }
 
 function registerStartupIpcFallbacks() {
-  const stagePrefix = startupIntegrityState?.stage ? `[${startupIntegrityState.stage}] ` : "";
-  const degradedMessage = `${stagePrefix}${startupIntegrityState?.message || "Os servicos principais ainda nao ficaram disponiveis."}`;
+  const getDegradedMessage = () => buildStartupDegradedMessage();
   const safeHandle = (channel, handler) => {
     ipcMain.removeHandler(channel);
     ipcMain.handle(channel, handler);
   };
 
+  async function apiFallbackRequest(route, payload = {}) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    const baseUrl = String(process.env.KWANZA_LICENSE_API_URL || "https://license.alvesestudio.ao")
+      .trim()
+      .replace(/\/+$/, "");
+
+    try {
+      const response = await fetch(`${baseUrl}${route}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload || {}),
+        signal: controller.signal
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        return {
+          ok: false,
+          message: result?.message || `Nao foi possivel concluir o pedido (${response.status}).`
+        };
+      }
+      return result;
+    } catch (error) {
+      const failureMessage = String(error?.message || "").trim();
+      const networkCode = String(error?.cause?.code || error?.code || "").trim().toUpperCase();
+      const configuredHost = (() => {
+        try {
+          return new URL(baseUrl).host;
+        } catch {
+          return "servidor de licencas";
+        }
+      })();
+
+      if (networkCode === "ENOTFOUND") {
+        return {
+          ok: false,
+          message: `Nao foi possivel resolver o dominio do servidor de licencas (${configuredHost}). Verifique o DNS do subdominio.`
+        };
+      }
+
+      if (networkCode === "ECONNREFUSED" || networkCode === "EHOSTUNREACH" || networkCode === "ETIMEDOUT") {
+        return {
+          ok: false,
+          message: `Nao foi possivel ligar ao servidor de licencas (${configuredHost}). Verifique se o servico esta online e com HTTPS ativo.`
+        };
+      }
+
+      return {
+        ok: false,
+        message: error.name === "AbortError" ? "O servidor de licencas demorou demasiado tempo a responder." : failureMessage || "Nao foi possivel comunicar com o servidor de licencas."
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  const withServicesOrDegraded = (handler) => async (...args) => {
+    const readyServices = await waitForServicesReady({ timeoutMs: 12000 });
+    if (!readyServices) {
+      return handler(null, ...args);
+    }
+    return handler(readyServices, ...args);
+  };
+
   safeHandle("app:get-version", async () => ({ version: app.getVersion() }));
-  safeHandle("license:get-status", async () => ({
-    ok: true,
-    status: "degraded_startup",
-    canUseApp: false,
-    requiresLicense: false,
-    message: degradedMessage
+  safeHandle("license:get-status", withServicesOrDegraded((readyServices) => {
+    if (readyServices?.licensingCore) {
+      return readyServices.licensingCore.getStatus(true);
+    }
+
+    const degradedMessage = getDegradedMessage();
+    let bootStatus = null;
+    try {
+      bootStatus = bootLicensingCore?.getStatus ? bootLicensingCore.getStatus(true) : null;
+    } catch (error) {
+      log.warn("[LICENSING][STATUS] boot licensing status failed", {
+        error: String(error?.message || error)
+      });
+    }
+
+    if (bootStatus?.canUseApp) {
+      return {
+        ...bootStatus,
+        ok: false,
+        canUseApp: false,
+        status: "core_services_unavailable",
+        licenseStored: true,
+        message: `Licenca local valida, mas os servicos principais nao iniciaram. ${degradedMessage}`
+      };
+    }
+
+    return {
+      ok: true,
+      status: "degraded_startup",
+      canUseApp: false,
+      requiresLicense: false,
+      message: degradedMessage
+    };
   }));
-  safeHandle("license:get-plans", async () => ({ ok: true, plans: [] }));
+  safeHandle("license:get-plans", async () => ({ ok: true, plans: LICENSE_PLANS.map((plan) => ({ ...plan })) }));
+  safeHandle("license:get-api-base-url", withServicesOrDegraded((readyServices) => {
+    if (!readyServices) {
+      return { ok: true, resolved: String(process.env.KWANZA_LICENSE_API_URL || "https://license.alvesestudio.ao").trim(), candidate: "" };
+    }
+    return readyServices.licensingCore.getApiBaseUrlState();
+  }));
+  safeHandle("license:set-api-base-url", withServicesOrDegraded((readyServices, _, payload) => {
+    if (!readyServices) {
+      return { ok: false, message: getDegradedMessage() };
+    }
+    return readyServices.licensingCore.setApiBaseUrl(payload?.apiBaseUrl);
+  }));
+  safeHandle("license:create-payment", withServicesOrDegraded(async (readyServices, _, payload) => {
+    if (!readyServices) {
+      log.info("[LICENSING][PAYMENT] creating payment through startup fallback", {
+        plan: String(payload?.plan || "").trim()
+      });
+      return apiFallbackRequest("/payment/create", payload || {});
+    }
+    return readyServices.licensingCore.createPaymentReference(payload);
+  }));
+  safeHandle("license:check-payment", withServicesOrDegraded(async (readyServices, _, payload) => {
+    if (!readyServices) {
+      const result = await apiFallbackRequest("/payment/status", { reference: payload?.reference });
+      log.info("[LICENSING][PAYMENT] startup fallback payment status result", {
+        reference: String(payload?.reference || "").trim(),
+        status: String(result?.status || "").trim(),
+        hasSerial: Boolean(result?.serial_key)
+      });
+      if (result?.ok && result?.serial_key) {
+        recordSupportEvent("info", "licensing", "licensing.payment.serial.received", "Servidor devolveu serial_key durante arranque degradado.", {
+          reference: String(payload?.reference || "").trim(),
+          status: String(result?.status || "").trim()
+        });
+      }
+      return result;
+    }
+    return readyServices.licensingCore.checkPaymentStatus(payload?.reference);
+  }));
+  safeHandle("license:activate", async (_, payload) => activateLicenseThroughAvailableCore(payload, { source: "startup-fallback" }));
+  safeHandle("license:renew", withServicesOrDegraded(async (readyServices, _, payload) => {
+    if (!readyServices) {
+      return apiFallbackRequest("/payment/create", { ...(payload || {}), renewal: true });
+    }
+    return readyServices.licensingCore.renewLicense(payload);
+  }));
   safeHandle("support:health", async () => ({
     ok: true,
     degraded: true,
     startupIntegrity: startupIntegrityState,
-    message: degradedMessage
+    message: getDegradedMessage()
   }));
   safeHandle("support:export-logs", async () => {
     if (!supportDiagnostics) {
@@ -305,10 +640,10 @@ function registerStartupIpcFallbacks() {
     } catch {}
     return { setupRequired: false, canRegister: false, company: null };
   });
-  safeHandle("auth:restore-session", async () => ({ ok: false, message: degradedMessage }));
-  safeHandle("auth:login", async () => ({ ok: false, message: degradedMessage }));
-  safeHandle("auth:register-initial", async () => ({ ok: false, message: degradedMessage }));
-  safeHandle("auth:request-password-reset", async () => ({ ok: false, message: degradedMessage }));
+  safeHandle("auth:restore-session", async () => ({ ok: false, message: getDegradedMessage() }));
+  safeHandle("auth:login", async () => ({ ok: false, message: getDegradedMessage() }));
+  safeHandle("auth:register-initial", async () => ({ ok: false, message: getDegradedMessage() }));
+  safeHandle("auth:request-password-reset", async () => ({ ok: false, message: getDegradedMessage() }));
 }
 
 function withAdmin(handler) {
@@ -983,8 +1318,17 @@ function safeUnlink(targetPath) {
 
 function registerIpc() {
   ipcMain.removeHandler("app:get-version");
+  ipcMain.removeHandler("app:quit");
   ipcMain.removeHandler("license:get-status");
   ipcMain.removeHandler("license:get-plans");
+  ipcMain.removeHandler("license:validate-installation");
+  ipcMain.removeHandler("license:get-api-base-url");
+  ipcMain.removeHandler("license:set-api-base-url");
+  ipcMain.removeHandler("license:create-payment");
+  ipcMain.removeHandler("license:check-payment");
+  ipcMain.removeHandler("license:activate");
+  ipcMain.removeHandler("license:renew");
+  ipcMain.removeHandler("auth:get-state");
   ipcMain.removeHandler("auth:login");
   ipcMain.removeHandler("auth:register-initial");
   ipcMain.removeHandler("auth:restore-session");
@@ -1014,6 +1358,16 @@ function registerIpc() {
   });
   ipcMain.handle("license:validate-installation", async () => services.licensingCore.validateInstallation());
   ipcMain.handle("license:get-plans", async () => ({ ok: true, plans: services.licensingCore.getPlans() }));
+  ipcMain.handle("license:get-api-base-url", async () => services.licensingCore.getApiBaseUrlState());
+  ipcMain.handle("license:set-api-base-url", async (_, payload) => services.licensingCore.setApiBaseUrl(payload?.apiBaseUrl));
+  ipcMain.handle("auth:get-state", async () => {
+    try {
+      if (services?.auth?.getState) {
+        return services.auth.getState();
+      }
+    } catch {}
+    return { setupRequired: false, canRegister: false, company: null };
+  });
   ipcMain.handle("license:create-payment", async (_, payload) => {
     const result = await services.licensingCore.createPaymentReference(payload);
     recordSupportEvent(
@@ -1030,6 +1384,12 @@ function registerIpc() {
   });
   ipcMain.handle("license:check-payment", async (_, payload) => {
     const result = await services.licensingCore.checkPaymentStatus(payload?.reference);
+    if (result?.ok && result?.serial_key) {
+      log.info("[LICENSING][PAYMENT] serial received from server", {
+        reference: String(payload?.reference || "").trim(),
+        status: String(result?.status || "").trim()
+      });
+    }
     recordSupportEvent(
       result?.ok ? "info" : "warn",
       "licensing",
@@ -1038,13 +1398,14 @@ function registerIpc() {
       {
         reference: String(payload?.reference || "").trim(),
         status: String(result?.status || "").trim(),
+        hasSerial: Boolean(result?.serial_key),
         ok: Boolean(result?.ok)
       }
     );
     return result;
   });
   ipcMain.handle("license:activate", async (_, payload) => {
-    const result = await services.licensingCore.activateLicense(payload);
+    const result = await activateLicenseThroughAvailableCore(payload, { source: "main-ipc" });
     recordSupportEvent(
       result?.ok ? "info" : "error",
       "licensing",
@@ -1084,6 +1445,12 @@ function registerIpc() {
     if (!licenseGuard.ok) {
       return licenseGuard;
     }
+    const identifier = String(credentials?.username || credentials?.email || "").trim().toLowerCase() || "unknown";
+    const limiter = loginRateLimiter.consume(`auth:login:${identifier}`);
+    if (!limiter.ok) {
+      return { ok: false, message: "Muitas tentativas de login. Aguarde alguns minutos e tente novamente." };
+    }
+
     const result = services.auth.login(credentials);
     if (result.ok) {
       services.auth.persistSession(result.user.id);
@@ -1104,42 +1471,64 @@ function registerIpc() {
   ipcMain.handle("auth:restore-session", async () => services.auth.restoreSession());
   ipcMain.handle("auth:logout", async () => services.auth.logout());
   ipcMain.handle("auth:request-password-reset", async (_, payload) => {
-    const prepared = services.auth.preparePasswordReset(payload?.identifier);
-    if (!prepared?.ok) {
-      return prepared;
+    const identifier = String(payload?.identifier || "").trim();
+    if (!identifier) {
+      return { ok: false, message: "Indique o utilizador ou o e-mail para receber as instruções de redefinição." };
     }
 
-    const requestResult = services.auth.createPasswordResetRequest(prepared.reset);
-    if (!requestResult?.ok) {
-      return requestResult;
+    const normalizedKey = identifier.toLowerCase();
+    const limiter = resetRequestRateLimiter.consume(`auth:request-password-reset:${normalizedKey}`);
+    if (!limiter.ok) {
+      return { ok: true, message: "Se o e-mail existir, enviaremos instruções de redefinição." };
     }
 
-    const mailResult = await services.mailer.sendPasswordResetToken(prepared.reset);
-    if (!mailResult?.ok) {
-      services.auth.revokePasswordResetRequest(prepared.reset);
-      return mailResult;
-    }
-
-    services.database.recordAudit({
-      user_id: null,
-      user_name: "Sistema",
-      action: "password.reset_email",
-      entity_type: "user",
-      entity_id: prepared.reset.userId,
-      entity_label: prepared.reset.fullName || prepared.reset.username,
-      details: {
-        email: prepared.reset.maskedEmail,
-        username: prepared.reset.username,
-        expiresAt: prepared.reset.expiresAt
+    const genericResponse = { ok: true, message: "Se o e-mail existir, enviaremos instruções de redefinição." };
+    try {
+      const prepared = services.auth.preparePasswordReset(identifier);
+      if (!prepared?.ok) {
+        return genericResponse;
       }
-    });
 
-    return {
-      ok: true,
-      message: `Foi enviado um codigo temporario de redefinicao para ${prepared.reset.maskedEmail}.`
-    };
+      const requestResult = services.auth.createPasswordResetRequest(prepared.reset);
+      if (!requestResult?.ok) {
+        return genericResponse;
+      }
+
+      const mailResult = await services.mailer.sendPasswordResetToken(prepared.reset);
+      if (!mailResult?.ok) {
+        services.auth.revokePasswordResetRequest(prepared.reset);
+        return genericResponse;
+      }
+
+      services.database.recordAudit({
+        user_id: null,
+        user_name: "Sistema",
+        action: "password.reset_email",
+        entity_type: "user",
+        entity_id: prepared.reset.userId,
+        entity_label: prepared.reset.fullName || prepared.reset.username,
+        details: {
+          email: prepared.reset.maskedEmail,
+          username: prepared.reset.username,
+          expiresAt: prepared.reset.expiresAt
+        }
+      });
+    } catch (error) {
+      log.warn("[AUTH][RESET] falha ao processar pedido de redefinicao", {
+        message: String(error?.message || error),
+        identifier: normalizedKey
+      });
+    }
+
+    return genericResponse;
   });
   ipcMain.handle("auth:complete-password-reset", async (_, payload) => {
+    const identifier = String(payload?.identifier || "").trim().toLowerCase() || "unknown";
+    const limiter = resetCompleteRateLimiter.consume(`auth:complete-password-reset:${identifier}`);
+    if (!limiter.ok) {
+      return { ok: false, message: "Muitas tentativas. Aguarde alguns minutos e tente novamente." };
+    }
+
     const result = services.auth.completePasswordReset(payload || {});
     if (result?.ok) {
       services.database.recordAudit({
@@ -1252,6 +1641,26 @@ function registerIpc() {
   ipcMain.handle("employees:list", withPermission("employees.view", async () => services.database.listEmployees()));
   ipcMain.handle("employees:save", withPermission("employees.manage", async (user, payload) => {
     const before = payload?.id ? services.database.getEmployeeSnapshot(payload.id) : null;
+
+    const licenseStatus = services.licensingCore.getStatus(true);
+    const maxEmployees = Number(licenseStatus?.maxEmployees || 0);
+    if (maxEmployees > 0) {
+      const currentEmployees = services.database.listEmployees();
+      const activeCount = currentEmployees.filter((employee) => employee.status === "ativo").length;
+      const wasActive = before?.status === "ativo";
+      const willBeActive = String(payload?.status || before?.status || "ativo").trim().toLowerCase() === "ativo";
+      const needsNewActiveSlot = (!payload?.id && willBeActive) || (payload?.id && !wasActive && willBeActive);
+      if (needsNewActiveSlot) {
+        const limitCheck = enforceEmployeeLimit({ existingActiveEmployees: activeCount, maxEmployees });
+        if (!limitCheck.ok) {
+          return {
+            ok: false,
+            message: `O plano ativo permite no máximo ${maxEmployees} funcionário(s) ativos. Desative um funcionário ou mude de plano para adicionar mais.`
+          };
+        }
+      }
+    }
+
     const result = services.database.saveEmployee(payload);
     if (result?.ok) {
       const savedEmployee =
@@ -1319,16 +1728,45 @@ function registerIpc() {
     if (!document) {
       return { ok: false, message: "O documento laboral selecionado ja nao existe." };
     }
-    if (!document.stored_file_path || !fs.existsSync(document.stored_file_path)) {
+    const storedPath = path.resolve(String(document.stored_file_path || "").trim());
+    if (!storedPath || !fs.existsSync(storedPath)) {
       return { ok: false, message: "O ficheiro do documento nao foi encontrado na pasta oficial." };
     }
 
-    const openResult = await shell.openPath(document.stored_file_path);
+    const allowedExtensions = new Set([".pdf", ".doc", ".docx", ".xls", ".xlsx", ".png", ".jpg", ".jpeg", ".txt"]);
+    const extension = path.extname(storedPath).toLowerCase();
+    if (!allowedExtensions.has(extension)) {
+      return { ok: false, message: "Extensao de ficheiro nao permitida para abertura direta." };
+    }
+
+    if (!services.database.isManagedEmployeeDocumentPath(storedPath)) {
+      return { ok: false, message: "Caminho do documento invalido (fora da pasta oficial)." };
+    }
+
+    try {
+      const stat = fs.lstatSync(storedPath);
+      if (!stat.isFile()) {
+        return { ok: false, message: "O caminho do documento nao corresponde a um ficheiro valido." };
+      }
+      if (stat.isSymbolicLink()) {
+        return { ok: false, message: "Nao e permitido abrir documentos apontados por atalhos/symlinks." };
+      }
+
+      const rootDir = fs.realpathSync(services.database.employeeDocumentsDir);
+      const realTarget = fs.realpathSync(storedPath);
+      if (!(realTarget === rootDir || realTarget.startsWith(`${rootDir}${path.sep}`))) {
+        return { ok: false, message: "O documento resolve para fora da pasta oficial (bloqueado por seguranca)." };
+      }
+    } catch (error) {
+      return { ok: false, message: `Nao foi possivel validar o documento: ${error.message || error}` };
+    }
+
+    const openResult = await shell.openPath(storedPath);
     if (openResult) {
       return { ok: false, message: `Nao foi possivel abrir o documento: ${openResult}` };
     }
 
-    return { ok: true, path: document.stored_file_path };
+    return { ok: true, path: storedPath };
   }));
   ipcMain.handle("events:list", withPermission("events.view", async (user, employeeId) => services.database.listEvents(employeeId)));
   ipcMain.handle("events:save", withPermission("events.manage", async (user, payload) => {
@@ -2008,6 +2446,21 @@ app.whenReady().then(() => {
     programDataPath
   });
   log.info("[BOOT] installation identity service ready");
+  log.info("[BOOT] loading independent licensing core");
+  bootLicensingCore = createLicensingCore(new LicensingService({
+    app,
+    userDataPath,
+    currentVersion: app.getVersion(),
+    productName: app.getName(),
+    database: null,
+    secureStorage,
+    installationIdentity
+  }));
+  log.info("[BOOT] independent licensing core ready");
+  recordSupportEvent("info", "licensing", "licensing.boot-core.ready", "Core independente de licenciamento pronto para ativacao critica de boot.", {
+    hasSecureStorage: Boolean(secureStorage),
+    hasInstallationIdentity: Boolean(installationIdentity)
+  });
   log.info("[BOOT] loading anti-tamper");
   const antiTamper = new AntiTamperService({
     app,
@@ -2104,6 +2557,7 @@ app.whenReady().then(() => {
       stage: startupIntegrityState.stage || "startup",
       message: startupIntegrityState.message || "Falha de integridade no arranque."
     });
+    markServicesFailed(new Error(startupIntegrityState.message || "Arranque bloqueado por integridade."));
     recordSupportEvent(
       "error",
       "boot",
@@ -2115,6 +2569,7 @@ app.whenReady().then(() => {
     const initializeServices = () => {
       log.info("[BOOT] initializing application services");
       services = createAppServices({ userDataPath, documentsPath, programDataPath, secureStorage, installationIdentity });
+      markServicesReady(services);
       log.info("[BOOT] application services ready");
       log.info("[BOOT] registering ipc");
       registerIpc();
@@ -2156,6 +2611,7 @@ app.whenReady().then(() => {
                 resolveStartupFailureMessage(finalRetryError),
                 { error: String(finalRetryError?.stack || finalRetryError?.message || finalRetryError) }
               );
+              markServicesFailed(finalRetryError);
               log.error("Falha ao inicializar os servicos da aplicacao apos recuperacao completa de DB", finalRetryError);
             }
           } else {
@@ -2164,6 +2620,7 @@ app.whenReady().then(() => {
               resolveStartupFailureMessage(retryError),
               { error: String(retryError?.stack || retryError?.message || retryError) }
             );
+            markServicesFailed(retryError);
             log.error("Falha ao inicializar os servicos da aplicacao apos tentativa de recuperacao", retryError);
           }
         }
@@ -2173,24 +2630,29 @@ app.whenReady().then(() => {
           resolveStartupFailureMessage(error),
           { error: String(error?.stack || error?.message || error) }
         );
+        markServicesFailed(error);
         log.error("Falha ao inicializar os servicos da aplicacao", error);
       }
     }
   }
-  log.info("[BOOT] creating window");
-  createWindow();
-  log.info("[BOOT] window creation requested");
-  notifyStartupIntegrityIssue();
-  if (services) {
-    refreshAttendanceWatcher();
-    log.info("[BOOT] priming installation license state");
-    if (services?.licensingCore?.primeInstallation) {
-      void services.licensingCore.primeInstallation().catch((error) => {
-        log.error("Falha ao preparar o estado inicial de licenciamento", error);
-      });
+  if (!isPackagedSmokeE2EMode()) {
+    log.info("[BOOT] creating window");
+    createWindow();
+    log.info("[BOOT] window creation requested");
+    notifyStartupIntegrityIssue();
+    if (services) {
+      refreshAttendanceWatcher();
+      log.info("[BOOT] priming installation license state");
+      if (services?.licensingCore?.primeInstallation) {
+        void services.licensingCore.primeInstallation().catch((error) => {
+          log.error("Falha ao preparar o estado inicial de licenciamento", error);
+        });
+      }
+    } else {
+      log.warn("[BOOT][FALLBACK] commercial services unavailable; startup kept in degraded mode.");
     }
   } else {
-    log.warn("[BOOT][FALLBACK] commercial services unavailable; startup kept in degraded mode.");
+    log.info("[BOOT][SMOKE-E2E] window creation skipped");
   }
   log.info("[BOOT] startup sequence finished");
   recordSupportEvent("info", "boot", "boot.finished", "Sequencia de arranque concluida.", {
@@ -2202,11 +2664,48 @@ app.whenReady().then(() => {
     void runPackagedSmokeE2EScenario()
       .then((result) => {
         const exitCode = result?.ok ? 0 : 1;
-        setTimeout(() => app.exit(exitCode), 400);
+        // Smoke E2E não deve depender do shutdown normal (before-quit + cifragem/DB),
+        // porque isso pode bloquear e forçar o harness a matar o processo (exitCode -1 + popup 0x80000003).
+        log.info("[BOOT][SMOKE-E2E] forcing process exit", { exitCode });
+        try {
+          log.info("[BOOT][SMOKE-E2E] calling app.exit", { exitCode });
+          try {
+            app.exit(exitCode);
+          } catch {}
+
+          const hasReallyExit = typeof process.reallyExit === "function";
+          log.info("[BOOT][SMOKE-E2E] calling process.reallyExit", { exitCode, hasReallyExit });
+          if (hasReallyExit) {
+            process.reallyExit(exitCode);
+          }
+          process.exit(exitCode);
+          log.error("[BOOT][SMOKE-E2E] exit returned unexpectedly", { exitCode });
+        } catch (exitError) {
+          log.error("[BOOT][SMOKE-E2E] process.exit threw", {
+            exitCode,
+            error: String(exitError?.stack || exitError?.message || exitError)
+          });
+        }
       })
       .catch((error) => {
         log.error("[BOOT][SMOKE-E2E] erro inesperado", error);
-        setTimeout(() => app.exit(1), 400);
+        try {
+          log.info("[BOOT][SMOKE-E2E] calling app.exit after error", { exitCode: 1 });
+          try {
+            app.exit(1);
+          } catch {}
+          const hasReallyExit = typeof process.reallyExit === "function";
+          log.info("[BOOT][SMOKE-E2E] calling process.reallyExit after error", { exitCode: 1, hasReallyExit });
+          if (hasReallyExit) {
+            process.reallyExit(1);
+          }
+          process.exit(1);
+          log.error("[BOOT][SMOKE-E2E] exit returned unexpectedly after error");
+        } catch (exitError) {
+          log.error("[BOOT][SMOKE-E2E] process.exit threw after error", {
+            error: String(exitError?.stack || exitError?.message || exitError)
+          });
+        }
       });
   }
 
@@ -2220,6 +2719,9 @@ app.whenReady().then(() => {
 
 app.on("before-quit", () => {
   stopAttendanceWatcher();
+  if (isPackagedSmokeE2EMode()) {
+    return;
+  }
   try {
     services?.database?.prepareForShutdown();
   } catch (error) {

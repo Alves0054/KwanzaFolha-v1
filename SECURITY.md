@@ -1,21 +1,33 @@
-# Security Policy
+# Política de Segurança - Kwanza Folha
 
-## Supported Versions
+Este documento descreve como reportar vulnerabilidades de segurança e quais versões recebem correções.
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+## Versões suportadas
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+| Versão | Suporte de segurança |
+|---|---|
+| 1.x | Sim |
+| < 1.0 | Não |
 
-## Reporting a Vulnerability
+## Como reportar uma vulnerabilidade
 
-Use this section to tell people how to report a vulnerability.
+Para evitar exposição pública, **não** abras issues públicas com detalhes de segurança.
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+- E-mail: `geral@alvesestudio.ao`
+- Telefone/WhatsApp (urgências): `+244 951 055 152`
+
+Inclui no reporte:
+
+- versão da app (ex.: `1.0.6`) e Windows utilizado
+- passos para reproduzir (ou PoC) e impacto esperado
+- evidências (prints, logs exportados) sem dados sensíveis de clientes
+
+### Prazos de resposta (SLA)
+
+- confirmação de receção: até 2 dias úteis
+- triagem inicial e severidade: até 5 dias úteis (quando reproduzível)
+- correção: depende da severidade e do esforço (prioridade máxima para risco de execução remota, fuga de dados e bypass de licenciamento)
+
+## Divulgação responsável
+
+Pedimos que aguardes a correção e/ou mitigação antes de divulgar publicamente detalhes técnicos.

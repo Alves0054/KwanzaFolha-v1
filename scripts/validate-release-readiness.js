@@ -29,7 +29,11 @@ const REQUIRED_NPM_SCRIPTS = Object.freeze([
 
 const FORBIDDEN_REPO_PATTERNS = Object.freeze([
   /\.p12$/i,
+  /\.pfx$/i,
   /\.key$/i,
+  /(^|\/)\.env(\.[^/]+)?$/i,
+  /(^|\/)license-private\.pem$/i,
+  /(^|\/)settings\.json$/i,
   /(^|\/)licensing-server\/storage\//i,
   /(^|\/).*kwanza-folha.*\.sqlite(\.enc)?$/i
 ]);
@@ -90,6 +94,10 @@ function normalizeRelativePath(filePath, rootDir) {
 }
 
 function listTrackedFiles(rootDir) {
+  if (String(process.env.KWANZA_RELEASE_SKIP_GIT || "").trim() === "1") {
+    return null;
+  }
+
   const candidates = [
     "git",
     "C:\\Program Files\\Git\\cmd\\git.exe"
@@ -111,6 +119,21 @@ function listTrackedFiles(rootDir) {
   return null;
 }
 
+function listFilesystemFiles(rootDir) {
+  return collectFilesRecursively(rootDir)
+    .map((filePath) => normalizeRelativePath(filePath, rootDir))
+    .filter((relativePath) => {
+      if (relativePath.startsWith(".git/")) return false;
+      if (relativePath.startsWith("node_modules/")) return false;
+      if (relativePath.startsWith("artifacts/")) return false;
+      if (relativePath.startsWith("dist/")) return false;
+      if (relativePath.startsWith("dist-electron/")) return false;
+      if (relativePath.startsWith("logs/")) return false;
+      if (relativePath.startsWith("licensing-server.local/")) return false;
+      return true;
+    });
+}
+
 function assertRequiredDocs(rootDir, requiredDocs = PRECHECK_REQUIRED_DOCS) {
   const missing = requiredDocs.filter((doc) => !fs.existsSync(path.join(rootDir, doc)));
   if (missing.length) {
@@ -128,6 +151,29 @@ function assertPackageScripts(rootDir, requiredScripts = REQUIRED_NPM_SCRIPTS) {
   }
 }
 
+function assertCommercialBuildScripts(rootDir) {
+  const packageJsonPath = path.join(rootDir, "package.json");
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+  const scripts = packageJson.scripts || {};
+  const publicBuildScripts = ["build", "build:installer"];
+
+  for (const scriptName of publicBuildScripts) {
+    const command = String(scripts[scriptName] || "").trim();
+    if (!/build:signed/.test(command) && !/build-signed\.ps1/i.test(command)) {
+      throw new Error(`${scriptName} deve gerar sempre build comercial assinada via build-signed.ps1.`);
+    }
+    if (/electron-builder/i.test(command)) {
+      throw new Error(`${scriptName} nao pode chamar electron-builder diretamente; use build:unsigned apenas dentro do fluxo assinado.`);
+    }
+  }
+
+  for (const scriptName of ["build:unsigned", "build:installer:unsigned"]) {
+    if (!scripts[scriptName]) {
+      throw new Error(`Script interno em falta no package.json: ${scriptName}.`);
+    }
+  }
+}
+
 function assertSecureLicenseSource(rootDir) {
   const licenseSource = require(path.join(rootDir, "electron", "config", "license-source.js"));
   const apiUrl = String(licenseSource.apiBaseUrl || "").trim().toLowerCase();
@@ -139,10 +185,15 @@ function assertSecureLicenseSource(rootDir) {
 function assertNoForbiddenTrackedFiles(rootDir) {
   const tracked = listTrackedFiles(rootDir);
   if (!tracked) {
-    return {
-      skipped: true,
-      reason: "git_ls_files_unavailable"
-    };
+    const filesystemFiles = listFilesystemFiles(rootDir);
+    const offenders = filesystemFiles.filter((relativePath) =>
+      FORBIDDEN_REPO_PATTERNS.some((pattern) => pattern.test(relativePath))
+    );
+    if (offenders.length) {
+      throw new Error(`Ficheiros sensiveis detetados (scan filesystem): ${offenders.join(", ")}`);
+    }
+
+    return { skipped: false, reason: "git_ls_files_unavailable", method: "filesystem" };
   }
 
   const offenders = tracked.filter((trackedPath) =>
@@ -153,7 +204,7 @@ function assertNoForbiddenTrackedFiles(rootDir) {
       `Ficheiros sensiveis nao podem ficar versionados: ${offenders.join(", ")}`
     );
   }
-  return { skipped: false };
+  return { skipped: false, method: "git" };
 }
 
 function parseBooleanFlag(value, fallbackValue = false) {
@@ -231,6 +282,7 @@ function validateReleaseReadiness({
 
   assertRequiredDocs(rootDir);
   assertPackageScripts(rootDir);
+  assertCommercialBuildScripts(rootDir);
   assertSecureLicenseSource(rootDir);
   const trackedCheck = assertNoForbiddenTrackedFiles(rootDir);
 

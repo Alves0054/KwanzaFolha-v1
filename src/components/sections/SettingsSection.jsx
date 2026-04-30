@@ -402,74 +402,25 @@ export default function SettingsSection({
 
         <div className="panel settings-panel settings-panel--system panel--full">
           <div className="section-heading">
-            <h2>Correio eletrónico</h2>
-            <p>Configure o SMTP para envio automatico dos codigos temporarios de redefinicao por e-mail.</p>
+            <h2>Licenciamento</h2>
+            <p>
+              Configure o servidor de licenças usado para compra, renovação e ativação. Em produção, apenas HTTPS é permitido. A recuperação de palavra-passe por e-mail usa este mesmo servidor (SMTP configurado online).
+            </p>
           </div>
 
           <form className="grid-form settings-form settings-form--system" onSubmit={saveSettings}>
-            <label>
-              Servidor SMTP
-              <input
-                value={settingsForm.smtpHost}
-                onChange={(event) => setSettingsForm((current) => ({ ...current, smtpHost: event.target.value }))}
-                placeholder="smtp.seudominio.ao"
-              />
-            </label>
-            <label>
-              Porta SMTP
-              <input
-                type="number"
-                min="1"
-                value={settingsForm.smtpPort}
-                onChange={(event) => setSettingsForm((current) => ({ ...current, smtpPort: event.target.value }))}
-              />
-            </label>
-            <label>
-              Ligação segura (SSL/TLS)
-              <select
-                value={settingsForm.smtpSecure ? "sim" : "nao"}
-                onChange={(event) =>
-                  setSettingsForm((current) => ({ ...current, smtpSecure: event.target.value === "sim" }))
-                }
-              >
-                <option value="nao">Não</option>
-                <option value="sim">Sim</option>
-              </select>
-            </label>
-            <label>
-              Utilizador SMTP
-              <input
-                value={settingsForm.smtpUser}
-                onChange={(event) => setSettingsForm((current) => ({ ...current, smtpUser: event.target.value }))}
-                placeholder="utilizador@empresa.ao"
-              />
-            </label>
-            <label>
-              Palavra-passe SMTP
-              <input
-                type="password"
-                value={settingsForm.smtpPassword}
-                onChange={(event) => setSettingsForm((current) => ({ ...current, smtpPassword: event.target.value }))}
-                placeholder="Introduza a palavra-passe SMTP"
-              />
-            </label>
-            <label>
-              Nome do remetente
-              <input
-                value={settingsForm.smtpFromName}
-                onChange={(event) => setSettingsForm((current) => ({ ...current, smtpFromName: event.target.value }))}
-                placeholder="Kwanza Folha"
-              />
-            </label>
             <label className="full-span">
-              E-mail remetente
+              Servidor de licenças (HTTPS)
               <input
-                value={settingsForm.smtpFromEmail}
-                onChange={(event) => setSettingsForm((current) => ({ ...current, smtpFromEmail: event.target.value }))}
-                placeholder="noreply@empresa.ao"
+                value={settingsForm.licenseApiBaseUrl || ""}
+                onChange={(event) => setSettingsForm((current) => ({ ...current, licenseApiBaseUrl: event.target.value }))}
+                placeholder="https://license.suaempresa.ao"
               />
+              <small className="helper-text">
+                Dica: não use localhost em builds empacotadas. Se deixar vazio, o sistema usa o endereço padrão embutido.
+              </small>
             </label>
-            <button type="submit">Guardar correio eletrónico</button>
+            <button type="submit">Guardar licenciamento</button>
           </form>
         </div>
       </section>

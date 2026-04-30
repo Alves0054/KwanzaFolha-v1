@@ -23,6 +23,19 @@ export default function ProcessingSection({
   const showFiscalWarning = Boolean(payrollFiscalStatus?.hasFiscalDrift);
   const preview = reprocessPreview?.monthRef === monthRef ? reprocessPreview?.data : null;
   const changedEmployees = preview?.changedEmployees || [];
+  const getTotalDeductions = (run) => (
+    run.summary_json?.totalDeductions ?? ((run.mandatory_deductions || 0) + (run.absence_deduction || 0))
+  );
+  const payrollTotals = payrollRuns.reduce(
+    (totals, run) => ({
+      gross: totals.gross + (run.gross_salary || 0),
+      net: totals.net + (run.net_salary || 0),
+      deductions: totals.deductions + getTotalDeductions(run),
+      inss: totals.inss + (run.inss_amount || 0),
+      irt: totals.irt + (run.irt_amount || 0)
+    }),
+    { gross: 0, net: 0, deductions: 0, inss: 0, irt: 0 }
+  );
 
   return (
     <section className="processing-layout">
@@ -78,8 +91,35 @@ export default function ProcessingSection({
           )}
         </div>
 
-        <div className="grid-form filter-grid">
-          <label className="full-span">
+        <div className="processing-summary-grid" aria-label="Resumo da folha salarial">
+          <div className="processing-summary-card">
+            <span>Total colaboradores</span>
+            <strong>{payrollRuns.length}</strong>
+          </div>
+          <div className="processing-summary-card processing-summary-card--highlight">
+            <span>Total bruto / iliquido</span>
+            <strong>{formatMoney(payrollTotals.gross)}</strong>
+          </div>
+          <div className="processing-summary-card processing-summary-card--net">
+            <span>Total liquido</span>
+            <strong>{formatMoney(payrollTotals.net)}</strong>
+          </div>
+          <div className="processing-summary-card">
+            <span>Total descontos</span>
+            <strong>{formatMoney(payrollTotals.deductions)}</strong>
+          </div>
+          <div className="processing-summary-card">
+            <span>Total INSS</span>
+            <strong>{formatMoney(payrollTotals.inss)}</strong>
+          </div>
+          <div className="processing-summary-card">
+            <span>Total IRT</span>
+            <strong>{formatMoney(payrollTotals.irt)}</strong>
+          </div>
+        </div>
+
+        <div className="processing-toolbar">
+          <label className="processing-search">
             Pesquisar colaborador
             <input
               value={processingFilters.search}
@@ -87,93 +127,81 @@ export default function ProcessingSection({
               placeholder="Nome, cargo ou departamento"
             />
           </label>
+
+          {payrollRuns.length > 0 && user?.role === "admin" && !isClosed && (
+            <div className="processing-toolbar__actions">
+              <button type="button" className="secondary-btn danger processing-btn processing-btn--danger-soft" onClick={deletePayrollMonth}>
+                Apagar pagamentos de {monthRef}
+              </button>
+            </div>
+          )}
         </div>
 
-        {payrollRuns.length > 0 && user?.role === "admin" && !isClosed && (
-          <div className="inline-actions">
-            <button type="button" className="secondary-btn danger" onClick={deletePayrollMonth}>
-              Apagar pagamentos de {monthRef}
-            </button>
-          </div>
-        )}
-
-        <div className="table-list processing-list">
-          {payrollRuns.map((run) => (
-            <article className="table-row processing-card" key={run.id}>
-              <div className="processing-card__header">
-                <div>
-                  <strong>{run.full_name}</strong>
-                  <small>{run.job_title} - {run.department}</small>
-                </div>
-                <div className="processing-card__actions">
-                  <button className="link-btn" onClick={() => generatePayslip(run.id)}>Recibo em PDF</button>
-                  {user?.role === "admin" && !isClosed ? (
-                    <button className="link-btn danger" onClick={() => deletePayrollRun(run.id)}>Apagar</button>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="processing-card__grid">
-                <div>
-                  <label>Salario base</label>
-                  <strong>{formatMoney(run.summary_json?.baseSalary || 0)}</strong>
-                </div>
-                <div>
-                  <label>Subsidios</label>
-                  <strong>{formatMoney(run.summary_json?.allowancesTotal || 0)}</strong>
-                </div>
-                <div>
-                  <label>Bonus</label>
-                  <strong>{formatMoney(run.summary_json?.bonusesTotal || 0)}</strong>
-                </div>
-                <div>
-                  <label>Horas extra</label>
-                  <strong>{formatMoney(run.summary_json?.overtimeTotal || 0)}</strong>
-                </div>
-                <div>
-                  <label>Total iliquido</label>
-                  <strong>{formatMoney(run.gross_salary)}</strong>
-                </div>
-                <div>
-                  <label>Total liquido</label>
-                  <strong>{formatMoney(run.net_salary)}</strong>
-                </div>
-              </div>
-
-              <div className="processing-card__grid processing-card__grid--deductions">
-                <div>
-                  <label>INSS do funcionario</label>
-                  <strong>{formatMoney(run.inss_amount)}</strong>
-                </div>
-                <div>
-                  <label>IRT</label>
-                  <strong>{formatMoney(run.irt_amount)}</strong>
-                </div>
-                <div>
-                  <label>Faltas</label>
-                  <strong>{formatMoney(run.summary_json?.absenceDeduction || 0)}</strong>
-                </div>
-                <div>
-                  <label>Licencas</label>
-                  <strong>{formatMoney(run.summary_json?.leaveDeduction || 0)}</strong>
-                </div>
-                <div>
-                  <label>Penalizacoes</label>
-                  <strong>{formatMoney(run.summary_json?.penalties || 0)}</strong>
-                </div>
-                <div>
-                  <label>Emprestimos e adiantamentos</label>
-                  <strong>{formatMoney(run.summary_json?.financialDeductions || 0)}</strong>
-                </div>
-                <div>
-                  <label>Total de descontos</label>
-                  <strong>{formatMoney(run.summary_json?.totalDeductions || (run.mandatory_deductions + run.absence_deduction))}</strong>
-                </div>
-              </div>
-            </article>
-          ))}
-
-          {payrollRuns.length === 0 ? <p className="empty-note">Ainda nao existe processamento para este mes com os filtros atuais.</p> : null}
+        <div className="processing-table-shell">
+          {payrollRuns.length > 0 ? (
+            <table className="processing-table">
+              <thead>
+                <tr>
+                  <th>Colaborador</th>
+                  <th>Cargo / Departamento</th>
+                  <th className="numeric-cell">Salario Base</th>
+                  <th className="numeric-cell">Subsidios</th>
+                  <th className="numeric-cell">Bonus</th>
+                  <th className="numeric-cell">Horas Extra</th>
+                  <th className="numeric-cell">INSS</th>
+                  <th className="numeric-cell">IRT</th>
+                  <th className="numeric-cell">Faltas</th>
+                  <th className="numeric-cell">Licencas</th>
+                  <th className="numeric-cell">Penalizacoes</th>
+                  <th className="numeric-cell">Emprestimos</th>
+                  <th className="numeric-cell">Total Descontos</th>
+                  <th className="numeric-cell">Total Iliquido</th>
+                  <th className="numeric-cell">Total Liquido</th>
+                  <th className="actions-cell">Acoes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payrollRuns.map((run) => (
+                  <tr key={run.id}>
+                    <td data-label="Colaborador">
+                      <strong className="employee-name">{run.full_name}</strong>
+                    </td>
+                    <td data-label="Cargo / Departamento">
+                      <span className="employee-role">{run.job_title}</span>
+                      <small>{run.department}</small>
+                    </td>
+                    <td data-label="Salario Base" className="numeric-cell">{formatMoney(run.summary_json?.baseSalary || 0)}</td>
+                    <td data-label="Subsidios" className="numeric-cell">{formatMoney(run.summary_json?.allowancesTotal || 0)}</td>
+                    <td data-label="Bonus" className="numeric-cell">{formatMoney(run.summary_json?.bonusesTotal || 0)}</td>
+                    <td data-label="Horas Extra" className="numeric-cell">{formatMoney(run.summary_json?.overtimeTotal || 0)}</td>
+                    <td data-label="INSS" className="numeric-cell">{formatMoney(run.inss_amount)}</td>
+                    <td data-label="IRT" className="numeric-cell">{formatMoney(run.irt_amount)}</td>
+                    <td data-label="Faltas" className="numeric-cell">{formatMoney(run.summary_json?.absenceDeduction || 0)}</td>
+                    <td data-label="Licencas" className="numeric-cell">{formatMoney(run.summary_json?.leaveDeduction || 0)}</td>
+                    <td data-label="Penalizacoes" className="numeric-cell">{formatMoney(run.summary_json?.penalties || 0)}</td>
+                    <td data-label="Emprestimos" className="numeric-cell">{formatMoney(run.summary_json?.financialDeductions || 0)}</td>
+                    <td data-label="Total Descontos" className="numeric-cell">{formatMoney(getTotalDeductions(run))}</td>
+                    <td data-label="Total Iliquido" className="numeric-cell total-cell">{formatMoney(run.gross_salary)}</td>
+                    <td data-label="Total Liquido" className="numeric-cell total-cell total-cell--net">{formatMoney(run.net_salary)}</td>
+                    <td data-label="Acoes" className="actions-cell">
+                      <div className="processing-row-actions">
+                        <button type="button" className="processing-btn processing-btn--pdf" onClick={() => generatePayslip(run.id)}>
+                          Recibo em PDF
+                        </button>
+                        {user?.role === "admin" && !isClosed ? (
+                          <button type="button" className="processing-btn processing-btn--delete" onClick={() => deletePayrollRun(run.id)}>
+                            Apagar
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="empty-note processing-empty">Ainda nao existe processamento para este mes com os filtros atuais.</p>
+          )}
         </div>
       </div>
 

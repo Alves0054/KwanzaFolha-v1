@@ -1,5 +1,12 @@
+function normalizeText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
 export function getFeedbackTone(message) {
-  const text = String(message || "").toLowerCase();
+  const text = normalizeText(message);
   if (!text) return "info";
   if (
     text.includes("sucesso") ||
@@ -15,15 +22,14 @@ export function getFeedbackTone(message) {
   }
   if (
     text.includes("altere a palavra-passe") ||
-    text.includes("disponível") ||
+    text.includes("disponivel") ||
     text.includes("fechado") ||
     text.includes("reaberto")
   ) {
     return "warning";
   }
   if (
-    text.includes("não foi possível") ||
-    text.includes("invál") ||
+    text.includes("nao foi possivel") ||
     text.includes("inval") ||
     text.includes("erro") ||
     text.includes("falha") ||
@@ -38,23 +44,30 @@ export function contextualizeFeedback(actionLabel, resultMessage, fallbackMessag
   const message = String(resultMessage || "").trim();
   if (!message) return fallbackMessage;
 
-  const normalized = message.toLowerCase();
+  const normalized = normalizeText(message);
   if (normalized.includes("permiss")) {
-    return `${actionLabel}: a sua conta não tem permissão para executar esta ação.`;
+    return `${actionLabel}: a sua conta nao tem permissao para executar esta acao.`;
   }
   if (normalized.includes("fechado")) {
-    return `${actionLabel}: o período em causa está fechado. Reabra-o primeiro ou escolha outro mês.`;
+    return `${actionLabel}: o periodo em causa esta fechado. Reabra-o primeiro ou escolha outro mes.`;
+  }
+  if (
+    normalized.includes("assinatura digital") ||
+    normalized.includes("license_signature_mismatch") ||
+    normalized.includes("token de licenca") ||
+    normalized.includes("token de licen")
+  ) {
+    return `${actionLabel}: a licenca foi encontrada, mas a assinatura digital nao corresponde a esta versao do aplicativo. Atualize o servidor de licencas com a chave privada correta ou instale a build que corresponde ao servidor.`;
   }
   if (
     normalized.includes("iban") ||
     normalized.includes("nif") ||
     normalized.includes("bi") ||
-    normalized.includes("invál") ||
     normalized.includes("inval")
   ) {
     return `${actionLabel}: existem dados por corrigir. ${message}`;
   }
-  if (normalized.includes("não existem") || normalized.includes("sem ")) {
+  if (normalized.includes("nao existem") || normalized.includes("sem ")) {
     return `${actionLabel}: ${message}`;
   }
   return `${actionLabel}: ${message}`;
