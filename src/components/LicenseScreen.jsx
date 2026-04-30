@@ -223,8 +223,10 @@ export default function LicenseScreen({
                   <label>
                     Serial da licença
                     <input
+                      type="password"
                       value={activationForm.serialKey}
                       onChange={(event) => setActivationForm((current) => ({ ...current, serialKey: event.target.value }))}
+                      autoComplete="off"
                       placeholder="KWZ-XXXX-XXXX-XXXX-XXXX"
                     />
                   </label>

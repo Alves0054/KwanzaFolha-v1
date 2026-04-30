@@ -14,6 +14,15 @@ function resolveLicenseStatusLabel(status) {
   return "Licença pendente";
 }
 
+function maskLicenseSerial(serialKey) {
+  const value = String(serialKey || "").trim();
+  if (!value) return "Ainda não ativado";
+
+  const compact = value.replace(/[^a-z0-9]/gi, "").toUpperCase();
+  const suffix = compact.slice(-4);
+  return suffix ? `Oculto (...${suffix})` : "Oculto";
+}
+
 export default function UserSection({
   user,
   company,
@@ -355,7 +364,7 @@ export default function UserSection({
               </div>
               <div>
                 <label>Serial</label>
-                <strong>{licenseState?.serialKey || "Ainda não ativado"}</strong>
+                <strong>{maskLicenseSerial(licenseState?.serialKey)}</strong>
               </div>
               <div>
                 <label>Validade</label>

@@ -1,6 +1,6 @@
 {
   "name": "kwanza-folha",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Sistema desktop de processamento salarial empresarial para Windows.",
   "main": "electron/bootstrap.js",
   "author": "Adérito Alves / Alves Estúdio",
