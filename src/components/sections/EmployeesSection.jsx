@@ -1,4 +1,5 @@
 import { angolaBanks, extractAngolaBankRegistryCode, inferBankFromIban } from "../../utils/payroll";
+import { careerLevelOptions } from "../../entities/forms/defaults";
 import LineItemsEditor from "../form/LineItemsEditor";
 
 function findMatchingSalaryScale(scales, jobTitle, department) {
@@ -371,12 +372,18 @@ export default function EmployeesSection({
             </select>
           </label>
           <label>
-            Categoria profissional
-            <input
+            Escalão profissional
+            <select
               value={employeeForm.professional_category || ""}
               onChange={(event) => updateEmployee({ professional_category: event.target.value })}
-              placeholder="Preenchida automaticamente pelo cargo, se existir"
-            />
+            >
+              <option value="">Selecionar escalão</option>
+              {careerLevelOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
           </label>
           <label>
             Salário base

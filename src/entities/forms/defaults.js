@@ -1,6 +1,19 @@
 import { angolaBanks, normalizeIban, extractAngolaBankRegistryCode, inferBankFromIban } from "../company/banks";
 import { shiftProfileOptions, weekdayOptions } from "../workforce/calendar";
 
+export const careerLevelOptions = [
+  "Candidato/a",
+  "Estagiário/a",
+  "Assistente",
+  "Júnior",
+  "Pleno/a",
+  "Sénior",
+  "Coordenador/a",
+  "Supervisor/a",
+  "Gerente",
+  "Gestor / Gestora"
+];
+
 export const initialEmployee = {
   full_name: "",
   document_type: "bi",

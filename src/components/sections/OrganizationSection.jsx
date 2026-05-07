@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { careerLevelOptions } from "../../entities/forms/defaults";
 
 const entityLabels = {
   companies: "Empresas",
@@ -41,7 +42,7 @@ const fieldConfig = {
     ["company_id", "Empresa", "company"],
     ["department_id", "Departamento", "department"],
     ["name", "Cargo", "text"],
-    ["professional_category", "Categoria profissional", "text"],
+    ["professional_category", "Escalão profissional", "careerLevel"],
     ["suggested_base_salary", "Salário base sugerido", "number"],
     ["hierarchy_level", "Nível hierárquico", "number"],
     ["description", "Descrição", "textarea"]
@@ -114,7 +115,10 @@ export default function OrganizationSection({
       ...current,
       [activeEntity]: {
         ...current[activeEntity],
-        [field]: value
+        [field]: value,
+        ...(field === "professional_category" && value && !Number(current[activeEntity]?.hierarchy_level || 0)
+          ? { hierarchy_level: careerLevelOptions.indexOf(value) + 1 }
+          : {})
       }
     }));
   }
@@ -209,6 +213,19 @@ export default function OrganizationSection({
               .map((item) => (
                 <option key={item.id} value={item.id}>{item.code} - {item.name}</option>
               ))}
+          </select>
+        </label>
+      );
+    }
+    if (type === "careerLevel") {
+      return (
+        <label key={field}>
+          {label}
+          <select value={form[field] || ""} onChange={(event) => updateForm(field, event.target.value)}>
+            <option value="">Selecionar escalão</option>
+            {careerLevelOptions.map((option) => (
+              <option key={option} value={option}>{option}</option>
+            ))}
           </select>
         </label>
       );
