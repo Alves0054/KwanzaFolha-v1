@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-30T16:26:23.994Z",
+  "generatedAt": "2026-05-07T09:58:38.209Z",
   "files": [
     {
       "path": "electron/bootstrap.js",
@@ -9,37 +9,37 @@
     },
     {
       "path": "electron/main.js",
-      "sha256": "19e94e792cacb67e5cba82b971366ce51910904067c5f021e6da97c992234760",
+      "sha256": "63cb4e48e5ba83df228ec17aab5bd54c7da50a8c4ce95c98d2d004fab0129851",
       "packaged": true,
       "development": true
     },
     {
       "path": "electron/services/licensing.js",
-      "sha256": "e676bb69c75e6e97b2e4157e6360dd2f9d2233e41e5dfacb203e5eaaab58e1d4",
+      "sha256": "60ca9600034853b2c8ca292c80cc27c878403f2ab60fca6633fe8b660b8e6bc8",
       "packaged": true,
       "development": true
     },
     {
       "path": "electron/services/database.js",
-      "sha256": "d01be32a6f968a8eee7b5714b2fc87362d45ed7afced2955b2e52559ceeaab40",
+      "sha256": "bf17ba6423c6acfe2a99b788db87913a03057b65b8ecdfff1d3d4f729005d627",
       "packaged": true,
       "development": true
     },
     {
       "path": "electron/services/secure-storage.js",
-      "sha256": "25bbf41bfb87cd00d6598a51bb62319645d1a894930607741df67df11b5b2a4f",
+      "sha256": "ee0709fce4bdcf510424ab516013e56ac79c6a6b985c1c4825ba432062030d1e",
       "packaged": true,
       "development": true
     },
     {
       "path": "electron/services/installation-identity.js",
-      "sha256": "8b94156030fc61b3d49331a47439fb19a25d26763838d2c07bd19f4ba726c9e5",
+      "sha256": "15a5ea10f5c0efd30c173cf0e3426ac59f2d4debc12f072f5ec12a44dc9120e0",
       "packaged": true,
       "development": true
     },
     {
       "path": "electron/services/anti-tamper.js",
-      "sha256": "090ef676163bc514e723b11198218b7f55d66b1e1c4bba47b4e9327c031a410f",
+      "sha256": "b9159416fc758d2cecab2cf4c4b063b835f4f7766c9f0ccfb2b61ebb54a3c1c4",
       "packaged": true,
       "development": true
     },
@@ -51,7 +51,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "46abaec80d17732decd5fc4e7368dbc9ce8a919d16ca8f09f31e26c48e207820",
+      "sha256": "7bc3d1a384be9c90484b1b2db9f699abb153c2e4f4bd2e715b8bece3ff3272b2",
       "packaged": false,
       "development": true
     }

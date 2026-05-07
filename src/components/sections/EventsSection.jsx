@@ -405,8 +405,8 @@ export default function EventsSection(props) {
       String(item.approval_status || "").toLowerCase() === "pending"
   ).length;
   const attendancePeriodClosed = attendancePeriod?.status === "closed";
-  const canManageFinancialObligations = user?.role === "admin";
-  const canManageVacationBalance = user?.role === "admin";
+  const canManageFinancialObligations = Boolean(user);
+  const canManageVacationBalance = Boolean(user);
 
   const financialSummary = financialObligations.reduce(
     (acc, item) => {
@@ -1115,7 +1115,7 @@ export default function EventsSection(props) {
           </form>
         ) : (
           <p className="empty-note">
-            Apenas administradores podem criar ou alterar empréstimos e adiantamentos. Os operadores mantêm acesso de consulta.
+            Inicie sessão para criar ou alterar empréstimos e adiantamentos.
           </p>
         )}
 
@@ -1400,7 +1400,7 @@ export default function EventsSection(props) {
           </form>
         ) : (
           <p className="empty-note">
-            Apenas administradores podem ajustar o saldo anual de férias. O registo e a consulta das marcações continuam disponíveis.
+            Inicie sessão para ajustar o saldo anual de férias.
           </p>
         )}
 
@@ -1634,22 +1634,22 @@ export default function EventsSection(props) {
             className={`attendance-filter-chip ${activeAttendanceMonthRef === monthRef ? "attendance-filter-chip--active" : ""}`}
             onClick={() => setAttendanceFilters((current) => ({ ...current, monthRef, status: "todos" }))}
           >
-            Usar mÃªs da folha
+            Usar mes da folha
           </button>
         </div>
 
         <p className="empty-note attendance-empty-note--legacy">
-          Use os filtros rÃ¡pidos para alternar o estado com um clique e consulte o calendÃ¡rio mensal do trabalhador abaixo.
+          Use os filtros rapidos para alternar o estado com um clique e consulte o calendario mensal do trabalhador abaixo.
         </p>
 
         <div className="attendance-calendar-panel attendance-calendar-panel--legacy">
           <div className="attendance-calendar__header">
             <div>
-              <strong>{selectedEmployee ? `CalendÃ¡rio de ${selectedEmployee.full_name}` : "CalendÃ¡rio mensal do trabalhador"}</strong>
+              <strong>{selectedEmployee ? `Calendario de ${selectedEmployee.full_name}` : "Calendario mensal do trabalhador"}</strong>
               <small>
                 {selectedEmployee
-                  ? `VisÃ£o diÃ¡ria da assiduidade em ${activeAttendanceMonthRef}.`
-                  : "Selecione um trabalhador para ver a distribuiÃ§Ã£o diÃ¡ria da assiduidade."}
+                  ? `Visao diaria da assiduidade em ${activeAttendanceMonthRef}.`
+                  : "Selecione um trabalhador para ver a distribuicao diaria da assiduidade."}
               </small>
             </div>
             <div className="attendance-calendar__legend">
@@ -1662,9 +1662,9 @@ export default function EventsSection(props) {
           </div>
 
           {!selectedEmployee ? (
-            <p className="empty-note">Selecione um trabalhador para ativar o calendÃ¡rio visual da assiduidade.</p>
+            <p className="empty-note">Selecione um trabalhador para ativar o calendario visual da assiduidade.</p>
           ) : attendanceMonthRecords.length === 0 ? (
-            <p className="empty-note">NÃ£o existem registos de assiduidade para {activeAttendanceMonthRef} com o trabalhador selecionado.</p>
+            <p className="empty-note">Não existem registos de assiduidade para {activeAttendanceMonthRef} com o trabalhador selecionado.</p>
           ) : (
             <div className="attendance-calendar">
               {attendanceCalendarWeekdays.map((label) => (

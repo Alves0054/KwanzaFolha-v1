@@ -78,13 +78,13 @@ export function buildAgtMonthlyRemunerationMapFromBoot(boot, monthOrFilters) {
         issues.push("NISS em falta");
       }
       if (!String(summary.fiscalProfileVersion || summary.fiscalProfile?.version || "").trim()) {
-        issues.push("Versao fiscal em falta");
+        issues.push("Versão fiscal em falta");
       }
       if (Math.abs(taxableBase - expectedTaxableBase) > 1) {
-        consistencyIssues.push("Materia colectavel inconsistente");
+        consistencyIssues.push("Matéria coletável inconsistente");
       }
       if (taxableBase > grossRemuneration) {
-        consistencyIssues.push("Base tributavel acima da remuneracao");
+        consistencyIssues.push("Base tributável acima da remuneração");
       }
       if (taxableBase > 100000 && irtWithheld <= 0) {
         consistencyIssues.push("IRT retido inconsistente");
@@ -134,13 +134,13 @@ export function buildAgtMonthlyRemunerationMapFromBoot(boot, monthOrFilters) {
     blockingIssues.push(`Existem ${missingEmployeeNiss} trabalhador(es) sem NISS.`);
   }
   if (missingFiscalVersion) {
-    blockingIssues.push(`Existem ${missingFiscalVersion} registo(s) de folha sem versao fiscal gravada.`);
+    blockingIssues.push(`Existem ${missingFiscalVersion} registo(s) de folha sem versão fiscal gravada.`);
   }
   if (inconsistentRows) {
     blockingIssues.push(`Existem ${inconsistentRows} linha(s) com inconsistencias entre folha, INSS e IRT.`);
   }
   if (rows.length > 0 && rows.length <= 3) {
-    warnings.push("Confirme no Portal do Contribuinte se a submissao e obrigatoria para o volume atual de trabalhadores.");
+    warnings.push("Confirme no Portal do Contribuinte se a submissão e obrigatoria para o volume atual de trabalhadores.");
   }
   if (!filters.monthRef) {
     warnings.push("A entrega e o comprovativo AGT continuam a ser registados por mês exato.");

@@ -178,7 +178,7 @@ class LicensingService {
   setApiBaseUrl(rawValue) {
     const value = String(rawValue || "").trim().replace(/\/+$/, "");
     if (!this.secureStorage?.storeSecret || !this.secureStorage?.removeSecret) {
-      return { ok: false, message: "Secure storage indisponivel para guardar a configuracao do servidor de licencas." };
+      return { ok: false, message: "Secure storage indisponivel para guardar a configuração do servidor de licenças." };
     }
 
     if (!value) {
@@ -191,10 +191,10 @@ class LicensingService {
 
     if (this.app?.isPackaged) {
       if (!value.startsWith("https://")) {
-        return { ok: false, message: "A aplicacao empacotada so permite servidores de licenciamento com HTTPS." };
+        return { ok: false, message: "A aplicação empacotada só permite servidores de licenciamento com HTTPS." };
       }
       if (/^https:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(value)) {
-        return { ok: false, message: "Nao e permitido configurar localhost como servidor de licencas em producao." };
+        return { ok: false, message: "Não é permitido configurar localhost como servidor de licenças em produção." };
       }
     }
 
@@ -203,7 +203,7 @@ class LicensingService {
       // eslint-disable-next-line no-new
       new URL(value);
     } catch {
-      return { ok: false, message: "URL do servidor de licencas invalida. Exemplo: https://license.suaempresa.ao" };
+      return { ok: false, message: "URL do servidor de licenças inválida. Exemplo: https://license.suaempresa.ao" };
     }
 
     this.secureStorage.storeSecret(LICENSE_API_URL_SECRET, value, { mirror: true, entropy: LICENSE_API_URL_SECRET });
@@ -307,7 +307,7 @@ class LicensingService {
       }
 
       if (!apiBaseUrl.startsWith("https://")) {
-        throw new Error("A aplicacao empacotada so permite servidores de licenciamento com HTTPS.");
+        throw new Error("A aplicação empacotada só permite servidores de licenciamento com HTTPS.");
       }
 
       if (/^https:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(apiBaseUrl)) {
@@ -441,7 +441,7 @@ class LicensingService {
   decryptLegacyLocalLicense(content, deviceHash) {
     const parsed = safeJsonParse(content);
     if (!parsed?.iv || !parsed?.tag || !parsed?.data) {
-      throw new Error("Ficheiro de licenca local invalido.");
+      throw new Error("Ficheiro de licença local inválido.");
     }
 
     const decipher = crypto.createDecipheriv(
@@ -496,7 +496,7 @@ class LicensingService {
         serialKey: String(payload?.serial_key || "").trim(),
         error: String(error?.stack || error?.message || error)
       });
-      throw new Error("Nao foi possivel gravar a licenca local. Verifique permissoes da base de dados e do armazenamento seguro.");
+      throw new Error("Não foi possível gravar a licença local. Verifique permissões da base de dados e do armazenamento seguro.");
     }
   }
 
@@ -549,7 +549,7 @@ class LicensingService {
 
   verifySignedToken(token) {
     if (!String(token || "").includes(".")) {
-      return { ok: false, message: "Token de licenca invalido." };
+      return { ok: false, message: "Token de licença inválido." };
     }
 
     const [payloadPart, signaturePart] = String(token).split(".");
@@ -569,7 +569,7 @@ class LicensingService {
           ok: false,
           status: "license_signature_mismatch",
           message:
-            "A licenca foi emitida pelo servidor, mas a assinatura digital nao corresponde a esta versao do aplicativo. Verifique se a chave privada do servidor e a chave publica da build sao do mesmo par."
+            "A licença foi emitida pelo servidor, mas a assinatura digital não corresponde a esta versão do aplicativo. Verifique se a chave privada do servidor e a chave pública da build são do mesmo par."
         };
       }
       const payload = JSON.parse(payloadBuffer.toString("utf8"));
@@ -582,7 +582,7 @@ class LicensingService {
       return {
         ok: false,
         status: "license_token_invalid",
-        message: "Nao foi possivel validar o token de licenca recebido do servidor."
+        message: "Não foi possível validar o token de licença recebido do servidor."
       };
     }
   }
@@ -593,7 +593,7 @@ class LicensingService {
       return verification;
     }
     if (String(verification.payload?.token_type || "").toLowerCase() !== "trial") {
-      return { ok: false, message: "O token de trial nao e valido." };
+      return { ok: false, message: "O token de trial não é válido." };
     }
     return verification;
   }
@@ -623,7 +623,7 @@ class LicensingService {
       return {
         ok: false,
         currentIntegrity,
-        message: "Foi detetada uma alteracao nos ficheiros criticos da aplicacao."
+        message: "Foi detetada uma alteracao nos ficheiros criticos da aplicação."
       };
     }
 
@@ -660,7 +660,7 @@ class LicensingService {
         ok: false,
         status: "tampered",
         canUseApp: false,
-        message: "Esta licenca esta associada a outro dispositivo."
+        message: "Esta licença está associada a outro dispositivo."
       };
     }
 
@@ -672,7 +672,7 @@ class LicensingService {
         ok: false,
         status: "tampered",
         canUseApp: false,
-        message: "A licenca local nao pertence a esta instalacao."
+        message: "A licença local não pertence a esta instalação."
       };
     }
 
@@ -689,7 +689,7 @@ class LicensingService {
           ok: false,
           status: "review_required",
           canUseApp: false,
-          message: "Foi detetada uma alteracao suspeita no hardware desta instalacao. Contacte o suporte."
+          message: "Foi detetada uma alteracao suspeita no hardware desta instalação. Contacte o suporte."
         };
       }
     }
@@ -717,7 +717,7 @@ class LicensingService {
         ok: false,
         status: payload.status || "invalid",
         canUseApp: false,
-        message: "A licenca do Kwanza Folha nao esta ativa."
+        message: "A licença do Kwanza Folha não está ativa."
       };
     }
 
@@ -736,7 +736,7 @@ class LicensingService {
         maxDevices: payload.max_devices ?? 0,
         serialKey: payload.serial_key,
         expireDate: payload.expire_date,
-        message: "Sua licenca do Kwanza Folha expirou. Renove para continuar usando o sistema."
+        message: "A sua licença do Kwanza Folha expirou. Renove para continuar usando o sistema."
       };
     }
 
@@ -860,11 +860,13 @@ class LicensingService {
   buildTrialStatus() {
     if (!this.database?.getLicenseTrialContext) {
       return {
-        ok: false,
-        status: "missing",
-        canUseApp: false,
-        requiresLicense: true,
-        message: "Ative o Kwanza Folha para continuar a usar o sistema."
+        ok: true,
+        status: "setup_required",
+        canUseApp: true,
+        requiresLicense: false,
+        setupRequired: true,
+        trialDaysTotal: TRIAL_DAYS,
+        message: `Conclua o registo inicial da empresa para iniciar o período gratuito de ${TRIAL_DAYS} dias.`
       };
     }
 
@@ -881,7 +883,7 @@ class LicensingService {
         companyPhone: trialContext.companyPhone,
         companyNif: trialContext.companyNif,
         email: trialContext.adminEmail || trialContext.companyEmail,
-        message: `Conclua o registo inicial da empresa para iniciar o periodo gratuito de ${TRIAL_DAYS} dias.`
+        message: `Conclua o registo inicial da empresa para iniciar o período gratuito de ${TRIAL_DAYS} dias.`
       };
     }
 
@@ -900,7 +902,7 @@ class LicensingService {
           status: "invalid",
           canUseApp: false,
           requiresLicense: true,
-          message: "O token de trial pertence a outra instalacao."
+          message: "O token de trial pertence a outra instalação."
         };
       }
       trialStartedAt = String(payload.trial_started_at || trialStartedAt).trim();
@@ -929,17 +931,26 @@ class LicensingService {
     }
 
     if (!trialStartedAt) {
+      const fallbackStartedAt = nowIso();
+      const fallbackExpireAt = addDaysToIso(fallbackStartedAt, trialDurationDays || TRIAL_DAYS);
       return {
-        ok: false,
-        status: "missing",
-        canUseApp: false,
-        requiresLicense: true,
+        ok: true,
+        status: "trial_active",
+        canUseApp: true,
+        requiresLicense: false,
+        plan: "trial",
+        maxUsers: 0,
+        trialDaysTotal: trialDurationDays || TRIAL_DAYS,
+        trialDaysRemaining: daysRemainingFromNow(fallbackExpireAt),
+        trialStartedAt: fallbackStartedAt,
+        trialExpireAt: fallbackExpireAt,
         companyName: trialContext.companyName,
         companyEmail: trialContext.companyEmail,
         companyPhone: trialContext.companyPhone,
         companyNif: trialContext.companyNif,
         email: trialContext.adminEmail || trialContext.companyEmail,
-        message: "Nao foi possivel localizar o inicio do periodo gratuito. Ative ou compre a licenca mensal para continuar."
+        warning: true,
+        message: `Período gratuito ativo. Pode utilizar o Kwanza Folha durante mais ${daysRemainingFromNow(fallbackExpireAt)} dia(s).`
       };
     }
 
@@ -964,7 +975,7 @@ class LicensingService {
         companyPhone: trialContext.companyPhone,
         companyNif: trialContext.companyNif,
         email: trialContext.adminEmail || trialContext.companyEmail,
-        message: `Periodo gratuito ativo. Pode utilizar o Kwanza Folha durante mais ${daysRemainingFromNow(trialExpireAt)} dia(s).`
+        message: `Período gratuito ativo. Pode utilizar o Kwanza Folha durante mais ${daysRemainingFromNow(trialExpireAt)} dia(s).`
       };
     }
 
@@ -982,8 +993,32 @@ class LicensingService {
       companyPhone: trialContext.companyPhone,
       companyNif: trialContext.companyNif,
       email: trialContext.adminEmail || trialContext.companyEmail,
-      message: `O periodo gratuito de ${trialDurationDays} dias do Kwanza Folha terminou. Compre ou ative a licenca mensal para continuar.`
+      message: `O período gratuito de ${trialDurationDays} dias do Kwanza Folha terminou. Compre ou ative a licença mensal para continuar.`
     };
+  }
+
+  buildTrialFallbackForLicenseIssue(licenseStatus, issueSource = "local_license") {
+    let trialStatus = null;
+    try {
+      trialStatus = this.buildTrialStatus();
+    } catch {
+      return licenseStatus;
+    }
+
+    if (trialStatus?.canUseApp && String(trialStatus.status || "").toLowerCase() === "trial_active") {
+      return {
+        ...trialStatus,
+        warning: true,
+        licenseIssue: {
+          source: issueSource,
+          status: licenseStatus?.status || "invalid",
+          message: licenseStatus?.message || ""
+        },
+        message: trialStatus.message || `Período gratuito ativo. Pode utilizar o Kwanza Folha durante mais ${trialStatus.trialDaysRemaining || 1} dia(s).`
+      };
+    }
+
+    return licenseStatus;
   }
 
   getLicenseStatus(force = false) {
@@ -1002,14 +1037,22 @@ class LicensingService {
     let status;
     try {
       const localLicense = this.readLocalLicense();
-      status = localLicense ? this.buildStatusFromLocalLicense(localLicense) : this.buildTrialStatus();
+      if (localLicense) {
+        status = this.buildStatusFromLocalLicense(localLicense);
+        if (!status?.canUseApp) {
+          status = this.buildTrialFallbackForLicenseIssue(status, "local_license");
+        }
+      } else {
+        status = this.buildTrialStatus();
+      }
     } catch (error) {
       status = {
         ok: false,
         status: "invalid",
         canUseApp: false,
-        message: error.message || "A licenca local esta corrompida ou foi alterada."
+        message: error.message || "A licença local está corrompida ou foi alterada."
       };
+      status = this.buildTrialFallbackForLicenseIssue(status, "local_license_read");
     }
 
     this.cachedStatus = status;
@@ -1025,7 +1068,7 @@ class LicensingService {
     return {
       ok: false,
       code: String(status.status || "invalid").trim().toLowerCase() || "invalid",
-      message: status.message || "A licenca do Kwanza Folha e invalida ou expirou. Ative ou renove para continuar.",
+      message: status.message || "A licença do Kwanza Folha é inválida ou expirou. Ative ou renove para continuar.",
       license: status
     };
   }
@@ -1046,7 +1089,7 @@ class LicensingService {
       if (!response.ok) {
         return {
           ok: false,
-          message: result?.message || `Nao foi possivel concluir o pedido (${response.status}).`
+          message: result?.message || `Não foi possível concluir o pedido (${response.status}).`
         };
       }
       return result;
@@ -1057,7 +1100,7 @@ class LicensingService {
         try {
           return new URL(this.getApiBaseUrl()).host;
         } catch {
-          return "servidor de licencas";
+          return "servidor de licenças";
         }
       })();
       const shouldExposeMessage =
@@ -1084,8 +1127,8 @@ class LicensingService {
           shouldExposeMessage
             ? failureMessage
             : error.name === "AbortError"
-              ? "O servidor de licencas demorou demasiado tempo a responder."
-              : "Nao foi possivel comunicar com o servidor de licencas."
+              ? "O servidor de licenças demorou demasiado tempo a responder."
+              : "Não foi possível comunicar com o servidor de licenças."
       };
     } finally {
       clearTimeout(timeout);
@@ -1158,7 +1201,7 @@ class LicensingService {
       return {
         ok: false,
         status: "local_storage_failed",
-        message: error.message || "Nao foi possivel gravar a licenca local."
+        message: error.message || "Não foi possível gravar a licença local."
       };
     }
     const status = this.getLicenseStatus(true);
@@ -1174,7 +1217,7 @@ class LicensingService {
         status: status?.status || "invalid",
         message:
           status?.message ||
-          "A licenca foi gravada, mas a validacao local nao foi concluida neste dispositivo.",
+          "A licença foi gravada, mas a validação local não foi concluída neste dispositivo.",
         localLicenseSaved: true
       };
     }

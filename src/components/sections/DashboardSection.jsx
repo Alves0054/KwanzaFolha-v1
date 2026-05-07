@@ -831,7 +831,7 @@ export default function DashboardSection({
               </select>
             </label>
             <div className="dashboard-context-card">
-              <label>Âmbito analisado</label>
+              <label>Ambito analisado</label>
               <strong>{selectedEmployeeName}</strong>
               <small>{departmentFilter === "todos" ? "Todos os departamentos" : departmentFilter}</small>
             </div>

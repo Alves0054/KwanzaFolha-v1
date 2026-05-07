@@ -37,7 +37,7 @@ function Resolve-CertificatePath {
     try {
       [System.IO.File]::WriteAllBytes($tempPath, [Convert]::FromBase64String($env:KWANZA_CERTIFICATE_BASE64))
     } catch {
-      throw "KWANZA_CERTIFICATE_BASE64 invalido ou corrompido. Grave no secret apenas o conteudo Base64 puro do .p12."
+      throw "KWANZA_CERTIFICATE_BASE64 inválido ou corrompido. Grave no secret apenas o conteudo Base64 puro do .p12."
     }
     return @{
       Path = $tempPath

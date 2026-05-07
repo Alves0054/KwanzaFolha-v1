@@ -7,7 +7,7 @@ function saveEmployeeDocument(service, payload, userId, nowIso, safeUnlink) {
   const sanitized = validation.sanitized;
   const current = payload?.id ? service.db.prepare("SELECT * FROM employee_documents WHERE id = ?").get(payload.id) : null;
   if (payload?.id && !current) {
-    return { ok: false, message: "O documento laboral selecionado ja nao existe." };
+    return { ok: false, message: "O documento laboral selecionado já não existe." };
   }
   if (!current && !sanitized.file_path) {
     return { ok: false, message: "Selecione o ficheiro do documento para concluir o registo." };
@@ -90,7 +90,7 @@ function saveEmployeeDocument(service, payload, userId, nowIso, safeUnlink) {
 function deleteEmployeeDocument(service, documentId, safeUnlink) {
   const current = service.db.prepare("SELECT * FROM employee_documents WHERE id = ?").get(documentId);
   if (!current) {
-    return { ok: false, message: "O documento laboral selecionado ja nao existe." };
+    return { ok: false, message: "O documento laboral selecionado já não existe." };
   }
 
   service.db.prepare("DELETE FROM employee_documents WHERE id = ?").run(documentId);

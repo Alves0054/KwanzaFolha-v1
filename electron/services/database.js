@@ -1,4 +1,4 @@
-﻿const path = require("path");
+const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
@@ -26,7 +26,7 @@ function getSqliteDriver() {
     const isAbiMismatch = /NODE_MODULE_VERSION|compiled against a different Node\.js version/i.test(message);
     if (isAbiMismatch) {
       throw new Error(
-        "Modulo SQLite nativo incompatível (NODE_MODULE_VERSION). Execute `npm run test:node:abi` (rebuild para Node) ou reinstale dependências."
+        "Módulo SQLite nativo incompatível (NODE_MODULE_VERSION). Execute `npm run test:node:abi` (rebuild para Node) ou reinstale dependências."
       );
     }
     throw error;
@@ -89,6 +89,44 @@ const {
   closePayrollPeriod: closePayrollPeriodDomain,
   reopenPayrollPeriod: reopenPayrollPeriodDomain
 } = require("./core/db/domains/payroll-periods-write");
+const {
+  getOrganizationBootstrap,
+  getOrganizationSnapshot,
+  listOrganizationEntities,
+  saveOrganizationEntity,
+  deleteOrganizationEntity,
+  buildOrganizationReport,
+  exportOrganizationExcel
+} = require("./core/db/domains/organization");
+const {
+  getEnterpriseBootstrap,
+  buildEnterpriseExecutiveSummary,
+  exportEnterpriseSummaryExcel,
+  listEnterpriseRecords,
+  saveEnterpriseRecord,
+  deleteEnterpriseRecord,
+  generateContractDocument,
+  listDocumentTemplateVersions,
+  listGeneratedDocuments,
+  buildContractAlerts,
+  transitionContract,
+  listApprovalRequestEvents,
+  transitionApprovalRequest,
+  listSyncOutbox,
+  markSyncEvent,
+  retryFailedSyncEvents,
+  exportSyncOutboxPackage,
+  createPayrollRunVersion,
+  listPayrollRunVersions,
+  comparePayrollRunVersions,
+  exportPayrollVersionComparisonExcel,
+  buildFinalFiscalMap,
+  updateFiscalMonthlyMapStatus,
+  listFiscalMonthlyMaps,
+  convertCandidateToEmployee,
+  exportEmployeesExcel,
+  importEmployeesFile
+} = require("./core/db/domains/enterprise-suite");
 
 const DEFAULT_IRT_BRACKETS = cloneFiscalBrackets(CURRENT_ANGOLA_IRT_GROUP_A_BRACKETS);
 
@@ -169,7 +207,7 @@ const PASSWORD_RESET_TOKEN_SEGMENT_LENGTH = 4;
 const PASSWORD_RESET_TOKEN_SEGMENT_COUNT = 3;
 const PASSWORD_RESET_EXPIRY_MINUTES = 15;
 const AGT_SUBMISSION_STATUSES = ["draft", "ready", "submitted", "accepted", "rejected"];
-const CURRENT_SCHEMA_VERSION = 5;
+const CURRENT_SCHEMA_VERSION = 12;
 const EMPLOYEE_DOCUMENT_CATEGORIES = [
   "contract",
   "contract_addendum",
@@ -182,6 +220,23 @@ const EMPLOYEE_DOCUMENT_CATEGORIES = [
   "other"
 ];
 const EMPLOYEE_DOCUMENT_STATUSES = ["active", "archived"];
+const HR_SUITE_AREAS = [
+  "recruitment",
+  "lifecycle",
+  "self_service",
+  "performance",
+  "training",
+  "workflow",
+  "compliance",
+  "wellbeing",
+  "assets",
+  "disciplinary",
+  "succession",
+  "analytics",
+  "other"
+];
+const HR_SUITE_STATUSES = ["planned", "in_progress", "blocked", "done", "cancelled"];
+const HR_SUITE_PRIORITIES = ["high", "medium", "low"];
 const SCHEMA_INDEX_STATEMENTS = [
   "CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id)",
   "CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token_hash ON password_reset_tokens(token_hash)",
@@ -221,6 +276,40 @@ const EMPLOYEE_DOCUMENT_INDEX_STATEMENTS = [
   "CREATE INDEX IF NOT EXISTS idx_employee_documents_employee_id ON employee_documents(employee_id, created_at DESC)",
   "CREATE INDEX IF NOT EXISTS idx_employee_documents_category ON employee_documents(category, status)",
   "CREATE INDEX IF NOT EXISTS idx_employee_documents_expiry_date ON employee_documents(expiry_date, status)"
+];
+const HR_SUITE_INDEX_STATEMENTS = [
+  "CREATE INDEX IF NOT EXISTS idx_hr_suite_items_area ON hr_suite_items(area, status)",
+  "CREATE INDEX IF NOT EXISTS idx_hr_suite_items_status ON hr_suite_items(status, priority)",
+  "CREATE INDEX IF NOT EXISTS idx_hr_suite_items_due_date ON hr_suite_items(due_date, status)",
+  "CREATE INDEX IF NOT EXISTS idx_hr_suite_items_employee_id ON hr_suite_items(employee_id, created_at DESC)"
+];
+const ORGANIZATION_INDEX_STATEMENTS = [
+  "CREATE INDEX IF NOT EXISTS idx_companies_active ON companies(active, deleted_at)",
+  "CREATE INDEX IF NOT EXISTS idx_companies_nif ON companies(nif)",
+  "CREATE INDEX IF NOT EXISTS idx_company_branches_company ON company_branches(company_id, active, deleted_at)",
+  "CREATE INDEX IF NOT EXISTS idx_departments_company ON departments(company_id, active, deleted_at)",
+  "CREATE INDEX IF NOT EXISTS idx_departments_branch ON departments(branch_id, active)",
+  "CREATE INDEX IF NOT EXISTS idx_job_positions_department ON job_positions(department_id, active, deleted_at)",
+  "CREATE INDEX IF NOT EXISTS idx_cost_centers_company ON cost_centers(company_id, active, deleted_at)",
+  "CREATE INDEX IF NOT EXISTS idx_employees_company_id ON employees(company_id)",
+  "CREATE INDEX IF NOT EXISTS idx_employees_branch_id ON employees(branch_id)",
+  "CREATE INDEX IF NOT EXISTS idx_employees_department_id ON employees(department_id)",
+  "CREATE INDEX IF NOT EXISTS idx_employees_job_position_id ON employees(job_position_id)",
+  "CREATE INDEX IF NOT EXISTS idx_employees_cost_center_id ON employees(cost_center_id)",
+  "CREATE INDEX IF NOT EXISTS idx_employees_supervisor_id ON employees(supervisor_id)"
+];
+const ENTERPRISE_SUITE_INDEX_STATEMENTS = [
+  "CREATE INDEX IF NOT EXISTS idx_employee_contracts_employee ON employee_contracts(employee_id, status, start_date)",
+  "CREATE INDEX IF NOT EXISTS idx_employee_contracts_end_date ON employee_contracts(end_date, status)",
+  "CREATE INDEX IF NOT EXISTS idx_document_templates_type ON document_templates(template_type, active)",
+  "CREATE INDEX IF NOT EXISTS idx_approval_requests_status ON approval_requests(status, module, updated_at)",
+  "CREATE INDEX IF NOT EXISTS idx_recruitment_jobs_status ON recruitment_jobs(status, opened_at)",
+  "CREATE INDEX IF NOT EXISTS idx_recruitment_candidates_job ON recruitment_candidates(job_id, stage)",
+  "CREATE INDEX IF NOT EXISTS idx_performance_reviews_employee ON performance_reviews(employee_id, review_period)",
+  "CREATE INDEX IF NOT EXISTS idx_training_participants_employee ON training_participants(employee_id)",
+  "CREATE INDEX IF NOT EXISTS idx_sync_outbox_status ON sync_outbox(status, created_at)",
+  "CREATE INDEX IF NOT EXISTS idx_payroll_run_versions_month ON payroll_run_versions(month_ref, version_number)",
+  "CREATE INDEX IF NOT EXISTS idx_fiscal_monthly_maps_month ON fiscal_monthly_maps(month_ref, map_type)"
 ];
 
 const BANK_EXPORT_CODES = {
@@ -694,6 +783,21 @@ function normalizeEmployeeDocumentCategory(value) {
 function normalizeEmployeeDocumentStatus(value) {
   const normalized = String(value || "active").trim().toLowerCase();
   return EMPLOYEE_DOCUMENT_STATUSES.includes(normalized) ? normalized : "active";
+}
+
+function normalizeHrSuiteArea(value) {
+  const normalized = String(value || "other").trim().toLowerCase();
+  return HR_SUITE_AREAS.includes(normalized) ? normalized : "other";
+}
+
+function normalizeHrSuiteStatus(value) {
+  const normalized = String(value || "planned").trim().toLowerCase();
+  return HR_SUITE_STATUSES.includes(normalized) ? normalized : "planned";
+}
+
+function normalizeHrSuitePriority(value) {
+  const normalized = String(value || "medium").trim().toLowerCase();
+  return HR_SUITE_PRIORITIES.includes(normalized) ? normalized : "medium";
 }
 
 function calculateDaysUntilDate(targetDate, referenceDate = new Date()) {
@@ -1180,9 +1284,9 @@ function mapImportedAttendanceStatus(value) {
     absent: "absent",
     meia_falta: "half_absence",
     half_absence: "half_absence",
-    licenca: "leave",
+    licença: "leave",
     leave: "leave",
-    ferias: "vacation",
+    férias: "vacation",
     vacation: "vacation"
   };
   return aliases[normalized] || "";
@@ -1305,6 +1409,7 @@ class DatabaseService {
     this.auditExportsDir = path.join(this.workspaceDir, "Auditoria");
     this.excelExportsDir = path.join(this.workspaceDir, "Excel");
     this.employeeDocumentsDir = path.join(this.workspaceDir, "Documentos Laborais");
+    this.hrSuiteDocumentsDir = path.join(this.workspaceDir, "RH 360");
     this.sessionPath = path.join(basePath, "session-state.json");
     this.sessionSecretPath = path.join(basePath, "session-state.key");
     this.backupStatePath = path.join(this.basePath, "backup-state.json");
@@ -1319,6 +1424,7 @@ class DatabaseService {
     fs.mkdirSync(this.auditExportsDir, { recursive: true });
     fs.mkdirSync(this.excelExportsDir, { recursive: true });
     fs.mkdirSync(this.employeeDocumentsDir, { recursive: true });
+    fs.mkdirSync(this.hrSuiteDocumentsDir, { recursive: true });
     this.ensureProtectedDataDirectory();
     this.ensureRuntimeDatabaseAvailable();
     this.openConnection();
@@ -1449,6 +1555,10 @@ class DatabaseService {
       return work();
     }
     return this.db.transaction(work)();
+  }
+
+  createGlobalId(scope = "entity") {
+    return `${String(scope || "entity").replace(/[^a-z0-9_-]/gi, "-")}-${crypto.randomUUID()}`;
   }
 
   migrateLegacyProtectedSecrets() {
@@ -1732,10 +1842,10 @@ class DatabaseService {
 
   decryptEncryptedEnvelope(envelope, expectedPurpose) {
     if (!envelope) {
-      throw new Error("Envelope cifrado invalido.");
+      throw new Error("Envelope cifrado inválido.");
     }
     if (String(envelope.purpose || "") !== String(expectedPurpose || "")) {
-      throw new Error("O ficheiro cifrado nao corresponde ao tipo esperado.");
+      throw new Error("O ficheiro cifrado não corresponde ao tipo esperado.");
     }
 
     const decipher = crypto.createDecipheriv(
@@ -1758,7 +1868,7 @@ class DatabaseService {
   restoreEncryptedFileToTarget(sourcePath, targetPath, purpose) {
     const envelope = parseEncryptedEnvelope(fs.readFileSync(sourcePath, "utf8"));
     if (!envelope) {
-      throw new Error("O ficheiro selecionado nao esta cifrado num formato reconhecido.");
+      throw new Error("O ficheiro selecionado não está cifrado num formato reconhecido.");
     }
     try {
       fs.writeFileSync(targetPath, this.decryptEncryptedEnvelope(envelope, purpose));
@@ -1882,7 +1992,7 @@ class DatabaseService {
 
   syncEncryptedDatabaseSnapshot() {
     if (!fs.existsSync(this.dbPath)) {
-      return { ok: false, message: "A base de dados operacional nao esta disponivel para cifragem." };
+      return { ok: false, message: "A base de dados operacional não está disponível para cifragem." };
     }
 
     if (this.db?.open) {
@@ -1940,7 +2050,7 @@ class DatabaseService {
   getTableColumns(tableName) {
     const normalized = String(tableName || "").trim();
     if (!/^[a-z_][a-z0-9_]*$/i.test(normalized)) {
-      throw new Error("Nome de tabela invalido para introspecao.");
+      throw new Error("Nome de tabela inválido para introspecao.");
     }
     return this.db.prepare(`PRAGMA table_info(${normalized})`).all();
   }
@@ -2418,6 +2528,690 @@ class DatabaseService {
       }
     });
 
+    this.applySchemaMigration(6, "hr-suite-items", () => {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS hr_suite_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          area TEXT NOT NULL DEFAULT 'other',
+          title TEXT NOT NULL,
+          owner TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'planned',
+          priority TEXT NOT NULL DEFAULT 'medium',
+          due_date TEXT,
+          employee_id INTEGER,
+          workflow_stage TEXT NOT NULL DEFAULT '',
+          approval_role TEXT NOT NULL DEFAULT '',
+          attachment_name TEXT NOT NULL DEFAULT '',
+          attachment_path TEXT NOT NULL DEFAULT '',
+          attachment_size INTEGER NOT NULL DEFAULT 0,
+          notes TEXT NOT NULL DEFAULT '',
+          created_by_user_id INTEGER,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE SET NULL,
+          FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+        );
+      `);
+      for (const statement of HR_SUITE_INDEX_STATEMENTS) {
+        this.db.exec(statement);
+      }
+    });
+
+    this.applySchemaMigration(7, "enterprise-organization-base", () => {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS companies (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          global_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          nif TEXT NOT NULL,
+          address TEXT NOT NULL DEFAULT '',
+          phone TEXT NOT NULL DEFAULT '',
+          email TEXT NOT NULL DEFAULT '',
+          logo_path TEXT NOT NULL DEFAULT '',
+          fiscal_regime TEXT NOT NULL DEFAULT 'geral',
+          receipt_footer TEXT NOT NULL DEFAULT '',
+          report_notes TEXT NOT NULL DEFAULT '',
+          active INTEGER NOT NULL DEFAULT 1,
+          sync_status TEXT NOT NULL DEFAULT 'synced',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          UNIQUE(global_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS company_branches (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          global_id TEXT NOT NULL,
+          company_id INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          code TEXT NOT NULL DEFAULT '',
+          address TEXT NOT NULL DEFAULT '',
+          manager TEXT NOT NULL DEFAULT '',
+          phone TEXT NOT NULL DEFAULT '',
+          email TEXT NOT NULL DEFAULT '',
+          active INTEGER NOT NULL DEFAULT 1,
+          sync_status TEXT NOT NULL DEFAULT 'synced',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          UNIQUE(global_id),
+          FOREIGN KEY (company_id) REFERENCES companies(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS departments (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          global_id TEXT NOT NULL,
+          company_id INTEGER NOT NULL,
+          branch_id INTEGER,
+          cost_center_id INTEGER,
+          name TEXT NOT NULL,
+          code TEXT NOT NULL,
+          manager TEXT NOT NULL DEFAULT '',
+          active INTEGER NOT NULL DEFAULT 1,
+          sync_status TEXT NOT NULL DEFAULT 'synced',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          UNIQUE(global_id),
+          FOREIGN KEY (company_id) REFERENCES companies(id),
+          FOREIGN KEY (branch_id) REFERENCES company_branches(id),
+          FOREIGN KEY (cost_center_id) REFERENCES cost_centers(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS job_positions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          global_id TEXT NOT NULL,
+          company_id INTEGER NOT NULL,
+          department_id INTEGER,
+          name TEXT NOT NULL,
+          professional_category TEXT NOT NULL DEFAULT '',
+          suggested_base_salary REAL NOT NULL DEFAULT 0,
+          description TEXT NOT NULL DEFAULT '',
+          hierarchy_level INTEGER NOT NULL DEFAULT 0,
+          active INTEGER NOT NULL DEFAULT 1,
+          sync_status TEXT NOT NULL DEFAULT 'synced',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          UNIQUE(global_id),
+          FOREIGN KEY (company_id) REFERENCES companies(id),
+          FOREIGN KEY (department_id) REFERENCES departments(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS cost_centers (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          global_id TEXT NOT NULL,
+          company_id INTEGER NOT NULL,
+          department_id INTEGER,
+          code TEXT NOT NULL,
+          name TEXT NOT NULL,
+          active INTEGER NOT NULL DEFAULT 1,
+          sync_status TEXT NOT NULL DEFAULT 'synced',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          UNIQUE(global_id),
+          FOREIGN KEY (company_id) REFERENCES companies(id),
+          FOREIGN KEY (department_id) REFERENCES departments(id)
+        );
+      `);
+
+      this.ensureColumn("employees", "global_id", "global_id TEXT");
+      this.ensureColumn("employees", "company_id", "company_id INTEGER");
+      this.ensureColumn("employees", "branch_id", "branch_id INTEGER");
+      this.ensureColumn("employees", "department_id", "department_id INTEGER");
+      this.ensureColumn("employees", "job_position_id", "job_position_id INTEGER");
+      this.ensureColumn("employees", "cost_center_id", "cost_center_id INTEGER");
+      this.ensureColumn("employees", "supervisor_id", "supervisor_id INTEGER");
+      this.ensureColumn("employees", "emergency_contact", "emergency_contact TEXT");
+      this.ensureColumn("employees", "photo_path", "photo_path TEXT");
+      this.ensureColumn("employees", "work_regime", "work_regime TEXT");
+      this.ensureColumn("employees", "standard_schedule", "standard_schedule TEXT");
+      this.ensureColumn("employees", "professional_category", "professional_category TEXT");
+      this.ensureColumn("employees", "payment_method", "payment_method TEXT NOT NULL DEFAULT 'bank_transfer'");
+      this.ensureColumn("employees", "account_holder", "account_holder TEXT");
+      this.ensureColumn("employees", "contribution_regime", "contribution_regime TEXT");
+      this.ensureColumn("employees", "dependents", "dependents INTEGER NOT NULL DEFAULT 0");
+      this.ensureColumn("employees", "exemptions_json", "exemptions_json TEXT NOT NULL DEFAULT '[]'");
+      this.ensureColumn("employees", "employment_status_detail", "employment_status_detail TEXT");
+      this.ensureColumn("employees", "sync_status", "sync_status TEXT NOT NULL DEFAULT 'synced'");
+      this.ensureColumn("employees", "deleted_at", "deleted_at TEXT");
+
+      const stampedAt = nowIso();
+      const companyProfile = this.db.prepare("SELECT * FROM company_profile WHERE id = 1").get() || {};
+      let defaultCompany = this.db.prepare("SELECT id FROM companies WHERE deleted_at IS NULL ORDER BY id ASC LIMIT 1").get();
+      if (!defaultCompany) {
+        this.db.prepare(`
+          INSERT INTO companies (
+            global_id, name, nif, address, phone, email, logo_path, fiscal_regime,
+            receipt_footer, report_notes, active, sync_status, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'geral', '', '', 1, 'synced', ?, ?)
+        `).run(
+          this.createGlobalId("company"),
+          String(companyProfile.name || "Empresa principal").trim() || "Empresa principal",
+          onlyDigits(companyProfile.nif || "00000000") || "00000000",
+          companyProfile.address || "",
+          companyProfile.phone || "",
+          companyProfile.email || "",
+          companyProfile.logo_path || "",
+          stampedAt,
+          stampedAt
+        );
+        defaultCompany = this.db.prepare("SELECT id FROM companies WHERE deleted_at IS NULL ORDER BY id ASC LIMIT 1").get();
+      }
+
+      const defaultCompanyId = Number(defaultCompany?.id || 0);
+      if (defaultCompanyId) {
+        this.db.prepare("UPDATE employees SET company_id = COALESCE(company_id, ?)").run(defaultCompanyId);
+
+        const normalizeCode = (prefix, value, index) => {
+          const token = String(value || "")
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/[^a-z0-9]+/gi, "-")
+            .replace(/^-+|-+$/g, "")
+            .slice(0, 18)
+            .toUpperCase();
+          return `${prefix}-${token || String(index + 1).padStart(3, "0")}`;
+        };
+
+        const departmentNames = this.db
+          .prepare("SELECT DISTINCT TRIM(department) AS name FROM employees WHERE TRIM(COALESCE(department, '')) <> ''")
+          .all();
+        departmentNames.forEach((row, index) => {
+          const exists = this.db
+            .prepare("SELECT id FROM departments WHERE company_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?)) AND deleted_at IS NULL")
+            .get(defaultCompanyId, row.name);
+          if (!exists) {
+            this.db.prepare(`
+              INSERT INTO departments (
+                global_id, company_id, name, code, manager, active, sync_status, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, '', 1, 'synced', ?, ?)
+            `).run(this.createGlobalId("department"), defaultCompanyId, row.name, normalizeCode("DEP", row.name, index), stampedAt, stampedAt);
+          }
+        });
+
+        const positionRows = this.db
+          .prepare("SELECT DISTINCT TRIM(job_title) AS name, TRIM(department) AS department FROM employees WHERE TRIM(COALESCE(job_title, '')) <> ''")
+          .all();
+        positionRows.forEach((row) => {
+          const department = this.db
+            .prepare("SELECT id FROM departments WHERE company_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?)) AND deleted_at IS NULL")
+            .get(defaultCompanyId, row.department || "");
+          const departmentId = department?.id || null;
+          const exists = this.db
+            .prepare("SELECT id FROM job_positions WHERE company_id = ? AND COALESCE(department_id, 0) = COALESCE(?, 0) AND LOWER(TRIM(name)) = LOWER(TRIM(?)) AND deleted_at IS NULL")
+            .get(defaultCompanyId, departmentId, row.name);
+          if (!exists) {
+            this.db.prepare(`
+              INSERT INTO job_positions (
+                global_id, company_id, department_id, name, professional_category, suggested_base_salary,
+                description, hierarchy_level, active, sync_status, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, '', 0, '', 0, 1, 'synced', ?, ?)
+            `).run(this.createGlobalId("job-position"), defaultCompanyId, departmentId, row.name, stampedAt, stampedAt);
+          }
+        });
+
+        this.db.exec(`
+          UPDATE employees
+          SET department_id = (
+            SELECT departments.id
+            FROM departments
+            WHERE departments.company_id = employees.company_id
+              AND LOWER(TRIM(departments.name)) = LOWER(TRIM(employees.department))
+              AND departments.deleted_at IS NULL
+            LIMIT 1
+          )
+          WHERE department_id IS NULL;
+
+          UPDATE employees
+          SET job_position_id = (
+            SELECT job_positions.id
+            FROM job_positions
+            WHERE job_positions.company_id = employees.company_id
+              AND LOWER(TRIM(job_positions.name)) = LOWER(TRIM(employees.job_title))
+              AND job_positions.deleted_at IS NULL
+            LIMIT 1
+          )
+          WHERE job_position_id IS NULL;
+        `);
+      }
+
+      this.db.prepare("SELECT id FROM employees WHERE global_id IS NULL OR TRIM(global_id) = ''").all().forEach((row) => {
+        this.db.prepare("UPDATE employees SET global_id = ? WHERE id = ?").run(this.createGlobalId("employee"), row.id);
+      });
+
+      for (const statement of ORGANIZATION_INDEX_STATEMENTS) {
+        this.db.exec(statement);
+      }
+    });
+
+    this.applySchemaMigration(8, "enterprise-suite-modules", () => {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS employee_contracts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          global_id TEXT NOT NULL,
+          employee_id INTEGER NOT NULL,
+          contract_type TEXT NOT NULL,
+          start_date TEXT NOT NULL,
+          end_date TEXT NOT NULL DEFAULT '',
+          probation_end_date TEXT NOT NULL DEFAULT '',
+          contract_salary REAL NOT NULL,
+          job_position_id INTEGER,
+          department_id INTEGER,
+          status TEXT NOT NULL DEFAULT 'active',
+          document_path TEXT NOT NULL DEFAULT '',
+          notes TEXT NOT NULL DEFAULT '',
+          row_label TEXT NOT NULL DEFAULT '',
+          created_by_user_id INTEGER,
+          sync_status TEXT NOT NULL DEFAULT 'synced',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          UNIQUE(global_id),
+          FOREIGN KEY (employee_id) REFERENCES employees(id),
+          FOREIGN KEY (job_position_id) REFERENCES job_positions(id),
+          FOREIGN KEY (department_id) REFERENCES departments(id),
+          FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS document_templates (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          global_id TEXT NOT NULL,
+          template_type TEXT NOT NULL,
+          name TEXT NOT NULL,
+          body TEXT NOT NULL,
+          active INTEGER NOT NULL DEFAULT 1,
+          row_label TEXT NOT NULL DEFAULT '',
+          created_by_user_id INTEGER,
+          sync_status TEXT NOT NULL DEFAULT 'synced',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          UNIQUE(global_id),
+          FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS approval_workflows (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          global_id TEXT NOT NULL,
+          module TEXT NOT NULL,
+          name TEXT NOT NULL,
+          steps_json TEXT NOT NULL DEFAULT '[]',
+          active INTEGER NOT NULL DEFAULT 1,
+          row_label TEXT NOT NULL DEFAULT '',
+          created_by_user_id INTEGER,
+          sync_status TEXT NOT NULL DEFAULT 'synced',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          UNIQUE(global_id),
+          FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS approval_requests (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          global_id TEXT NOT NULL,
+          workflow_id INTEGER,
+          module TEXT NOT NULL,
+          entity_type TEXT NOT NULL,
+          entity_id INTEGER,
+          requested_by_user_id INTEGER,
+          assigned_to_user_id INTEGER,
+          status TEXT NOT NULL DEFAULT 'pending',
+          reason TEXT NOT NULL,
+          payload_json TEXT NOT NULL DEFAULT '{}',
+          decided_by_user_id INTEGER,
+          decided_at TEXT,
+          row_label TEXT NOT NULL DEFAULT '',
+          created_by_user_id INTEGER,
+          sync_status TEXT NOT NULL DEFAULT 'synced',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          UNIQUE(global_id),
+          FOREIGN KEY (workflow_id) REFERENCES approval_workflows(id),
+          FOREIGN KEY (requested_by_user_id) REFERENCES users(id),
+          FOREIGN KEY (assigned_to_user_id) REFERENCES users(id),
+          FOREIGN KEY (decided_by_user_id) REFERENCES users(id),
+          FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS recruitment_jobs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          global_id TEXT NOT NULL,
+          company_id INTEGER,
+          department_id INTEGER,
+          job_position_id INTEGER,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'open',
+          openings INTEGER NOT NULL DEFAULT 1,
+          opened_at TEXT NOT NULL DEFAULT '',
+          closed_at TEXT NOT NULL DEFAULT '',
+          row_label TEXT NOT NULL DEFAULT '',
+          created_by_user_id INTEGER,
+          sync_status TEXT NOT NULL DEFAULT 'synced',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          UNIQUE(global_id),
+          FOREIGN KEY (company_id) REFERENCES companies(id),
+          FOREIGN KEY (department_id) REFERENCES departments(id),
+          FOREIGN KEY (job_position_id) REFERENCES job_positions(id),
+          FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS recruitment_candidates (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          global_id TEXT NOT NULL,
+          job_id INTEGER,
+          full_name TEXT NOT NULL,
+          email TEXT NOT NULL DEFAULT '',
+          phone TEXT NOT NULL DEFAULT '',
+          stage TEXT NOT NULL DEFAULT 'new',
+          cv_path TEXT NOT NULL DEFAULT '',
+          notes TEXT NOT NULL DEFAULT '',
+          converted_employee_id INTEGER,
+          row_label TEXT NOT NULL DEFAULT '',
+          created_by_user_id INTEGER,
+          sync_status TEXT NOT NULL DEFAULT 'synced',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          UNIQUE(global_id),
+          FOREIGN KEY (job_id) REFERENCES recruitment_jobs(id),
+          FOREIGN KEY (converted_employee_id) REFERENCES employees(id),
+          FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS performance_reviews (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          global_id TEXT NOT NULL,
+          employee_id INTEGER NOT NULL,
+          review_period TEXT NOT NULL,
+          review_type TEXT NOT NULL,
+          manager_id INTEGER,
+          score REAL NOT NULL DEFAULT 0,
+          goals_json TEXT NOT NULL DEFAULT '{}',
+          criteria_json TEXT NOT NULL DEFAULT '{}',
+          self_review TEXT NOT NULL DEFAULT '',
+          manager_review TEXT NOT NULL DEFAULT '',
+          feedback TEXT NOT NULL DEFAULT '',
+          improvement_plan TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'draft',
+          row_label TEXT NOT NULL DEFAULT '',
+          created_by_user_id INTEGER,
+          sync_status TEXT NOT NULL DEFAULT 'synced',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          UNIQUE(global_id),
+          FOREIGN KEY (employee_id) REFERENCES employees(id),
+          FOREIGN KEY (manager_id) REFERENCES employees(id),
+          FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS training_courses (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          global_id TEXT NOT NULL,
+          title TEXT NOT NULL,
+          provider TEXT NOT NULL DEFAULT '',
+          training_type TEXT NOT NULL,
+          start_date TEXT NOT NULL DEFAULT '',
+          end_date TEXT NOT NULL DEFAULT '',
+          cost REAL NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'planned',
+          notes TEXT NOT NULL DEFAULT '',
+          row_label TEXT NOT NULL DEFAULT '',
+          created_by_user_id INTEGER,
+          sync_status TEXT NOT NULL DEFAULT 'synced',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          UNIQUE(global_id),
+          FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS training_participants (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          global_id TEXT NOT NULL,
+          course_id INTEGER NOT NULL,
+          employee_id INTEGER NOT NULL,
+          attendance_status TEXT NOT NULL DEFAULT 'registered',
+          certificate_path TEXT NOT NULL DEFAULT '',
+          evaluation_score REAL NOT NULL DEFAULT 0,
+          notes TEXT NOT NULL DEFAULT '',
+          row_label TEXT NOT NULL DEFAULT '',
+          created_by_user_id INTEGER,
+          sync_status TEXT NOT NULL DEFAULT 'synced',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          UNIQUE(global_id),
+          FOREIGN KEY (course_id) REFERENCES training_courses(id),
+          FOREIGN KEY (employee_id) REFERENCES employees(id),
+          FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS sync_outbox (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          global_id TEXT NOT NULL,
+          entity_type TEXT NOT NULL,
+          entity_id INTEGER,
+          action TEXT NOT NULL,
+          payload_json TEXT NOT NULL DEFAULT '{}',
+          status TEXT NOT NULL DEFAULT 'pending',
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE(global_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS payroll_run_versions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          month_ref TEXT NOT NULL,
+          version_number INTEGER NOT NULL,
+          reason TEXT NOT NULL DEFAULT '',
+          snapshot_json TEXT NOT NULL DEFAULT '[]',
+          created_by_user_id INTEGER,
+          created_at TEXT NOT NULL,
+          UNIQUE(month_ref, version_number),
+          FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS fiscal_monthly_maps (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          month_ref TEXT NOT NULL,
+          map_type TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'draft',
+          payload_json TEXT NOT NULL DEFAULT '{}',
+          totals_json TEXT NOT NULL DEFAULT '{}',
+          proof_path TEXT NOT NULL DEFAULT '',
+          proof_reference TEXT NOT NULL DEFAULT '',
+          created_by_user_id INTEGER,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE(month_ref, map_type),
+          FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS employee_import_batches (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          file_name TEXT NOT NULL,
+          file_path TEXT NOT NULL,
+          total_rows INTEGER NOT NULL DEFAULT 0,
+          imported_rows INTEGER NOT NULL DEFAULT 0,
+          failed_rows INTEGER NOT NULL DEFAULT 0,
+          errors_json TEXT NOT NULL DEFAULT '[]',
+          imported_by_user_id INTEGER,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY (imported_by_user_id) REFERENCES users(id)
+        );
+      `);
+
+      for (const statement of ENTERPRISE_SUITE_INDEX_STATEMENTS) {
+        this.db.exec(statement);
+      }
+    });
+
+    this.applySchemaMigration(9, "enterprise-approval-history-and-excel-import", () => {
+      this.ensureColumn("approval_requests", "current_step", "current_step INTEGER NOT NULL DEFAULT 0");
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS approval_request_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          request_id INTEGER NOT NULL,
+          action TEXT NOT NULL,
+          from_status TEXT NOT NULL DEFAULT '',
+          to_status TEXT NOT NULL DEFAULT '',
+          step_index INTEGER NOT NULL DEFAULT 0,
+          actor_user_id INTEGER,
+          notes TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          FOREIGN KEY (request_id) REFERENCES approval_requests(id),
+          FOREIGN KEY (actor_user_id) REFERENCES users(id)
+        );
+      `);
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_approval_request_events_request ON approval_request_events(request_id, created_at DESC)");
+
+      for (const statement of ENTERPRISE_SUITE_INDEX_STATEMENTS) {
+        this.db.exec(statement);
+      }
+    });
+
+    this.applySchemaMigration(10, "enterprise-document-versioning", () => {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS document_template_versions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          template_id INTEGER NOT NULL,
+          version_number INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          template_type TEXT NOT NULL,
+          body TEXT NOT NULL,
+          change_reason TEXT NOT NULL DEFAULT '',
+          created_by_user_id INTEGER,
+          created_at TEXT NOT NULL,
+          UNIQUE(template_id, version_number),
+          FOREIGN KEY (template_id) REFERENCES document_templates(id),
+          FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS generated_documents (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          global_id TEXT NOT NULL,
+          document_type TEXT NOT NULL,
+          template_id INTEGER,
+          template_version_id INTEGER,
+          employee_id INTEGER,
+          contract_id INTEGER,
+          title TEXT NOT NULL,
+          file_path TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'generated',
+          created_by_user_id INTEGER,
+          sync_status TEXT NOT NULL DEFAULT 'pending',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          UNIQUE(global_id),
+          FOREIGN KEY (template_id) REFERENCES document_templates(id),
+          FOREIGN KEY (template_version_id) REFERENCES document_template_versions(id),
+          FOREIGN KEY (employee_id) REFERENCES employees(id),
+          FOREIGN KEY (contract_id) REFERENCES employee_contracts(id),
+          FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+        );
+      `);
+
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_document_template_versions_template ON document_template_versions(template_id, version_number DESC)");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_generated_documents_employee ON generated_documents(employee_id, document_type, created_at DESC)");
+      const templates = this.db.prepare("SELECT * FROM document_templates WHERE deleted_at IS NULL").all();
+      for (const template of templates) {
+        const existingVersion = this.db.prepare("SELECT id FROM document_template_versions WHERE template_id = ? LIMIT 1").get(template.id);
+        if (!existingVersion) {
+          this.db.prepare(`
+            INSERT INTO document_template_versions (
+              template_id, version_number, name, template_type, body, change_reason, created_by_user_id, created_at
+            ) VALUES (?, 1, ?, ?, ?, 'Versao inicial migrada', ?, ?)
+          `).run(template.id, template.name, template.template_type, template.body, template.created_by_user_id || null, nowIso());
+        }
+      }
+      for (const statement of ENTERPRISE_SUITE_INDEX_STATEMENTS) {
+        this.db.exec(statement);
+      }
+    });
+
+    this.applySchemaMigration(11, "enterprise-onboarding-offboarding", () => {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS onboarding_processes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          global_id TEXT NOT NULL,
+          employee_id INTEGER NOT NULL,
+          candidate_id INTEGER,
+          status TEXT NOT NULL DEFAULT 'pending',
+          start_date TEXT NOT NULL,
+          due_date TEXT NOT NULL DEFAULT '',
+          completed_at TEXT NOT NULL DEFAULT '',
+          checklist_json TEXT NOT NULL DEFAULT '[]',
+          notes TEXT NOT NULL DEFAULT '',
+          row_label TEXT NOT NULL DEFAULT '',
+          created_by_user_id INTEGER,
+          sync_status TEXT NOT NULL DEFAULT 'synced',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          UNIQUE(global_id),
+          FOREIGN KEY (employee_id) REFERENCES employees(id),
+          FOREIGN KEY (candidate_id) REFERENCES recruitment_candidates(id),
+          FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS offboarding_processes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          global_id TEXT NOT NULL,
+          employee_id INTEGER NOT NULL,
+          exit_type TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          exit_date TEXT NOT NULL,
+          final_calculation_json TEXT NOT NULL DEFAULT '{}',
+          checklist_json TEXT NOT NULL DEFAULT '[]',
+          notes TEXT NOT NULL DEFAULT '',
+          row_label TEXT NOT NULL DEFAULT '',
+          created_by_user_id INTEGER,
+          sync_status TEXT NOT NULL DEFAULT 'synced',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          UNIQUE(global_id),
+          FOREIGN KEY (employee_id) REFERENCES employees(id),
+          FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+        );
+      `);
+
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_onboarding_processes_employee ON onboarding_processes(employee_id, status, due_date)");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_offboarding_processes_employee ON offboarding_processes(employee_id, status, exit_date)");
+      for (const statement of ENTERPRISE_SUITE_INDEX_STATEMENTS) {
+        this.db.exec(statement);
+      }
+    });
+
+    this.applySchemaMigration(12, "enterprise-document-qa", () => {
+      this.ensureColumn("generated_documents", "qa_status", "qa_status TEXT NOT NULL DEFAULT 'pending'");
+      this.ensureColumn("generated_documents", "qa_report_json", "qa_report_json TEXT NOT NULL DEFAULT '{}'");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_generated_documents_qa ON generated_documents(qa_status, created_at DESC)");
+      this.db.exec(`
+        UPDATE generated_documents
+        SET qa_status = CASE
+              WHEN qa_status IS NULL OR qa_status = '' THEN 'pending'
+              ELSE qa_status
+            END,
+            qa_report_json = CASE
+              WHEN qa_report_json IS NULL OR qa_report_json = '' THEN '{}'
+              ELSE qa_report_json
+            END
+      `);
+    });
+
     this.db.pragma(`user_version = ${CURRENT_SCHEMA_VERSION}`);
   }
 
@@ -2547,10 +3341,13 @@ class DatabaseService {
       vacationRequests: this.listVacationRequests(),
       financialObligations: this.listFinancialObligations(),
       salaryScales: this.listSalaryScales(),
+      organization: this.getOrganizationBootstrap(),
+      enterpriseModules: this.getEnterpriseModulesBootstrap(),
       payrollRuns,
       payrollPeriods,
       payrollFiscalStatuses: this.listPayrollFiscalStatuses({ payrollRuns, payrollPeriods, settings }),
       documentAlerts: this.listEmployeeDocumentAlerts(),
+      hrSuiteItems: this.listHrSuiteItems(),
       agtMonthlySubmissions: this.listAgtMonthlySubmissions(),
       users: this.listUsers(),
       auditLogs: currentUser?.role === "admin" ? this.listAuditLogs() : [],
@@ -3002,7 +3799,7 @@ class DatabaseService {
     if (!rows.length) {
       return {
         ok: false,
-        message: "Nao existem salarios processados para gerar o artefacto de auditoria de calculo."
+        message: "Não existem salários processados para gerar o artefacto de auditoria de cálculo."
       };
     }
 
@@ -3075,6 +3872,142 @@ class DatabaseService {
 
   getCompanySnapshot() {
     return pickFields(this.getCompanyProfile(), ["name", "nif", "email", "address", "phone", "logo_path", "origin_bank_code", "origin_account"]);
+  }
+
+  getOrganizationBootstrap() {
+    return getOrganizationBootstrap(this);
+  }
+
+  listOrganizationEntities(entityType, filters = {}) {
+    return listOrganizationEntities(this, entityType, filters);
+  }
+
+  getOrganizationSnapshot(entityType, id) {
+    return getOrganizationSnapshot(this, entityType, id);
+  }
+
+  saveOrganizationEntity(entityType, payload = {}) {
+    return saveOrganizationEntity(this, entityType, payload, nowIso);
+  }
+
+  deleteOrganizationEntity(entityType, id) {
+    return deleteOrganizationEntity(this, entityType, id, nowIso);
+  }
+
+  buildOrganizationReport(filters = {}) {
+    return buildOrganizationReport(this, filters);
+  }
+
+  exportOrganizationExcel(filters = {}) {
+    return exportOrganizationExcel(this, filters, buildExcelTableDocument);
+  }
+
+  getEnterpriseModulesBootstrap() {
+    return getEnterpriseBootstrap(this);
+  }
+
+  buildEnterpriseExecutiveSummary() {
+    return buildEnterpriseExecutiveSummary(this);
+  }
+
+  exportEnterpriseSummaryExcel(filters = {}) {
+    return exportEnterpriseSummaryExcel(this, filters, buildExcelTableDocument);
+  }
+
+  listEnterpriseRecords(type, filters = {}) {
+    return listEnterpriseRecords(this, type, filters);
+  }
+
+  saveEnterpriseRecord(type, payload = {}, userId = null) {
+    return saveEnterpriseRecord(this, type, payload, userId);
+  }
+
+  deleteEnterpriseRecord(type, id) {
+    return deleteEnterpriseRecord(this, type, id);
+  }
+
+  generateContractDocument(contractId, templateId, userId = null) {
+    return generateContractDocument(this, contractId, templateId, userId);
+  }
+
+  listDocumentTemplateVersions(filters = {}) {
+    return listDocumentTemplateVersions(this, filters);
+  }
+
+  listGeneratedDocuments(filters = {}) {
+    return listGeneratedDocuments(this, filters);
+  }
+
+  buildContractAlerts(filters = {}) {
+    return buildContractAlerts(this, filters);
+  }
+
+  transitionContract(id, action, payload = {}, userId = null) {
+    return transitionContract(this, id, action, payload, userId);
+  }
+
+  listApprovalRequestEvents(filters = {}) {
+    return listApprovalRequestEvents(this, filters);
+  }
+
+  transitionApprovalRequest(id, action, userId = null, notes = "") {
+    return transitionApprovalRequest(this, id, action, userId, notes);
+  }
+
+  listSyncOutbox(filters = {}) {
+    return listSyncOutbox(this, filters);
+  }
+
+  markSyncEvent(id, status, errorMessage = "") {
+    return markSyncEvent(this, id, status, errorMessage);
+  }
+
+  retryFailedSyncEvents() {
+    return retryFailedSyncEvents(this);
+  }
+
+  exportSyncOutboxPackage(filters = {}) {
+    return exportSyncOutboxPackage(this, filters);
+  }
+
+  createPayrollRunVersion(monthRef, userId = null, reason = "") {
+    return createPayrollRunVersion(this, monthRef, userId, reason);
+  }
+
+  listPayrollRunVersions(filters = {}) {
+    return listPayrollRunVersions(this, filters);
+  }
+
+  comparePayrollRunVersions(monthRef, leftVersionNumber = null, rightVersionNumber = null) {
+    return comparePayrollRunVersions(this, monthRef, leftVersionNumber, rightVersionNumber);
+  }
+
+  exportPayrollVersionComparisonExcel(payload = {}) {
+    return exportPayrollVersionComparisonExcel(this, payload, buildExcelTableDocument);
+  }
+
+  buildFinalFiscalMap(monthRef, mapType = "agt", userId = null) {
+    return buildFinalFiscalMap(this, monthRef, mapType, userId);
+  }
+
+  updateFiscalMonthlyMapStatus(id, payload = {}, userId = null) {
+    return updateFiscalMonthlyMapStatus(this, id, payload, userId);
+  }
+
+  listFiscalMonthlyMaps(filters = {}) {
+    return listFiscalMonthlyMaps(this, filters);
+  }
+
+  convertCandidateToEmployee(candidateId, payload = {}, userId = null) {
+    return convertCandidateToEmployee(this, candidateId, payload, userId);
+  }
+
+  exportEmployeesExcel(filters = {}) {
+    return exportEmployeesExcel(this, filters, buildExcelTableDocument);
+  }
+
+  importEmployeesFile(filePath, userId = null) {
+    return importEmployeesFile(this, filePath, userId);
   }
 
   getSettingsSnapshot() {
@@ -3202,18 +4135,18 @@ class DatabaseService {
         typeof envelope.payload !== "string" ||
         typeof envelope.signature !== "string"
       ) {
-        throw new Error("Sessao invalida.");
+        throw new Error("Sessao inválida.");
       }
 
       const expectedSignature = this.signSessionPayload(envelope.payload);
       if (!areDigestsEqual(expectedSignature, envelope.signature)) {
-        throw new Error("Assinatura de sessao invalida.");
+        throw new Error("Assinatura de sessao inválida.");
       }
 
       const payload = JSON.parse(Buffer.from(envelope.payload, "base64").toString("utf8"));
       const userId = Number(payload?.userId);
       if (!Number.isInteger(userId) || userId <= 0) {
-        throw new Error("Utilizador de sessao invalido.");
+        throw new Error("Utilizador de sessao inválido.");
       }
 
       return {
@@ -3572,9 +4505,9 @@ class DatabaseService {
     return { ok: true };
   }
 
-  invalidatePasswordResetTokens(userId) {
+  inválidatePasswordResetTokens(userId) {
     if (!userId) {
-      return { ok: false, message: "Utilizador inválido para invalidar códigos de redefinição." };
+      return { ok: false, message: "Utilizador inválido para inválidar códigos de redefinição." };
     }
 
     this.db.prepare(`
@@ -3695,7 +4628,7 @@ class DatabaseService {
       resetByAdmin ? 1 : 0,
       userId
     );
-    this.invalidatePasswordResetTokens(userId);
+    this.inválidatePasswordResetTokens(userId);
 
     return { ok: true, users: this.listUsers() };
   }
@@ -3729,6 +4662,23 @@ class DatabaseService {
         "personal_phone",
       "personal_email",
       "address",
+      "company_id",
+      "company_name",
+      "branch_id",
+      "branch_name",
+      "department_id",
+      "structured_department_name",
+      "job_position_id",
+      "structured_job_title",
+      "cost_center_id",
+      "cost_center_code",
+      "supervisor_id",
+      "supervisor_name",
+      "emergency_contact",
+      "photo_path",
+      "work_regime",
+      "standard_schedule",
+      "professional_category",
       "job_title",
         "department",
         "base_salary",
@@ -3740,6 +4690,11 @@ class DatabaseService {
         "iban",
         "bank_code",
         "bank_account",
+        "payment_method",
+        "account_holder",
+        "contribution_regime",
+        "dependents",
+        "employment_status_detail",
         "status",
         "notes"
     ]);
@@ -3989,7 +4944,7 @@ class DatabaseService {
   storeEmployeeDocumentAttachment(employee, sourcePath, title = "") {
     const resolvedSource = path.resolve(String(sourcePath || ""));
     if (!resolvedSource || !fs.existsSync(resolvedSource) || !fs.statSync(resolvedSource).isFile()) {
-      throw new Error("O ficheiro selecionado para o documento nao existe ou nao esta acessivel.");
+      throw new Error("O ficheiro selecionado para o documento não existe ou não está acessóvel.");
     }
 
     const extension = path.extname(resolvedSource).toLowerCase();
@@ -4030,13 +4985,13 @@ class DatabaseService {
       return { ok: false, message: "Indique um titulo claro para o documento laboral." };
     }
     if (issueDate && !isValidIsoDate(issueDate)) {
-      return { ok: false, message: "A data de emissao do documento e invalida." };
+      return { ok: false, message: "A data de emissao do documento é inválida." };
     }
     if (effectiveDate && !isValidIsoDate(effectiveDate)) {
-      return { ok: false, message: "A data de inicio de vigencia do documento e invalida." };
+      return { ok: false, message: "A data de início de vigência do documento é inválida." };
     }
     if (expiryDate && !isValidIsoDate(expiryDate)) {
-      return { ok: false, message: "A data de validade do documento e invalida." };
+      return { ok: false, message: "A data de validade do documento é inválida." };
     }
     if (issueDate && expiryDate && issueDate > expiryDate) {
       return { ok: false, message: "A validade do documento deve ser posterior a data de emissao." };
@@ -4044,7 +4999,7 @@ class DatabaseService {
     if (filePath) {
       const resolvedFilePath = path.resolve(filePath);
       if (!fs.existsSync(resolvedFilePath) || !fs.statSync(resolvedFilePath).isFile()) {
-        return { ok: false, message: "O ficheiro selecionado para o documento nao existe." };
+        return { ok: false, message: "O ficheiro selecionado para o documento não existe." };
       }
     }
 
@@ -4162,6 +5117,314 @@ class DatabaseService {
 
   deleteEmployeeDocument(documentId) {
     return deleteEmployeeDocumentDomain(this, documentId, safeUnlink);
+  }
+
+  resolveHrSuiteAttachmentDirectory(area = "other") {
+    const targetDir = path.join(this.hrSuiteDocumentsDir, sanitizeFileNameSegment(area, "other"));
+    fs.mkdirSync(targetDir, { recursive: true });
+    return targetDir;
+  }
+
+  isManagedHrSuiteAttachmentPath(filePath) {
+    const normalizedRoot = path.resolve(this.hrSuiteDocumentsDir);
+    const normalizedPath = path.resolve(String(filePath || ""));
+    return normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}${path.sep}`);
+  }
+
+  storeHrSuiteAttachment(area, sourcePath, title = "") {
+    const resolvedSource = path.resolve(String(sourcePath || ""));
+    if (!resolvedSource || !fs.existsSync(resolvedSource) || !fs.statSync(resolvedSource).isFile()) {
+      throw new Error("O ficheiro selecionado para o registo RH não existe ou não está acessóvel.");
+    }
+
+    const extension = path.extname(resolvedSource).toLowerCase();
+    const baseName = sanitizeFileNameSegment(title || path.basename(resolvedSource, extension), "rh");
+    const targetDir = this.resolveHrSuiteAttachmentDirectory(area);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const targetPath = path.join(targetDir, `${timestamp}-${baseName}${extension}`);
+    fs.copyFileSync(resolvedSource, targetPath);
+    const stats = fs.statSync(targetPath);
+
+    return {
+      attachment_name: path.basename(resolvedSource),
+      attachment_path: targetPath,
+      attachment_size: Number(stats.size || 0)
+    };
+  }
+
+  validateHrSuitePayload(payload = {}) {
+    const title = String(payload.title || "").trim();
+    const area = normalizeHrSuiteArea(payload.area);
+    const owner = String(payload.owner || "").trim();
+    const status = normalizeHrSuiteStatus(payload.status);
+    const priority = normalizeHrSuitePriority(payload.priority);
+    const dueDate = String(payload.due_date || payload.dueDate || "").trim();
+    const workflowStage = String(payload.workflow_stage || payload.workflowStage || "").trim();
+    const approvalRole = String(payload.approval_role || payload.approvalRole || "").trim();
+    const notes = String(payload.notes || "").trim();
+    const attachmentFilePath = String(payload.attachment_file_path || payload.attachmentFilePath || "").trim();
+    const employeeId = Number(payload.employee_id || payload.employeeId || 0);
+    const employee = employeeId ? this.getEmployeeRecord(employeeId) : null;
+
+    if (title.length < 3) {
+      return { ok: false, message: "Indique um titulo claro para o registo RH." };
+    }
+    if (dueDate && !isValidIsoDate(dueDate)) {
+      return { ok: false, message: "A data limite do registo RH é inválida." };
+    }
+    if (employeeId && !employee) {
+      return { ok: false, message: "O trabalhador associado ao registo RH já não existe." };
+    }
+    if (attachmentFilePath) {
+      const resolvedFilePath = path.resolve(attachmentFilePath);
+      if (!fs.existsSync(resolvedFilePath) || !fs.statSync(resolvedFilePath).isFile()) {
+        return { ok: false, message: "O anexo selecionado para o registo RH não existe." };
+      }
+    }
+
+    return {
+      ok: true,
+      sanitized: {
+        area,
+        title,
+        owner,
+        status,
+        priority,
+        due_date: dueDate || null,
+        employee_id: employee ? employee.id : null,
+        workflow_stage: workflowStage,
+        approval_role: approvalRole,
+        attachment_file_path: attachmentFilePath,
+        notes
+      }
+    };
+  }
+
+  mapHrSuiteRow(row) {
+    if (!row) return null;
+    return {
+      ...row,
+      employee_id: row.employee_id === null || row.employee_id === undefined ? null : Number(row.employee_id),
+      attachment_size: Number(row.attachment_size || 0),
+      attachment_exists: Boolean(row.attachment_path) && fs.existsSync(row.attachment_path)
+    };
+  }
+
+  listHrSuiteItems(filters = {}) {
+    const conditions = [];
+    const values = {};
+
+    if (filters.id) {
+      conditions.push("hr_suite_items.id = @id");
+      values.id = Number(filters.id);
+    }
+    if (filters.area && filters.area !== "todos") {
+      conditions.push("hr_suite_items.area = @area");
+      values.area = normalizeHrSuiteArea(filters.area);
+    }
+    if (filters.status && filters.status !== "todos") {
+      conditions.push("hr_suite_items.status = @status");
+      values.status = normalizeHrSuiteStatus(filters.status);
+    }
+    if (filters.priority && filters.priority !== "todos") {
+      conditions.push("hr_suite_items.priority = @priority");
+      values.priority = normalizeHrSuitePriority(filters.priority);
+    }
+    if (filters.employeeId) {
+      conditions.push("hr_suite_items.employee_id = @employeeId");
+      values.employeeId = Number(filters.employeeId);
+    }
+    if (filters.search) {
+      conditions.push(`(
+        LOWER(hr_suite_items.title) LIKE @search OR
+        LOWER(hr_suite_items.owner) LIKE @search OR
+        LOWER(hr_suite_items.notes) LIKE @search OR
+        LOWER(COALESCE(employees.full_name, '')) LIKE @search
+      )`);
+      values.search = `%${String(filters.search).trim().toLowerCase()}%`;
+    }
+
+    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    return this.db.prepare(`
+      SELECT
+        hr_suite_items.*,
+        employees.full_name AS employee_name,
+        employees.department AS employee_department,
+        employees.job_title AS employee_job_title,
+        creator.full_name AS created_by_name
+      FROM hr_suite_items
+      LEFT JOIN employees ON employees.id = hr_suite_items.employee_id
+      LEFT JOIN users AS creator ON creator.id = hr_suite_items.created_by_user_id
+      ${whereClause}
+      ORDER BY
+        CASE hr_suite_items.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+        CASE WHEN hr_suite_items.due_date IS NULL OR hr_suite_items.due_date = '' THEN 1 ELSE 0 END,
+        hr_suite_items.due_date ASC,
+        hr_suite_items.updated_at DESC,
+        hr_suite_items.id DESC
+    `).all(values).map((row) => this.mapHrSuiteRow(row));
+  }
+
+  getHrSuiteSnapshot(itemId) {
+    const item = this.listHrSuiteItems({ id: itemId })[0];
+    if (!item) return null;
+    return pickFields(item, [
+      "id",
+      "area",
+      "title",
+      "owner",
+      "status",
+      "priority",
+      "due_date",
+      "employee_id",
+      "employee_name",
+      "workflow_stage",
+      "approval_role",
+      "attachment_name",
+      "attachment_path",
+      "attachment_size",
+      "attachment_exists",
+      "notes",
+      "created_by_name",
+      "created_at",
+      "updated_at"
+    ]);
+  }
+
+  saveHrSuiteItem(payload = {}, userId = null) {
+    const validation = this.validateHrSuitePayload(payload);
+    if (!validation.ok) {
+      return validation;
+    }
+
+    const sanitized = validation.sanitized;
+    const current = payload?.id ? this.db.prepare("SELECT * FROM hr_suite_items WHERE id = ?").get(payload.id) : null;
+    if (payload?.id && !current) {
+      return { ok: false, message: "O registo RH selecionado já não existe." };
+    }
+
+    let attachment = {
+      attachment_name: current?.attachment_name || "",
+      attachment_path: current?.attachment_path || "",
+      attachment_size: Number(current?.attachment_size || 0)
+    };
+
+    if (sanitized.attachment_file_path) {
+      attachment = this.storeHrSuiteAttachment(sanitized.area, sanitized.attachment_file_path, sanitized.title);
+      if (current?.attachment_path && current.attachment_path !== attachment.attachment_path && this.isManagedHrSuiteAttachmentPath(current.attachment_path)) {
+        safeUnlink(current.attachment_path);
+      }
+    }
+
+    const savedAt = nowIso();
+    const record = {
+      area: sanitized.area,
+      title: sanitized.title,
+      owner: sanitized.owner,
+      status: sanitized.status,
+      priority: sanitized.priority,
+      due_date: sanitized.due_date,
+      employee_id: sanitized.employee_id,
+      workflow_stage: sanitized.workflow_stage,
+      approval_role: sanitized.approval_role,
+      attachment_name: attachment.attachment_name,
+      attachment_path: attachment.attachment_path,
+      attachment_size: attachment.attachment_size,
+      notes: sanitized.notes,
+      created_by_user_id: current?.created_by_user_id ?? userId ?? null,
+      created_at: current?.created_at || savedAt,
+      updated_at: savedAt
+    };
+
+    if (current) {
+      this.db.prepare(`
+        UPDATE hr_suite_items
+        SET area = @area,
+            title = @title,
+            owner = @owner,
+            status = @status,
+            priority = @priority,
+            due_date = @due_date,
+            employee_id = @employee_id,
+            workflow_stage = @workflow_stage,
+            approval_role = @approval_role,
+            attachment_name = @attachment_name,
+            attachment_path = @attachment_path,
+            attachment_size = @attachment_size,
+            notes = @notes,
+            updated_at = @updated_at
+        WHERE id = @id
+      `).run({ ...record, id: payload.id });
+    } else {
+      this.db.prepare(`
+        INSERT INTO hr_suite_items (
+          area, title, owner, status, priority, due_date, employee_id, workflow_stage, approval_role,
+          attachment_name, attachment_path, attachment_size, notes, created_by_user_id, created_at, updated_at
+        ) VALUES (
+          @area, @title, @owner, @status, @priority, @due_date, @employee_id, @workflow_stage, @approval_role,
+          @attachment_name, @attachment_path, @attachment_size, @notes, @created_by_user_id, @created_at, @updated_at
+        )
+      `).run(record);
+    }
+
+    const itemId = payload?.id || this.db.prepare("SELECT last_insert_rowid() AS id").get().id;
+    return { ok: true, item: this.getHrSuiteSnapshot(itemId), items: this.listHrSuiteItems() };
+  }
+
+  deleteHrSuiteItem(itemId) {
+    const current = this.db.prepare("SELECT * FROM hr_suite_items WHERE id = ?").get(itemId);
+    if (!current) {
+      return { ok: false, message: "O registo RH selecionado já não existe." };
+    }
+
+    this.db.prepare("DELETE FROM hr_suite_items WHERE id = ?").run(itemId);
+    if (current.attachment_path && this.isManagedHrSuiteAttachmentPath(current.attachment_path)) {
+      safeUnlink(current.attachment_path);
+    }
+    return { ok: true, items: this.listHrSuiteItems() };
+  }
+
+  exportHrSuiteExcel(filters = {}) {
+    const rows = this.listHrSuiteItems(filters);
+    if (!rows.length) {
+      return { ok: false, message: "Não existem registos RH 360 para exportar." };
+    }
+
+    const content = buildExcelTableDocument(
+      "RH 360 - roadmap e workflows",
+      [
+        "Area",
+        "Titulo",
+        "Responsavel",
+        "Estado",
+        "Prioridade",
+        "Prazo",
+        "Trabalhador",
+        "Etapa",
+        "Aprovador",
+        "Anexo",
+        "Notas",
+        "Atualizado em"
+      ],
+      rows.map((row) => [
+        row.area,
+        row.title,
+        row.owner,
+        row.status,
+        row.priority,
+        row.due_date || "",
+        row.employee_name || "",
+        row.workflow_stage || "",
+        row.approval_role || "",
+        row.attachment_name || "",
+        row.notes || "",
+        row.updated_at || ""
+      ])
+    );
+
+    const target = path.join(this.excelExportsDir, `rh-360-${new Date().toISOString().slice(0, 10)}.xls`);
+    fs.writeFileSync(target, content, "utf8");
+    return { ok: true, path: target, count: rows.length, format: "xls" };
   }
 
   listWorkShifts(filters = {}) {
@@ -4578,8 +5841,29 @@ class DatabaseService {
     const personalPhone = String(payload.personal_phone || "").trim();
     const personalEmail = String(payload.personal_email || "").trim();
     const address = String(payload.address || "").trim();
-    const jobTitle = String(payload.job_title || "").trim();
-    const department = String(payload.department || "").trim();
+    let jobTitle = String(payload.job_title || "").trim();
+    let department = String(payload.department || "").trim();
+    const canQueryDb = Boolean(this?.db && typeof this.db.prepare === "function");
+    const companyId =
+      Number(payload.company_id || 0) ||
+      Number(canQueryDb ? this.db.prepare("SELECT id FROM companies WHERE deleted_at IS NULL ORDER BY id ASC LIMIT 1").get()?.id || 0 : 0) ||
+      null;
+    const branchId = Number(payload.branch_id || 0) || null;
+    const departmentId = Number(payload.department_id || 0) || null;
+    const jobPositionId = Number(payload.job_position_id || 0) || null;
+    const costCenterId = Number(payload.cost_center_id || 0) || null;
+    const supervisorId = Number(payload.supervisor_id || 0) || null;
+    const emergencyContact = String(payload.emergency_contact || "").trim();
+    const photoPath = String(payload.photo_path || "").trim();
+    const workRegime = String(payload.work_regime || "").trim();
+    const standardSchedule = String(payload.standard_schedule || "").trim();
+    const professionalCategory = String(payload.professional_category || "").trim();
+    const paymentMethod = String(payload.payment_method || "bank_transfer").trim();
+    const accountHolder = String(payload.account_holder || "").trim();
+    const contributionRegime = String(payload.contribution_regime || "").trim();
+    const dependents = Number(payload.dependents || 0);
+    const exemptions = Array.isArray(payload.exemptions) ? payload.exemptions : [];
+    const employmentStatusDetail = String(payload.employment_status_detail || "").trim();
     const contractType = String(payload.contract_type || "").trim();
     const hireDate = String(payload.hire_date || "").trim();
     const shiftId = Number(payload.shift_id || 0) || null;
@@ -4617,6 +5901,62 @@ class DatabaseService {
     if (birthDate && new Date(`${birthDate}T00:00:00`) > new Date()) {
       return { ok: false, message: "A data de nascimento não pode estar no futuro." };
     }
+    if (companyId) {
+      const company = canQueryDb ? this.db.prepare("SELECT id, active FROM companies WHERE id = ? AND deleted_at IS NULL").get(companyId) : null;
+      if (!company) {
+        return { ok: false, message: "A empresa selecionada para o funcionário não existe." };
+      }
+      if (!company.active) {
+        return { ok: false, message: "A empresa selecionada está inativa. Ative-a ou escolha outra empresa." };
+      }
+    }
+    if (branchId) {
+      const branch = canQueryDb ? this.db.prepare("SELECT id, company_id, active FROM company_branches WHERE id = ? AND deleted_at IS NULL").get(branchId) : null;
+      if (!branch || Number(branch.company_id) !== Number(companyId)) {
+        return { ok: false, message: "A filial selecionada não pertence à empresa do funcionário." };
+      }
+      if (!branch.active) {
+        return { ok: false, message: "A filial selecionada está inativa." };
+      }
+    }
+    if (departmentId) {
+      const structuredDepartment = canQueryDb ? this.db.prepare("SELECT id, company_id, name, active FROM departments WHERE id = ? AND deleted_at IS NULL").get(departmentId) : null;
+      if (!structuredDepartment || Number(structuredDepartment.company_id) !== Number(companyId)) {
+        return { ok: false, message: "O departamento selecionado não pertence à empresa do funcionário." };
+      }
+      if (!structuredDepartment.active) {
+        return { ok: false, message: "O departamento selecionado está inativo." };
+      }
+      department = department || structuredDepartment.name;
+    }
+    if (jobPositionId) {
+      const position = canQueryDb ? this.db.prepare("SELECT id, company_id, department_id, name, professional_category, active FROM job_positions WHERE id = ? AND deleted_at IS NULL").get(jobPositionId) : null;
+      if (!position || Number(position.company_id) !== Number(companyId)) {
+        return { ok: false, message: "O cargo selecionado não pertence à empresa do funcionário." };
+      }
+      if (position.department_id && departmentId && Number(position.department_id) !== Number(departmentId)) {
+        return { ok: false, message: "O cargo selecionado não pertence ao departamento indicado." };
+      }
+      if (!position.active) {
+        return { ok: false, message: "O cargo selecionado está inativo." };
+      }
+      jobTitle = jobTitle || position.name;
+    }
+    if (costCenterId) {
+      const costCenter = canQueryDb ? this.db.prepare("SELECT id, company_id, active FROM cost_centers WHERE id = ? AND deleted_at IS NULL").get(costCenterId) : null;
+      if (!costCenter || Number(costCenter.company_id) !== Number(companyId)) {
+        return { ok: false, message: "O centro de custo selecionado não pertence à empresa do funcionário." };
+      }
+      if (!costCenter.active) {
+        return { ok: false, message: "O centro de custo selecionado está inativo." };
+      }
+    }
+    if (supervisorId) {
+      const supervisor = canQueryDb ? this.db.prepare("SELECT id FROM employees WHERE id = ? AND deleted_at IS NULL").get(supervisorId) : null;
+      if (!supervisor || Number(supervisorId) === Number(payload.id || 0)) {
+        return { ok: false, message: "Selecione um supervisor válido." };
+      }
+    }
     if (!jobTitle) {
       return { ok: false, message: "Indique o cargo do funcionário." };
     }
@@ -4640,7 +5980,7 @@ class DatabaseService {
       return { ok: false, message: "O salário base deve ser superior a zero." };
     }
     if (attendanceCode) {
-      const duplicateEmployee = this?.db
+      const duplicateEmployee = canQueryDb
         ? this.db.prepare(`
             SELECT id
             FROM employees
@@ -4654,7 +5994,7 @@ class DatabaseService {
     }
     let assignedShift = null;
     if (shiftId) {
-      assignedShift = this?.db
+      assignedShift = canQueryDb
         ? this.db.prepare("SELECT id, name, active FROM work_shifts WHERE id = ?").get(shiftId)
         : null;
       if (!assignedShift) {
@@ -4664,7 +6004,10 @@ class DatabaseService {
         return { ok: false, message: "O turno selecionado está inativo. Ative-o ou escolha outro turno." };
       }
     }
-    const salaryScale = this?.db ? this.findSalaryScaleForEmployee(jobTitle, department) : null;
+    const salaryScale =
+      typeof this?.findSalaryScaleForEmployee === "function"
+        ? this.findSalaryScaleForEmployee(jobTitle, department)
+        : null;
     if (salaryScale && (baseSalary < Number(salaryScale.min_salary || 0) || baseSalary > Number(salaryScale.max_salary || 0))) {
       const scopeLabel = salaryScale.department
         ? `${salaryScale.job_title} / ${salaryScale.department}`
@@ -4693,6 +6036,9 @@ class DatabaseService {
     if (personalEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(personalEmail)) {
       return { ok: false, message: "O e-mail do funcionário é inválido." };
     }
+    if (dependents < 0 || !Number.isInteger(dependents)) {
+      return { ok: false, message: "O número de dependentes deve ser um inteiro igual ou superior a zero." };
+    }
 
     return {
       ok: true,
@@ -4711,6 +6057,23 @@ class DatabaseService {
         personal_phone: personalPhone,
         personal_email: personalEmail,
         address,
+        company_id: companyId,
+        branch_id: branchId,
+        department_id: departmentId,
+        job_position_id: jobPositionId,
+        cost_center_id: costCenterId,
+        supervisor_id: supervisorId,
+        emergency_contact: emergencyContact,
+        photo_path: photoPath,
+        work_regime: workRegime,
+        standard_schedule: standardSchedule,
+        professional_category: professionalCategory,
+        payment_method: paymentMethod,
+        account_holder: accountHolder || fullName,
+        contribution_regime: contributionRegime,
+        dependents,
+        exemptions,
+        employment_status_detail: employmentStatusDetail,
         job_title: jobTitle,
         department,
         contract_type: contractType,
@@ -4746,7 +6109,7 @@ class DatabaseService {
     const validDate = new Date(`${eventDate}T00:00:00`);
     const hireDate = employee ? this.db.prepare("SELECT hire_date FROM employees WHERE id = ?").get(employeeId)?.hire_date : "";
     if (hireDate && isValidIsoDate(hireDate) && validDate < new Date(`${hireDate}T00:00:00`)) {
-      return { ok: false, message: "A data do evento não pode ser anterior Ã  data de admissão do funcionário." };
+      return { ok: false, message: "A data do evento não pode ser anterior à data de admissão do funcionário." };
     }
     if (quantity <= 0) {
       return { ok: false, message: "A quantidade do evento deve ser superior a zero." };
@@ -5137,10 +6500,24 @@ class DatabaseService {
     const rows = this.db.prepare(`
       SELECT
         employees.*,
+        companies.name AS company_name,
+        company_branches.name AS branch_name,
+        departments.name AS structured_department_name,
+        job_positions.name AS structured_job_title,
+        cost_centers.code AS cost_center_code,
+        cost_centers.name AS cost_center_name,
+        supervisors.full_name AS supervisor_name,
         work_shifts.name AS shift_name,
         work_shifts.profile AS shift_profile
       FROM employees
+      LEFT JOIN companies ON companies.id = employees.company_id
+      LEFT JOIN company_branches ON company_branches.id = employees.branch_id
+      LEFT JOIN departments ON departments.id = employees.department_id
+      LEFT JOIN job_positions ON job_positions.id = employees.job_position_id
+      LEFT JOIN cost_centers ON cost_centers.id = employees.cost_center_id
+      LEFT JOIN employees AS supervisors ON supervisors.id = employees.supervisor_id
       LEFT JOIN work_shifts ON work_shifts.id = employees.shift_id
+      WHERE employees.deleted_at IS NULL
       ORDER BY employees.full_name
     `).all();
 
@@ -5171,7 +6548,7 @@ class DatabaseService {
     runsForMonth.forEach((run) => {
       const runSummary = run.summary_json || {};
       const profileSummary = summarizeFiscalProfile(runSummary.fiscalProfile || {});
-      const profileKey = `${profileSummary.id || "sem-perfil"}:${runSummary.fiscalProfileVersion || profileSummary.version || "sem-versao"}`;
+      const profileKey = `${profileSummary.id || "sem-perfil"}:${runSummary.fiscalProfileVersion || profileSummary.version || "sem-versão"}`;
       if (!appliedProfiles.has(profileKey)) {
         appliedProfiles.set(profileKey, {
           ...profileSummary,
@@ -5198,11 +6575,11 @@ class DatabaseService {
       hasFiscalDrift;
     const reprocessBlockReason =
       runsForMonth.length === 0
-        ? "Nao existem salarios processados para este periodo."
+        ? "Não existem salários processados para este período."
         : attendancePeriod.status !== "closed"
           ? `Feche primeiro a assiduidade de ${normalizedMonthRef}.`
           : payrollPeriod.status === "closed"
-            ? `O periodo ${normalizedMonthRef} esta fechado e exige autorizacao explicita para reprocessar sem reabrir o mes.`
+            ? `O período ${normalizedMonthRef} está fechado e exige autorização explícita para reprocessar sem reabrir o mês.`
             : "";
 
     return {
@@ -5416,7 +6793,28 @@ class DatabaseService {
       const closedRuns = this.getClosedPayrollRunsForEmployee(payload.id);
       if (closedRuns.length) {
         const before = this.getEmployeeSnapshot(payload.id);
-        const protectedFields = ["full_name", "document_type", "bi", "nif", "social_security_number", "job_title", "department", "base_salary", "contract_type", "hire_date", "iban", "bank_code", "bank_account", "status"];
+        const protectedFields = [
+          "full_name",
+          "document_type",
+          "bi",
+          "nif",
+          "social_security_number",
+          "company_id",
+          "branch_id",
+          "department_id",
+          "job_position_id",
+          "cost_center_id",
+          "job_title",
+          "department",
+          "base_salary",
+          "contract_type",
+          "hire_date",
+          "iban",
+          "bank_code",
+          "bank_account",
+          "payment_method",
+          "status"
+        ];
         const changedProtectedField = protectedFields.some((field) => String(before?.[field] ?? "") !== String(payload?.[field] ?? ""));
         if (changedProtectedField) {
           return {
@@ -5443,6 +6841,17 @@ class DatabaseService {
         personal_phone: sanitized.personal_phone,
       personal_email: sanitized.personal_email,
       address: sanitized.address,
+      company_id: sanitized.company_id,
+      branch_id: sanitized.branch_id,
+      department_id: sanitized.department_id,
+      job_position_id: sanitized.job_position_id,
+      cost_center_id: sanitized.cost_center_id,
+      supervisor_id: sanitized.supervisor_id,
+      emergency_contact: sanitized.emergency_contact,
+      photo_path: sanitized.photo_path,
+      work_regime: sanitized.work_regime,
+      standard_schedule: sanitized.standard_schedule,
+      professional_category: sanitized.professional_category,
       job_title: sanitized.job_title,
         department: sanitized.department,
         base_salary: Number(payload.base_salary || 0),
@@ -5452,11 +6861,18 @@ class DatabaseService {
         iban: sanitized.iban,
         bank_code: sanitized.bank_code,
         bank_account: sanitized.bank_account,
+        payment_method: sanitized.payment_method,
+        account_holder: sanitized.account_holder,
+        contribution_regime: sanitized.contribution_regime,
+        dependents: sanitized.dependents,
+        exemptions_json: JSON.stringify(sanitized.exemptions || []),
+        employment_status_detail: sanitized.employment_status_detail,
         status: payload.status || "ativo",
         notes: sanitized.notes,
       recurring_allowances: JSON.stringify(payload.recurring_allowances || []),
       recurring_bonuses: JSON.stringify(payload.recurring_bonuses || []),
       special_payments: JSON.stringify(payload.special_payments || []),
+      sync_status: "pending",
       updated_at: nowIso()
     };
 
@@ -5466,26 +6882,36 @@ class DatabaseService {
           SET full_name = @full_name, document_type = @document_type, bi = @bi, driver_license_number = @driver_license_number, nif = @nif, social_security_number = @social_security_number, attendance_code = @attendance_code,
               birth_date = @birth_date, gender = @gender, marital_status = @marital_status, nationality = @nationality,
               personal_phone = @personal_phone, personal_email = @personal_email, address = @address, job_title = @job_title,
+              company_id = @company_id, branch_id = @branch_id, department_id = @department_id, job_position_id = @job_position_id,
+              cost_center_id = @cost_center_id, supervisor_id = @supervisor_id, emergency_contact = @emergency_contact, photo_path = @photo_path,
+              work_regime = @work_regime, standard_schedule = @standard_schedule, professional_category = @professional_category,
               department = @department, base_salary = @base_salary, contract_type = @contract_type,
-              hire_date = @hire_date, shift_id = @shift_id, iban = @iban, bank_code = @bank_code, bank_account = @bank_account, status = @status, notes = @notes,
+              hire_date = @hire_date, shift_id = @shift_id, iban = @iban, bank_code = @bank_code, bank_account = @bank_account,
+              payment_method = @payment_method, account_holder = @account_holder, contribution_regime = @contribution_regime,
+              dependents = @dependents, exemptions_json = @exemptions_json, employment_status_detail = @employment_status_detail,
+              status = @status, notes = @notes,
               recurring_allowances = @recurring_allowances, recurring_bonuses = @recurring_bonuses,
-              special_payments = @special_payments, updated_at = @updated_at
+              special_payments = @special_payments, sync_status = @sync_status, updated_at = @updated_at
           WHERE id = @id
         `).run({ ...employee, id: payload.id });
       } else {
         this.db.prepare(`
           INSERT INTO employees (
             full_name, document_type, bi, driver_license_number, nif, social_security_number, attendance_code, birth_date, gender, marital_status, nationality,
-            personal_phone, personal_email, address, job_title, department, base_salary, contract_type,
-            hire_date, shift_id, iban, bank_code, bank_account, status, notes, recurring_allowances, recurring_bonuses,
-            special_payments, created_at, updated_at
+            personal_phone, personal_email, address, company_id, branch_id, department_id, job_position_id, cost_center_id, supervisor_id,
+            emergency_contact, photo_path, work_regime, standard_schedule, professional_category, job_title, department, base_salary, contract_type,
+            hire_date, shift_id, iban, bank_code, bank_account, payment_method, account_holder, contribution_regime, dependents, exemptions_json,
+            employment_status_detail, status, notes, recurring_allowances, recurring_bonuses,
+            special_payments, global_id, sync_status, created_at, updated_at
           ) VALUES (
             @full_name, @document_type, @bi, @driver_license_number, @nif, @social_security_number, @attendance_code, @birth_date, @gender, @marital_status, @nationality,
-            @personal_phone, @personal_email, @address, @job_title, @department, @base_salary, @contract_type,
-            @hire_date, @shift_id, @iban, @bank_code, @bank_account, @status, @notes, @recurring_allowances, @recurring_bonuses,
-            @special_payments, @created_at, @updated_at
+            @personal_phone, @personal_email, @address, @company_id, @branch_id, @department_id, @job_position_id, @cost_center_id, @supervisor_id,
+            @emergency_contact, @photo_path, @work_regime, @standard_schedule, @professional_category, @job_title, @department, @base_salary, @contract_type,
+            @hire_date, @shift_id, @iban, @bank_code, @bank_account, @payment_method, @account_holder, @contribution_regime, @dependents, @exemptions_json,
+            @employment_status_detail, @status, @notes, @recurring_allowances, @recurring_bonuses,
+            @special_payments, @global_id, @sync_status, @created_at, @updated_at
           )
-        `).run({ ...employee, created_at: nowIso() });
+        `).run({ ...employee, global_id: this.createGlobalId("employee"), created_at: nowIso() });
       }
     return { ok: true, employees: this.listEmployees() };
   }
@@ -6909,9 +8335,9 @@ class DatabaseService {
     return mapPayrollRunRows(rows);
   }
 
-  buildAttendanceReportData(filters, reportType = "presencas") {
+  buildAttendanceReportData(filters, reportType = "presenças") {
     const normalizedFilters = normalizeReportFilters(filters);
-    const normalizedType = String(reportType || filters?.reportType || "presencas").trim().toLowerCase();
+    const normalizedType = String(reportType || filters?.reportType || "presenças").trim().toLowerCase();
     const rows = this.listAttendanceRecords({
       monthRef: normalizedFilters.monthRef,
       startDate: normalizedFilters.startDate,
@@ -7581,13 +9007,13 @@ class DatabaseService {
         rowIssues.push("NISS do trabalhador em falta");
       }
       if (!String(summary.fiscalProfileVersion || summary.fiscalProfile?.version || "").trim()) {
-        rowIssues.push("Versao fiscal nao registada");
+        rowIssues.push("Versão fiscal não registada");
       }
       if (Math.abs(taxableBase - expectedTaxableBase) > 1) {
-        consistencyIssues.push("Materia colectavel inconsistente com a base IRT e o INSS do trabalhador");
+        consistencyIssues.push("Matéria coletável inconsistente com a base IRT e o INSS do trabalhador");
       }
       if (taxableBase > grossRemuneration) {
-        consistencyIssues.push("Materia colectavel superior a remuneracao considerada");
+        consistencyIssues.push("Matéria coletável superior a remuneração considerada");
       }
       if (taxableBase > 100000 && irtWithheld <= 0) {
         consistencyIssues.push("IRT retido inconsistente com a materia colectavel");
@@ -7648,16 +9074,16 @@ class DatabaseService {
       blockingIssues.push(`Existem ${missingEmployeeNiss} trabalhador(es) sem NISS.`);
     }
     if (missingFiscalVersion) {
-      blockingIssues.push(`Existem ${missingFiscalVersion} registo(s) de folha sem versao fiscal gravada.`);
+      blockingIssues.push(`Existem ${missingFiscalVersion} registo(s) de folha sem versão fiscal gravada.`);
     }
     if (inconsistentRows) {
       blockingIssues.push(`Existem ${inconsistentRows} linha(s) com inconsistencias entre folha, INSS e IRT.`);
     }
     if (items.length <= 3) {
-      warnings.push("Confirme no Portal do Contribuinte se a submissao do mapa e obrigatoria para o volume atual de trabalhadores.");
+      warnings.push("Confirme no Portal do Contribuinte se a submissão do mapa e obrigatoria para o volume atual de trabalhadores.");
     }
     if (submission.status === "submitted" && !submission.proof_reference && !submission.proof_path) {
-      warnings.push("O periodo foi marcado como submetido, mas ainda nao tem comprovativo registado.");
+      warnings.push("O período foi marcado como submetido, mas ainda não tem comprovativo registado.");
     }
 
     return {
@@ -7689,7 +9115,7 @@ class DatabaseService {
     };
   }
 
-  exportAttendanceExcel(filters, reportType = "presencas") {
+  exportAttendanceExcel(filters, reportType = "presenças") {
     const normalizedFilters = normalizeReportFilters(filters);
     const data = this.buildAttendanceReportData(normalizedFilters, reportType);
     if (!data.rows.length) {
@@ -7735,7 +9161,7 @@ class DatabaseService {
     const fileName =
       data.reportType === "faltas"
         ? `relatorio-faltas-${normalizedFilters.periodFileLabel}.xls`
-        : `relatorio-presencas-${normalizedFilters.periodFileLabel}.xls`;
+        : `relatorio-presenças-${normalizedFilters.periodFileLabel}.xls`;
     const target = path.join(this.excelExportsDir, fileName);
     fs.writeFileSync(target, content, "utf8");
     return { ok: true, path: target, count: data.rows.length, format: "xls" };
@@ -7772,10 +9198,10 @@ class DatabaseService {
         "Remuneracao considerada",
         "Base IRT antes INSS",
         "INSS trabalhador",
-        "Materia colectavel",
+        "Matéria coletável",
         "IRT retido",
         "Perfil fiscal",
-        "Versao fiscal",
+        "Versão fiscal",
         "Validacao"
       ],
       filteredItems.map((row) => ([

@@ -1,28 +1,5 @@
 ﻿import { angolaBanks } from "../../utils/payroll";
 
-function resolveLicenseTone(status) {
-  if (status === "active") return "success";
-  if (status === "trial_active") return "warning";
-  return "danger";
-}
-
-function resolveLicenseStatusLabel(status) {
-  if (status === "active") return "Licença ativa";
-  if (status === "trial_active") return "Período gratuito";
-  if (status === "expired") return "Licença expirada";
-  if (status === "trial_expired") return "Teste expirado";
-  return "Licença pendente";
-}
-
-function maskLicenseSerial(serialKey) {
-  const value = String(serialKey || "").trim();
-  if (!value) return "Ainda não ativado";
-
-  const compact = value.replace(/[^a-z0-9]/gi, "").toUpperCase();
-  const suffix = compact.slice(-4);
-  return suffix ? `Oculto (...${suffix})` : "Oculto";
-}
-
 export default function UserSection({
   user,
   company,
@@ -42,17 +19,83 @@ export default function UserSection({
   saveUser,
   initialUserForm,
   editUserRow,
-  removeUser,
-  licenseState,
-  licensePlans,
-  licenseBanner,
-  openLicenseCenter,
-  updateState,
-  checkForUpdates,
-  downloadUpdate,
-  installUpdate
+  removeUser
 }) {
-  const currentPlan = licenseState?.plan || licensePlans?.[0]?.name || "Plano mensal";
+  const isAdmin = user?.role === "admin";
+
+  if (!isAdmin) {
+    return (
+      <section className="two-column">
+        <div className="panel settings-panel">
+          <div className="section-heading">
+            <h2>Conta do utilizador</h2>
+            <p>Dados da sessão atual para consulta.</p>
+          </div>
+
+          <div className="info-grid">
+            <div>
+              <label>Nome</label>
+              <strong>{user.full_name}</strong>
+            </div>
+            <div>
+              <label>Utilizador</label>
+              <strong>{user.username}</strong>
+            </div>
+            <div>
+              <label>Perfil</label>
+              <strong>Operador</strong>
+            </div>
+            <div>
+              <label>Estado</label>
+              <strong>{user.active ? "Ativo" : "Inativo"}</strong>
+            </div>
+            <div>
+              <label>E-mail</label>
+              <strong>{user.email || "-"}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div className="panel settings-panel">
+          <div className="section-heading">
+            <h2>Empresa</h2>
+            <p>Dados institucionais da empresa para consulta.</p>
+          </div>
+
+          <div className="info-grid">
+            <div>
+              <label>Nome da empresa</label>
+              <strong>{company?.name || "-"}</strong>
+            </div>
+            <div>
+              <label>NIF</label>
+              <strong>{company?.nif || "-"}</strong>
+            </div>
+            <div>
+              <label>E-mail institucional</label>
+              <strong>{company?.email || "-"}</strong>
+            </div>
+            <div>
+              <label>Contacto telefónico</label>
+              <strong>{company?.phone || "-"}</strong>
+            </div>
+            <div>
+              <label>Banco de origem</label>
+              <strong>{angolaBanks.find((bank) => bank.code === company?.origin_bank_code)?.name || company?.origin_bank_code || "-"}</strong>
+            </div>
+            <div>
+              <label>Conta de origem</label>
+              <strong>{company?.origin_account || "-"}</strong>
+            </div>
+            <div className="full-span">
+              <label>Morada</label>
+              <strong>{company?.address || "-"}</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <>
@@ -345,128 +388,6 @@ export default function UserSection({
         </div>
       </section>
 
-      <section className="two-column">
-        <div className="panel settings-panel">
-          <div className="section-heading">
-            <h2>Licenciamento</h2>
-            <p>Compre, renove ou ative a licença mensal do Kwanza Folha sem sair do aplicativo.</p>
-          </div>
-
-          <div className="update-panel">
-            <div className="update-panel__summary">
-              <div>
-                <label>Estado</label>
-                <strong>{resolveLicenseStatusLabel(licenseState?.status)}</strong>
-              </div>
-              <div>
-                <label>Plano</label>
-                <strong>{currentPlan}</strong>
-              </div>
-              <div>
-                <label>Serial</label>
-                <strong>{maskLicenseSerial(licenseState?.serialKey)}</strong>
-              </div>
-              <div>
-                <label>Validade</label>
-                <strong>{licenseState?.expireDate ? new Date(licenseState.expireDate).toLocaleDateString("pt-PT") : "-"}</strong>
-              </div>
-            </div>
-
-            <div className="update-panel__status">
-              <span className={`status-chip status-chip--${resolveLicenseTone(licenseState?.status)}`}>
-                {resolveLicenseStatusLabel(licenseState?.status)}
-              </span>
-              <p>{licenseBanner?.message || licenseState?.message || "A licença é validada offline depois da ativação."}</p>
-            </div>
-
-            <div className="inline-actions">
-              <button
-                type="button"
-                onClick={() =>
-                  openLicenseCenter(
-                    licenseState?.status === "active" || licenseState?.status === "expired" ? "renew" : "purchase"
-                  )
-                }
-              >
-                {licenseState?.status === "active" ? "Renovar licença" : "Comprar licença"}
-              </button>
-              <button type="button" className="secondary-btn" onClick={() => openLicenseCenter("activate")}>
-                Inserir licença
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="panel settings-panel">
-          <div className="section-heading">
-            <h2>Atualização da aplicação</h2>
-            <p>Verifique novas versões, descarregue o instalador e execute a atualização localmente.</p>
-          </div>
-
-          <div className="update-panel">
-            <div className="update-panel__summary">
-              <div>
-                <label>Versão atual</label>
-                <strong>{updateState.currentVersion || "-"}</strong>
-              </div>
-              <div>
-                <label>Última versão</label>
-                <strong>{updateState.latestVersion || "-"}</strong>
-              </div>
-              <div>
-                <label>Release</label>
-                <strong>{updateState.releaseName || "-"}</strong>
-              </div>
-              <div>
-                <label>Publicada em</label>
-                <strong>{updateState.publishedAt ? new Date(updateState.publishedAt).toLocaleDateString("pt-PT") : "-"}</strong>
-              </div>
-            </div>
-
-            <div className="update-panel__status">
-              <span
-                className={`status-chip ${
-                  updateState.downloaded ? "status-chip--success" : updateState.available ? "status-chip--warning" : "status-chip--info"
-                }`}
-              >
-                {updateState.downloaded
-                  ? "Atualização pronta a instalar"
-                  : updateState.available
-                    ? "Atualização disponível"
-                    : "Aplicação em dia"}
-              </span>
-              <p>{updateState.message || "Use a verificação manual para procurar novas versões da aplicação."}</p>
-              {updateState.path && <small>Ficheiro descarregado: {updateState.path}</small>}
-            </div>
-
-            <div className="inline-actions">
-              <button
-                type="button"
-                className="secondary-btn"
-                onClick={checkForUpdates}
-                disabled={updateState.checking || updateState.downloading || updateState.installing}
-              >
-                {updateState.checking ? "A verificar..." : "Verificar atualizações"}
-              </button>
-              <button
-                type="button"
-                onClick={downloadUpdate}
-                disabled={updateState.checking || updateState.downloading || updateState.installing}
-              >
-                {updateState.downloading ? "A descarregar..." : "Descarregar atualização"}
-              </button>
-              <button
-                type="button"
-                className="secondary-btn"
-                onClick={installUpdate}
-                disabled={!updateState.downloaded || updateState.installing}
-              >
-                {updateState.installing ? "A instalar..." : "Instalar atualização"}
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
     </>
   );
 }

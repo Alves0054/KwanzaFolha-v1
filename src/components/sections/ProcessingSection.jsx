@@ -2,6 +2,7 @@ export default function ProcessingSection({
   payrollRuns,
   monthRef,
   formatMoney,
+  runPayroll,
   generatePayslip,
   deletePayrollRun,
   deletePayrollMonth,
@@ -42,18 +43,18 @@ export default function ProcessingSection({
       <div className="panel">
         <div className="section-heading">
           <h2>Processamento salarial</h2>
-          <p>Detalhe completo da folha por colaborador, com remuneracoes, descontos e liquido final.</p>
+          <p>Detalhe completo da folha por colaborador, com remunerações, descontos e líquido final.</p>
         </div>
 
         <div className="processing-period-bar">
           <div>
             <span className={`status-chip ${isClosed ? "status-chip--warning" : "status-chip--success"}`}>
-              {isClosed ? "Periodo fechado" : "Periodo aberto"}
+              {isClosed ? "Período fechado" : "Período aberto"}
             </span>
             <p className="empty-note">
               {isClosed
                 ? `Fechado em ${new Date(period.closed_at).toLocaleDateString("pt-PT")}${period.closed_by_name ? ` por ${period.closed_by_name}` : ""}.`
-                : `O periodo ${monthRef} ainda permite processamento e alteracoes.`}
+                : `O período ${monthRef} ainda permite processamento e alterações.`}
             </p>
             {currentFiscalProfile && (
               <p className="empty-note">
@@ -63,7 +64,7 @@ export default function ProcessingSection({
             )}
             {showFiscalWarning && (
               <p className="empty-note">
-                Foram detetados {payrollFiscalStatus.outdatedRunCount} processamento(s) com regra fiscal desatualizada para {monthRef}. Reveja a previa antes/depois e reprocese o mes para alinhar a folha com a versao legal atual.
+                Foram detetados {payrollFiscalStatus.outdatedRunCount} processamento(s) com regra fiscal desatualizada para {monthRef}. Reveja a prévia antes/depois e reprocesse o mês para alinhar a folha com a versão legal atual.
               </p>
             )}
             {preview?.reprocessBlockReason && (
@@ -71,21 +72,31 @@ export default function ProcessingSection({
             )}
           </div>
 
-          {user?.role === "admin" && payrollRuns.length > 0 && (
+          {user && (
             <div className="inline-actions">
+              <button
+                type="button"
+                onClick={runPayroll}
+                disabled={isClosed}
+                title={isClosed ? "Reabra o período antes de processar novamente." : undefined}
+              >
+                Processar folha
+              </button>
               {showFiscalWarning && (payrollFiscalStatus?.canReprocess || payrollFiscalStatus?.requiresAuthorization) && (
                 <button type="button" onClick={reprocessPayrollMonth}>
-                  {payrollFiscalStatus?.requiresAuthorization ? "Reprocessar com autorizacao" : "Reprocessar mes"}
+                  {payrollFiscalStatus?.requiresAuthorization ? "Reprocessar com autorização" : "Reprocessar mês"}
                 </button>
               )}
-              {isClosed ? (
-                <button type="button" className="secondary-btn" onClick={reopenPayrollPeriod}>
-                  Reabrir periodo
-                </button>
-              ) : (
-                <button type="button" onClick={closePayrollPeriod}>
-                  Fechar periodo
-                </button>
+              {payrollRuns.length > 0 && (
+                isClosed ? (
+                  <button type="button" className="secondary-btn" onClick={reopenPayrollPeriod}>
+                    Reabrir período
+                  </button>
+                ) : (
+                  <button type="button" onClick={closePayrollPeriod}>
+                    Fechar período
+                  </button>
+                )
               )}
             </div>
           )}
@@ -128,7 +139,7 @@ export default function ProcessingSection({
             />
           </label>
 
-          {payrollRuns.length > 0 && user?.role === "admin" && !isClosed && (
+          {payrollRuns.length > 0 && user && !isClosed && (
             <div className="processing-toolbar__actions">
               <button type="button" className="secondary-btn danger processing-btn processing-btn--danger-soft" onClick={deletePayrollMonth}>
                 Apagar pagamentos de {monthRef}
@@ -144,16 +155,16 @@ export default function ProcessingSection({
                 <tr>
                   <th>Colaborador</th>
                   <th>Cargo / Departamento</th>
-                  <th className="numeric-cell">Salario Base</th>
-                  <th className="numeric-cell">Subsidios</th>
-                  <th className="numeric-cell">Bonus</th>
+                  <th className="numeric-cell">Salário base</th>
+                  <th className="numeric-cell">Subsídios</th>
+                  <th className="numeric-cell">Bónus</th>
                   <th className="numeric-cell">Horas Extra</th>
                   <th className="numeric-cell">INSS</th>
                   <th className="numeric-cell">IRT</th>
                   <th className="numeric-cell">Faltas</th>
-                  <th className="numeric-cell">Licencas</th>
-                  <th className="numeric-cell">Penalizacoes</th>
-                  <th className="numeric-cell">Emprestimos</th>
+                  <th className="numeric-cell">Licenças</th>
+                  <th className="numeric-cell">Penalizações</th>
+                  <th className="numeric-cell">Empréstimos</th>
                   <th className="numeric-cell">Total Descontos</th>
                   <th className="numeric-cell">Total Iliquido</th>
                   <th className="numeric-cell">Total Liquido</th>
@@ -170,16 +181,16 @@ export default function ProcessingSection({
                       <span className="employee-role">{run.job_title}</span>
                       <small>{run.department}</small>
                     </td>
-                    <td data-label="Salario Base" className="numeric-cell">{formatMoney(run.summary_json?.baseSalary || 0)}</td>
-                    <td data-label="Subsidios" className="numeric-cell">{formatMoney(run.summary_json?.allowancesTotal || 0)}</td>
-                    <td data-label="Bonus" className="numeric-cell">{formatMoney(run.summary_json?.bonusesTotal || 0)}</td>
+                    <td data-label="Salário base" className="numeric-cell">{formatMoney(run.summary_json?.baseSalary || 0)}</td>
+                    <td data-label="Subsídios" className="numeric-cell">{formatMoney(run.summary_json?.allowancesTotal || 0)}</td>
+                    <td data-label="Bónus" className="numeric-cell">{formatMoney(run.summary_json?.bonusesTotal || 0)}</td>
                     <td data-label="Horas Extra" className="numeric-cell">{formatMoney(run.summary_json?.overtimeTotal || 0)}</td>
                     <td data-label="INSS" className="numeric-cell">{formatMoney(run.inss_amount)}</td>
                     <td data-label="IRT" className="numeric-cell">{formatMoney(run.irt_amount)}</td>
                     <td data-label="Faltas" className="numeric-cell">{formatMoney(run.summary_json?.absenceDeduction || 0)}</td>
-                    <td data-label="Licencas" className="numeric-cell">{formatMoney(run.summary_json?.leaveDeduction || 0)}</td>
-                    <td data-label="Penalizacoes" className="numeric-cell">{formatMoney(run.summary_json?.penalties || 0)}</td>
-                    <td data-label="Emprestimos" className="numeric-cell">{formatMoney(run.summary_json?.financialDeductions || 0)}</td>
+                    <td data-label="Licenças" className="numeric-cell">{formatMoney(run.summary_json?.leaveDeduction || 0)}</td>
+                    <td data-label="Penalizações" className="numeric-cell">{formatMoney(run.summary_json?.penalties || 0)}</td>
+                    <td data-label="Empréstimos" className="numeric-cell">{formatMoney(run.summary_json?.financialDeductions || 0)}</td>
                     <td data-label="Total Descontos" className="numeric-cell">{formatMoney(getTotalDeductions(run))}</td>
                     <td data-label="Total Iliquido" className="numeric-cell total-cell">{formatMoney(run.gross_salary)}</td>
                     <td data-label="Total Liquido" className="numeric-cell total-cell total-cell--net">{formatMoney(run.net_salary)}</td>
@@ -188,7 +199,7 @@ export default function ProcessingSection({
                         <button type="button" className="processing-btn processing-btn--pdf" onClick={() => generatePayslip(run.id)}>
                           Recibo em PDF
                         </button>
-                        {user?.role === "admin" && !isClosed ? (
+                        {user && !isClosed ? (
                           <button type="button" className="processing-btn processing-btn--delete" onClick={() => deletePayrollRun(run.id)}>
                             Apagar
                           </button>
@@ -200,7 +211,7 @@ export default function ProcessingSection({
               </tbody>
             </table>
           ) : (
-            <p className="empty-note processing-empty">Ainda nao existe processamento para este mes com os filtros atuais.</p>
+            <p className="empty-note processing-empty">Ainda não existe processamento para este mês com os filtros atuais.</p>
           )}
         </div>
       </div>
@@ -212,7 +223,7 @@ export default function ProcessingSection({
             <p>Compara os totais atuais com a nova regra legal antes do reprocessamento definitivo.</p>
           </div>
 
-          {reprocessPreview?.loading ? <p className="empty-note">A preparar a previa de reprocessamento...</p> : null}
+          {reprocessPreview?.loading ? <p className="empty-note">A preparar a prévia de reprocessamento...</p> : null}
 
           {preview ? (
             <>
@@ -263,16 +274,16 @@ export default function ProcessingSection({
           ) : null}
 
           {!reprocessPreview?.loading && !preview ? (
-            <p className="empty-note">Ainda nao foi possivel gerar a previa deste mes.</p>
+            <p className="empty-note">Ainda não foi possível gerar a prévia deste mês.</p>
           ) : null}
         </div>
       ) : null}
 
-      {user?.role === "admin" && payrollFiscalAffectedMonths?.length > 1 ? (
+      {user && payrollFiscalAffectedMonths?.length > 1 ? (
         <div className="panel">
           <div className="section-heading">
             <h2>Meses afetados</h2>
-            <p>Periodos com deriva fiscal detetada e que devem ser revistos no plano de migracao.</p>
+            <p>Períodos com deriva fiscal detetada e que devem ser revistos no plano de migração.</p>
           </div>
 
           <div className="table-list compact state-payment-list">
@@ -280,13 +291,13 @@ export default function ProcessingSection({
               <div className="table-row" key={status.month_ref}>
                 <div>
                   <strong>{status.month_ref}</strong>
-                  <small>Periodo {status.period_status} | Assiduidade {status.attendance_period_status}</small>
+                  <small>Período {status.period_status} | Assiduidade {status.attendance_period_status}</small>
                 </div>
                 <div className="payroll-values state-payment-values">
                   <small>Desatualizados {status.outdatedRunCount}</small>
-                  <small>Mistos {status.hasMixedAppliedProfiles ? "Sim" : "Nao"}</small>
+                  <small>Mistos {status.hasMixedAppliedProfiles ? "Sim" : "Não"}</small>
                   <strong>
-                    {status.canReprocess ? "Pronto a reprocessar" : status.requiresAuthorization ? "Exige autorizacao" : "Bloqueado"}
+                    {status.canReprocess ? "Pronto a reprocessar" : status.requiresAuthorization ? "Exige autorização" : "Bloqueado"}
                   </strong>
                 </div>
               </div>
@@ -303,7 +314,7 @@ export default function ProcessingSection({
 
         <div className="info-grid">
           <div>
-            <label>INSS do funcionario</label>
+            <label>INSS do funcionário</label>
             <strong>{formatMoney(statePaymentTotals.employeeInss)}</strong>
           </div>
           <div>
@@ -336,7 +347,7 @@ export default function ProcessingSection({
             </div>
           ))}
 
-          {statePaymentRows.length === 0 ? <p className="empty-note">Sem valores legais processados para este mes com os filtros atuais.</p> : null}
+          {statePaymentRows.length === 0 ? <p className="empty-note">Sem valores legais processados para este mês com os filtros atuais.</p> : null}
         </div>
       </div>
     </section>

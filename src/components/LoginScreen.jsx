@@ -25,6 +25,7 @@ export default function LoginScreen({
 }) {
   const setupRequired = Boolean(accessState?.setupRequired);
   const canRegister = Boolean(accessState?.canRegister);
+  const canLogin = Boolean(accessState?.hasUsers) || !setupRequired;
 
   return (
     <div className="auth-shell">
@@ -57,7 +58,7 @@ export default function LoginScreen({
               type="button"
               className={authMode === "login" ? "auth-tab auth-tab--active" : "auth-tab"}
               onClick={() => setAuthMode("login")}
-              disabled={setupRequired}
+              disabled={!canLogin}
             >
               Iniciar sessão
             </button>
@@ -201,7 +202,7 @@ export default function LoginScreen({
                     value={loginForm.username}
                     onChange={(event) => setLoginForm((current) => ({ ...current, username: event.target.value }))}
                     placeholder="Introduza o utilizador ou o e-mail"
-                    disabled={setupRequired}
+                    disabled={!canLogin}
                   />
                 </label>
                 <label>
@@ -211,15 +212,15 @@ export default function LoginScreen({
                     value={loginForm.password}
                     onChange={(event) => setLoginForm((current) => ({ ...current, password: event.target.value }))}
                     placeholder="Introduza a palavra-passe"
-                    disabled={setupRequired}
+                    disabled={!canLogin}
                   />
                 </label>
-                <button type="submit" disabled={setupRequired}>
+                <button type="submit" disabled={!canLogin}>
                   Entrar no sistema
                 </button>
               </form>
 
-              {!setupRequired && (
+              {canLogin && (
                 <>
                   <form className="auth-form auth-form--helper" onSubmit={handlePasswordResetRequest}>
                     <label>
@@ -277,9 +278,14 @@ export default function LoginScreen({
                 </>
               )}
 
-              {setupRequired && (
+              {setupRequired && !canLogin && (
                 <div className="auth-note">
                   <small>Conclua primeiro o registo inicial da empresa para ativar o início de sessão.</small>
+                </div>
+              )}
+              {setupRequired && canLogin && (
+                <div className="auth-note">
+                  <small>Foram encontrados utilizadores existentes. Pode iniciar sessão e completar a configuração em Definições.</small>
                 </div>
               )}
             </>

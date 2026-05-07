@@ -167,6 +167,62 @@ export const initialCompany = {
   origin_account: ""
 };
 
+export const initialOrganizationForms = {
+  companies: {
+    id: null,
+    name: "",
+    nif: "",
+    address: "",
+    phone: "",
+    email: "",
+    logo_path: "",
+    fiscal_regime: "geral",
+    receipt_footer: "",
+    report_notes: "",
+    active: true
+  },
+  branches: {
+    id: null,
+    company_id: "",
+    name: "",
+    code: "",
+    address: "",
+    manager: "",
+    phone: "",
+    email: "",
+    active: true
+  },
+  departments: {
+    id: null,
+    company_id: "",
+    branch_id: "",
+    cost_center_id: "",
+    name: "",
+    code: "",
+    manager: "",
+    active: true
+  },
+  jobPositions: {
+    id: null,
+    company_id: "",
+    department_id: "",
+    name: "",
+    professional_category: "",
+    suggested_base_salary: "",
+    description: "",
+    hierarchy_level: 0,
+    active: true
+  },
+  costCenters: {
+    id: null,
+    company_id: "",
+    department_id: "",
+    code: "",
+    name: "",
+    active: true
+  }
+};
+
 export const initialSettings = {
   currency: "Kz",
   inssEmployeeRate: 3,

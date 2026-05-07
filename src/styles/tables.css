@@ -1,45 +1,54 @@
 /* === LISTAS E TABELAS === */
 .table-list {
   display: grid;
-  gap: 10px;
+  gap: 0;
+  overflow: hidden;
+  border: 0.5px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--surface-color);
 }
 
 .table-list.compact .table-row {
-  padding-block: 12px;
+  padding-block: 10px;
 }
 
 .table-row,
 .audit-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(220px, 1.35fr) minmax(120px, 0.55fr) minmax(130px, 0.65fr) auto;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 14px 16px;
-  border: 0.5px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  background: var(--surface-color);
+  gap: 12px;
+  padding: 12px 14px;
+  border: 0;
+  border-bottom: 0.5px solid var(--border-color);
+  border-radius: 0;
+  background: transparent;
   transition: var(--transition-base);
+}
+
+.table-row:last-child,
+.audit-row:last-child {
+  border-bottom: 0;
 }
 
 .table-row:nth-child(even),
 .table-list.compact .table-row:nth-child(even) {
-  background: var(--blue-50);
+  background: var(--surface-muted);
 }
 
 [data-theme="dark"] .table-row:nth-child(even),
 [data-theme="dark"] .table-list.compact .table-row:nth-child(even) {
-  background: #0d1f33;
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .table-row:hover,
 .audit-row:hover {
-  background: var(--surface-hover);
-  border-color: var(--blue-200);
+  background: var(--blue-50);
 }
 
 [data-theme="dark"] .table-row:hover,
 [data-theme="dark"] .audit-row:hover {
-  background: var(--blue-800);
+  background: var(--surface-hover);
 }
 
 .table-row > div:first-child,
@@ -47,6 +56,10 @@
   min-width: 0;
   display: grid;
   gap: 4px;
+}
+
+.table-row > div:not(:first-child) {
+  min-width: 0;
 }
 
 .table-row strong,
@@ -58,7 +71,20 @@
 .table-row small,
 .audit-row small {
   color: var(--text-secondary);
-  line-height: 1.45;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.table-row .status-chip {
+  width: fit-content;
+  max-width: 100%;
+  margin-bottom: 2px;
+}
+
+.table-row .inline-actions {
+  justify-content: flex-end;
+  gap: 10px;
+  white-space: nowrap;
 }
 
 .payroll-values,
@@ -69,6 +95,14 @@
   justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
+  min-width: 0;
+}
+
+.payroll-values > *,
+.state-payment-values > *,
+.audit-row__meta > * {
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .audit-row__changes {
@@ -578,9 +612,29 @@
 }
 
 @media (max-width: 820px) {
+  .enterprise-row {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .enterprise-row .inline-actions {
+    justify-content: flex-start;
+  }
+
+  .enterprise-row > div:nth-child(2),
+  .enterprise-row .status-chip {
+    width: fit-content;
+    max-width: 100%;
+  }
+
   .table-row,
   .audit-row {
-    flex-direction: column;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .table-row .inline-actions {
+    justify-content: flex-start;
   }
 
   .payroll-values,

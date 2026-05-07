@@ -147,7 +147,7 @@ function buildFiscalBaseComponents({ baseSalary, allowances, bonuses, overtimeEn
   const components = [
     {
       source: "base_salary",
-      label: "Salario base",
+      label: "Salário base",
       amount: roundCurrency(Number(baseSalary || 0)),
       fiscalMode: DEFAULT_FISCAL_MODE,
       subjectToInss: true,
@@ -172,7 +172,7 @@ function buildFiscalBaseComponents({ baseSalary, allowances, bonuses, overtimeEn
   if (Number(leaveDeduction || 0) > 0) {
     components.push({
       source: "leave_deduction",
-      label: "Reducao por licenca sem vencimento",
+      label: "Redução por licença sem vencimento",
       amount: roundCurrency(-Number(leaveDeduction || 0)),
       fiscalMode: DEFAULT_FISCAL_MODE,
       subjectToInss: true,
@@ -951,6 +951,17 @@ class PayrollService {
     }
 
     const preview = options.includePreview === false ? null : this.previewReprocessMonth(monthRef);
+    if (
+      typeof this.database.createPayrollRunVersion === "function" &&
+      typeof this.database.listPayrollRuns === "function" &&
+      this.database.listPayrollRuns({ monthRef }).length
+    ) {
+      this.database.createPayrollRunVersion(
+        monthRef,
+        options.userId || null,
+        options.authorizationReason || (options.resetExisting ? "Snapshot antes de reprocessamento" : "Snapshot antes de processamento")
+      );
+    }
 
     if (typeof this.database.savePayrollRunsSnapshot === "function") {
       this.database.savePayrollRunsSnapshot(monthRef, snapshot.persistedRuns, {

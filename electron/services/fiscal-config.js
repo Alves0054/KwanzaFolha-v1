@@ -7,7 +7,8 @@ const {
   CURRENT_ANGOLA_FISCAL_PROFILE_NOTES,
   CURRENT_ANGOLA_IRT_GROUP_A_BRACKETS,
   CURRENT_INSS_EMPLOYEE_RATE_PERCENT,
-  CURRENT_INSS_EMPLOYER_RATE_PERCENT
+  CURRENT_INSS_EMPLOYER_RATE_PERCENT,
+  getStatutoryFiscalProfiles
 } = require("./core/fiscal");
 
 const DEFAULT_FISCAL_PROFILE_ID = CURRENT_ANGOLA_FISCAL_PROFILE_ID;
@@ -128,14 +129,18 @@ function sortFiscalProfiles(profiles) {
 }
 
 function normalizeFiscalProfiles(profiles, fallbackProfile = null) {
-  const sourceProfiles =
-    Array.isArray(profiles) && profiles.length
-      ? profiles
-      : [fallbackProfile || buildDefaultFiscalProfile()];
+  const statutoryProfiles = getStatutoryFiscalProfiles().map((profile) => buildFiscalProfile(profile));
+  const sourceProfiles = Array.isArray(profiles) && profiles.length ? profiles : [fallbackProfile || buildDefaultFiscalProfile()];
+  const mergedById = new Map();
 
-  return sortFiscalProfiles(
-    deduplicateProfileIds(sourceProfiles.map((profile) => buildFiscalProfile(profile)))
-  );
+  for (const profile of statutoryProfiles) {
+    mergedById.set(profile.id, profile);
+  }
+  for (const profile of sourceProfiles.map((item) => buildFiscalProfile(item))) {
+    mergedById.set(profile.id, profile);
+  }
+
+  return sortFiscalProfiles(deduplicateProfileIds(Array.from(mergedById.values())));
 }
 
 function resolveFiscalProfileFromProfiles(profiles, activeFiscalProfileId, monthRef) {

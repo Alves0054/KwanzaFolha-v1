@@ -8,6 +8,10 @@
   align-items: start;
 }
 
+.grid-form {
+  row-gap: 18px;
+}
+
 .grid-form,
 .auth-form-grid,
 .audit-filters {
@@ -198,6 +202,10 @@
   gap: 12px 14px;
 }
 
+.settings-form .form-actions {
+  padding-top: 4px;
+}
+
 .settings-panel {
   height: 100%;
 }
@@ -269,19 +277,42 @@
 }
 
 .fiscal-profile-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(176px, max-content);
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
 }
 
 .fiscal-profile-row > div:first-child {
   display: grid;
   gap: 4px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .fiscal-profile-row small {
   color: var(--text-secondary);
+}
+
+.fiscal-profile-row .inline-actions {
+  display: grid;
+  justify-items: end;
+  align-content: start;
+  gap: 8px;
+  min-width: 176px;
+  white-space: normal;
+}
+
+.fiscal-profile-row .inline-actions .status-chip {
+  margin: 0;
+}
+
+.fiscal-profile-row .inline-actions .secondary-btn {
+  width: 176px;
+  min-height: 40px;
+  white-space: normal;
+  line-height: 1.2;
+  text-align: center;
 }
 
 .backup-filter-grid {
@@ -734,7 +765,17 @@
   }
 
   .fiscal-profile-row {
-    flex-direction: column;
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .fiscal-profile-row .inline-actions {
+    min-width: 0;
+    justify-items: start;
+  }
+
+  .fiscal-profile-row .inline-actions .secondary-btn {
+    width: min(100%, 220px);
   }
 
   .attendance-manual-form__actions > button,

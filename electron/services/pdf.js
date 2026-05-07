@@ -38,6 +38,55 @@ class PdfService {
     this.database = database;
   }
 
+  async saveValidatedPdf(doc, output, options = {}) {
+    const bytes = await doc.save();
+    fs.writeFileSync(output, bytes);
+    const qaReport = await this.validatePdfArtifact(output, options);
+    if (!qaReport.ok) {
+      throw new Error(`Falha de QA do PDF: ${qaReport.issues.join("; ")}`);
+    }
+    const qaPath = `${output}.qa.json`;
+    fs.writeFileSync(qaPath, JSON.stringify(qaReport, null, 2), "utf8");
+    return { path: output, qaPath, qaReport };
+  }
+
+  async validatePdfArtifact(filePath, options = {}) {
+    const issues = [];
+    const minimumPages = Math.max(1, Number(options.minimumPages || 1));
+    if (!fs.existsSync(filePath)) {
+      return { ok: false, checked_at: new Date().toISOString(), issues: ["Ficheiro PDF não encontrado."], file_path: filePath };
+    }
+
+    const bytes = fs.readFileSync(filePath);
+    if (bytes.length < 700) issues.push("PDF demasiado pequeno para conter layout profissional validavel.");
+    if (bytes.subarray(0, 4).toString("utf8") !== "%PDF") issues.push("Cabecalho PDF inválido.");
+
+    let pageSummaries = [];
+    try {
+      const loaded = await PDFDocument.load(bytes, { ignoreEncryption: true });
+      const pages = loaded.getPages();
+      if (pages.length < minimumPages) issues.push(`PDF tem ${pages.length} pagina(s), abaixo do minimo esperado (${minimumPages}).`);
+      pageSummaries = pages.map((page, index) => {
+        const { width, height } = page.getSize();
+        if (width < 250 || height < 250) issues.push(`Pagina ${index + 1} tem dimensoes demasiado pequenas.`);
+        if (width > 1200 || height > 1200) issues.push(`Pagina ${index + 1} tem dimensoes fora do intervalo esperado.`);
+        return { page: index + 1, width: Number(width.toFixed(2)), height: Number(height.toFixed(2)) };
+      });
+    } catch (error) {
+      issues.push(`PDF não pode ser reaberto para validação: ${error.message}`);
+    }
+
+    return {
+      ok: issues.length === 0,
+      checked_at: new Date().toISOString(),
+      document_type: options.documentType || "pdf",
+      file_path: filePath,
+      file_size: bytes.length,
+      pages: pageSummaries,
+      issues
+    };
+  }
+
   async generatePayslip(payrollRunId) {
     const run = this.database.getPayrollRun(payrollRunId);
     const company = this.database.getCompanyProfile();
@@ -57,8 +106,8 @@ class PdfService {
 
     const fileName = `recibo-${run.month_ref}-${run.full_name.replace(/\s+/g, "-")}.pdf`;
     const output = path.join(this.database.exportsDir, fileName);
-    fs.writeFileSync(output, await doc.save());
-    return { ok: true, path: output };
+    const saved = await this.saveValidatedPdf(doc, output, { documentType: "payslip", minimumPages: 1 });
+    return { ok: true, path: output, qaReport: saved.qaReport };
   }
 
   async generatePayslipsByMonth(monthRef) {
@@ -87,8 +136,8 @@ class PdfService {
 
     const fileName = `recibos-lote-${monthRef}.pdf`;
     const output = path.join(this.database.exportsDir, fileName);
-    fs.writeFileSync(output, await doc.save());
-    return { ok: true, path: output, count: runs.length };
+    const saved = await this.saveValidatedPdf(doc, output, { documentType: "payslips_batch", minimumPages: 1 });
+    return { ok: true, path: output, count: runs.length, qaReport: saved.qaReport };
   }
 
   async exportMonthlyPackage(filters) {
@@ -294,8 +343,8 @@ class PdfService {
 
     const fileName = `relatorio-${type}-${filters.monthRef || [filters.startDate, filters.endDate].filter(Boolean).join("_") || "geral"}.pdf`;
     const output = path.join(this.database.exportsDir, fileName);
-    fs.writeFileSync(output, await doc.save());
-    return { ok: true, path: output };
+    const saved = await this.saveValidatedPdf(doc, output, { documentType: `report_${type}`, minimumPages: 1 });
+    return { ok: true, path: output, qaReport: saved.qaReport };
   }
 
   async generateEmployeeDetailedReport(filters) {
@@ -370,8 +419,8 @@ class PdfService {
 
     const fileName = `relatorio-funcionario-${monthRef || [normalizedFilters.startDate, normalizedFilters.endDate].filter(Boolean).join("_") || "geral"}.pdf`;
     const output = path.join(this.database.exportsDir, fileName);
-    fs.writeFileSync(output, await doc.save());
-    return { ok: true, path: output, count: rows.length };
+    const saved = await this.saveValidatedPdf(doc, output, { documentType: "employee_detailed_report", minimumPages: 1 });
+    return { ok: true, path: output, count: rows.length, qaReport: saved.qaReport };
   }
 
   drawEmployeeReportIndexPage({ page, rows, monthRef, font, bold }) {
@@ -424,20 +473,17 @@ class PdfService {
         height: 24,
         color: index % 2 === 0 ? REPORT_COLORS.altFill : rgb(1, 1, 1)
       });
-      page.drawText(this.fitText(entry.row.full_name || "-", font, 10, 270), {
-        x: nameX,
+      this.drawFittedText(page, entry.row.full_name || "-", nameX, y, font, 10, 270, REPORT_COLORS.text);
+      this.drawFittedText(
+        page,
+        `${entry.row.department || "-"} | ${entry.row.job_title || entry.row.contract_type || "-"}`,
+        departmentX,
         y,
         font,
-        size: 10,
-        color: REPORT_COLORS.text
-      });
-      page.drawText(this.fitText(`${entry.row.department || "-"} | ${entry.row.job_title || entry.row.contract_type || "-"}`, font, 9.6, 250), {
-        x: departmentX,
-        y,
-        font,
-        size: 9.6,
-        color: REPORT_COLORS.text
-      });
+        9.6,
+        250,
+        REPORT_COLORS.text
+      );
       page.drawText(String(entry.reportPageNumber), {
         x: pageX + 16,
         y,
@@ -564,8 +610,8 @@ class PdfService {
 
     const fileName = `relatorio-mensal-${monthRef || [normalizedFilters.startDate, normalizedFilters.endDate].filter(Boolean).join("_") || "geral"}.pdf`;
     const output = path.join(this.database.exportsDir, fileName);
-    fs.writeFileSync(output, await doc.save());
-    return { ok: true, path: output };
+    const saved = await this.saveValidatedPdf(doc, output, { documentType: "monthly_executive_report", minimumPages: 1 });
+    return { ok: true, path: output, qaReport: saved.qaReport };
   }
 
   drawEmployeeReportPage({ page, company, run, periodRows, font, bold }) {
@@ -632,7 +678,7 @@ class PdfService {
       const x = index < 3 ? REPORT_MARGIN + 16 : REPORT_MARGIN + cardWidth + 42;
       const y = index < 3 ? infoY - index * 20 : sectionTop - 60 - (index - 3) * 20;
       page.drawText(label, { x, y, font: bold, size: 9.6, color: REPORT_COLORS.subtitle });
-      page.drawText(this.fitText(value, font, 10.2, 220), { x: x + 104, y, font, size: 10.2, color: REPORT_COLORS.text });
+      this.drawFittedText(page, value, x + 104, y, font, 10.2, 220, REPORT_COLORS.text);
     });
 
     page.drawText("Resumo do período", {
@@ -766,20 +812,8 @@ class PdfService {
         height: 22,
         color: index % 2 === 0 ? REPORT_COLORS.altFill : rgb(1, 1, 1)
       });
-      page.drawText(this.fitText(row.description, font, 9.2, descriptionWidth - 6), {
-        x: x + 8,
-        y: rowY,
-        font,
-        size: 9.2,
-        color: REPORT_COLORS.text
-      });
-      page.drawText(this.fitText(row.reference || "-", font, 9.2, 62), {
-        x: referenceX,
-        y: rowY,
-        font,
-        size: 9.2,
-        color: REPORT_COLORS.text
-      });
+      this.drawFittedText(page, row.description, x + 8, rowY, font, 9.2, descriptionWidth - 6, REPORT_COLORS.text);
+      this.drawFittedText(page, row.reference || "-", referenceX, rowY, font, 9.2, 62, REPORT_COLORS.text);
       this.drawRightText(page, row.value, valueRightX, rowY, font, 9.2);
       rowY -= 24;
     });
@@ -874,8 +908,6 @@ class PdfService {
       color: rgb(0.08, 0.08, 0.08)
     });
 
-    const companyName = this.fitText(company.name || "Empresa", bold, 11.5, panelWidth - 18);
-    const workerName = this.fitText(run.full_name || "-", bold, 10.8, panelWidth - 18);
     page.drawRectangle({
       x: panelX,
       y: titleY - 110,
@@ -886,9 +918,9 @@ class PdfService {
       borderWidth: 0.6
     });
     page.drawText("Empresa", { x: panelX + 10, y: titleY - 56, font: bold, size: 6.6, color: mutedLabel });
-    page.drawText(companyName, { x: panelX + 10, y: titleY - 72, font: bold, size: 11.5, color: rgb(0, 0, 0) });
+    this.drawFittedText(page, company.name || "Empresa", panelX + 10, titleY - 72, bold, 11.5, panelWidth - 18, rgb(0, 0, 0), 7);
     page.drawText("Nome do trabalhador", { x: panelX + 10, y: titleY - 88, font: bold, size: 6.6, color: mutedLabel });
-    page.drawText(workerName, { x: panelX + 10, y: titleY - 103, font: bold, size: 10.8, color: rgb(0, 0, 0) });
+    this.drawFittedText(page, run.full_name || "-", panelX + 10, titleY - 103, bold, 10.8, panelWidth - 18, rgb(0, 0, 0), 7);
 
     const infoCards = this.getPayslipInfoRows(run, company);
     const infoStartY = titleY - 146;
@@ -910,13 +942,7 @@ class PdfService {
         borderWidth: 0.55
       });
       page.drawText(item.label, { x: x + 8, y: y + 25, font: bold, size: 6.4, color: mutedLabel });
-      page.drawText(this.fitText(item.value, font, 6.8, cardWidth - 16), {
-        x: x + 8,
-        y: y + 11,
-        font,
-        size: 6.8,
-        color: rgb(0, 0, 0)
-      });
+      this.drawFittedText(page, item.value, x + 8, y + 11, font, 6.8, cardWidth - 16, rgb(0, 0, 0), 4.8);
     });
 
     const tableRows = this.getPayslipTableRows(run);
@@ -953,20 +979,8 @@ class PdfService {
 
       if (row) {
         page.drawText(row.code, { x: codeX, y: rowY, font, size: 6.8, color: rgb(0, 0, 0) });
-        page.drawText(this.fitText(row.description, font, 6.8, 142), {
-          x: descriptionX,
-          y: rowY,
-          font,
-          size: 6.8,
-          color: rgb(0, 0, 0)
-        });
-        page.drawText(this.fitText(row.reference || "-", font, 6.8, 58), {
-          x: referenceX,
-          y: rowY,
-          font,
-          size: 6.8,
-          color: rgb(0, 0, 0)
-        });
+        this.drawFittedText(page, row.description, descriptionX, rowY, font, 6.8, 142, rgb(0, 0, 0), 4.8);
+        this.drawFittedText(page, row.reference || "-", referenceX, rowY, font, 6.8, 58, rgb(0, 0, 0), 4.8);
         if (row.remuneration) {
           this.drawRightText(page, row.remuneration, remunerationRightX, rowY, font, 6.8);
         }
@@ -1181,12 +1195,45 @@ class PdfService {
       return value;
     }
 
-    const ellipsis = "...";
     let shortened = value;
-    while (shortened.length > 1 && font.widthOfTextAtSize(`${shortened}${ellipsis}`, size) > maxWidth) {
+    while (shortened.length > 1 && font.widthOfTextAtSize(shortened, size) > maxWidth) {
       shortened = shortened.slice(0, -1);
     }
-    return `${shortened.trim()}${ellipsis}`;
+    return shortened.trim();
+  }
+
+  fitTextStyle(text, font, size, maxWidth, minSize = 5.2) {
+    const value = String(text ?? "");
+    if (!value) {
+      return { text: "", size };
+    }
+
+    let fittedSize = size;
+    while (fittedSize > minSize && font.widthOfTextAtSize(value, fittedSize) > maxWidth) {
+      fittedSize = Math.max(minSize, Number((fittedSize - 0.2).toFixed(2)));
+    }
+
+    if (font.widthOfTextAtSize(value, fittedSize) <= maxWidth) {
+      return { text: value, size: fittedSize };
+    }
+
+    let fittedText = value;
+    while (fittedText.length > 1 && font.widthOfTextAtSize(fittedText, fittedSize) > maxWidth) {
+      fittedText = fittedText.slice(0, -1);
+    }
+    return { text: fittedText.trim(), size: fittedSize };
+  }
+
+  drawFittedText(page, text, x, y, font, size, maxWidth, color = REPORT_COLORS.text, minSize = 5.2) {
+    const fitted = this.fitTextStyle(text, font, size, maxWidth, minSize);
+    page.drawText(fitted.text, {
+      x,
+      y,
+      font,
+      size: fitted.size,
+      color
+    });
+    return fitted;
   }
 
   normalizeEarningLabel(label, prefix) {
@@ -1416,13 +1463,7 @@ class PdfService {
       return;
     }
 
-    page.drawText(this.fitText(text, font, size, maxWidth), {
-      x: column.x + 4,
-      y,
-      font,
-      size,
-      color: REPORT_COLORS.text
-    });
+    this.drawFittedText(page, text, column.x + 4, y, font, size, maxWidth, REPORT_COLORS.text);
   }
 
   resolveReportDefinition(type) {
@@ -2023,13 +2064,7 @@ class PdfService {
     const sectionLabel = `Secao ${section}`;
     const sectionWidth = Math.min(120, font.widthOfTextAtSize(sectionLabel, 10) + 10);
     const titleMaxWidth = width - REPORT_MARGIN * 2 - sectionWidth - 18;
-    page.drawText(this.fitText(title, bold, 21, titleMaxWidth), {
-      x: REPORT_MARGIN,
-      y: height - 106,
-      font: bold,
-      size: 21,
-      color: REPORT_COLORS.title
-    });
+    this.drawFittedText(page, title, REPORT_MARGIN, height - 106, bold, 21, titleMaxWidth, REPORT_COLORS.title, 12);
     this.drawRightText(page, sectionLabel, width - REPORT_MARGIN, height - 103, font, 10, REPORT_COLORS.subtitle);
     page.drawLine({
       start: { x: REPORT_MARGIN, y: height - 116 },
@@ -2199,13 +2234,7 @@ class PdfService {
         height: 28,
         color: REPORT_COLORS.altFill
       });
-      page.drawText(this.fitText(line, font, 10.3, width - 310 - REPORT_MARGIN - 24), {
-        x: 324,
-        y: noteY,
-        font,
-        size: 10.3,
-        color: REPORT_COLORS.text
-      });
+      this.drawFittedText(page, line, 324, noteY, font, 10.3, width - 310 - REPORT_MARGIN - 24, REPORT_COLORS.text);
       noteY -= 40;
     });
   }
@@ -2280,13 +2309,7 @@ class PdfService {
     let bulletY = height - 288;
     bullets.forEach((line) => {
       page.drawCircle({ x: 362, y: bulletY + 4, size: 2.5, color: REPORT_COLORS.accent });
-      page.drawText(this.fitText(line, font, 10.5, width - 374 - REPORT_MARGIN), {
-        x: 374,
-        y: bulletY,
-        font,
-        size: 10.5,
-        color: REPORT_COLORS.text
-      });
+      this.drawFittedText(page, line, 374, bulletY, font, 10.5, width - 374 - REPORT_MARGIN, REPORT_COLORS.text);
       bulletY -= 24;
     });
 
@@ -2353,7 +2376,7 @@ class PdfService {
     const topY = height - 165;
     const rowHeight = 22;
     const columns = [
-      { key: "index", label: "NÂº", x: REPORT_MARGIN, width: 24, align: "center" },
+      { key: "index", label: "No", x: REPORT_MARGIN, width: 24, align: "center" },
         { key: "name", label: "Nome do Colaborador", x: REPORT_MARGIN + 28, width: 130 },
       { key: "jobTitle", label: "Cargo", x: REPORT_MARGIN + 162, width: 90 },
       { key: "department", label: "Departamento", x: REPORT_MARGIN + 256, width: 80 },
@@ -2403,13 +2426,7 @@ class PdfService {
           this.drawCenteredText(page, text, column.x, y + 3, column.width, font, 8.1, REPORT_COLORS.text);
           return;
         }
-        page.drawText(this.fitText(text, font, 8.1, column.width - 4), {
-          x: column.x + 2,
-          y: y + 3,
-          font,
-          size: 8.1,
-          color: REPORT_COLORS.text
-        });
+        this.drawFittedText(page, text, column.x + 2, y + 3, font, 8.1, column.width - 4, REPORT_COLORS.text);
       });
 
       page.drawLine({
@@ -2534,13 +2551,7 @@ class PdfService {
       });
       y -= 18;
       section.lines.forEach((line) => {
-        page.drawText(this.fitText(line, font, 10.5, 470), {
-          x: REPORT_MARGIN + 8,
-          y,
-          font,
-          size: 10.5,
-          color: REPORT_COLORS.text
-        });
+        this.drawFittedText(page, line, REPORT_MARGIN + 8, y, font, 10.5, 470, REPORT_COLORS.text);
         y -= 16;
       });
       y -= 14;
@@ -2599,13 +2610,7 @@ class PdfService {
         height: block.height,
         color: REPORT_COLORS.altFill
       });
-      page.drawText(this.fitText(block.label, bold, 11, block.width - 32), {
-        x: block.x + 16,
-        y: block.y + block.height - 26,
-        font: bold,
-        size: 11,
-        color: REPORT_COLORS.title
-      });
+      this.drawFittedText(page, block.label, block.x + 16, block.y + block.height - 26, bold, 11, block.width - 32, REPORT_COLORS.title);
       page.drawText("Nome", {
         x: block.x + 16,
         y: block.y + block.height - 54,
@@ -2653,13 +2658,7 @@ class PdfService {
       size: 9.6,
       color: REPORT_COLORS.subtitle
     });
-    page.drawText(this.fitText(value, bold, 14, width - 28), {
-      x: x + 14,
-      y: y + 18,
-      font: bold,
-      size: 14,
-      color: REPORT_COLORS.title
-    });
+    this.drawFittedText(page, value, x + 14, y + 18, bold, 14, width - 28, REPORT_COLORS.title, 7);
   }
 
   drawCostDistributionChart({ page, x, y, width, height, data, font, bold }) {
@@ -2688,13 +2687,7 @@ class PdfService {
     data.forEach((item, index) => {
       const rowY = y + height - (index + 1) * rowHeight;
       const barWidth = ((item.amount || 0) / maxValue) * (width - 110);
-      page.drawText(this.fitText(item.title, font, 9.5, 120), {
-        x,
-        y: rowY + 7,
-        font,
-        size: 9.5,
-        color: REPORT_COLORS.text
-      });
+      this.drawFittedText(page, item.title, x, rowY + 7, font, 9.5, 120, REPORT_COLORS.text);
       page.drawRectangle({
         x: x + 122,
         y: rowY + 4,
@@ -2809,35 +2802,34 @@ class PdfService {
 
     const trimmed = lines.slice(0, maxLines);
     const lastIndex = trimmed.length - 1;
-    const ellipsis = "...";
     let shortened = String(trimmed[lastIndex] || "");
-    while (shortened.length > 1 && font.widthOfTextAtSize(`${shortened}${ellipsis}`, size) > maxWidth) {
+    while (shortened.length > 1 && font.widthOfTextAtSize(shortened, size) > maxWidth) {
       shortened = shortened.slice(0, -1);
     }
-    trimmed[lastIndex] = `${shortened.trim()}${ellipsis}`;
+    trimmed[lastIndex] = shortened.trim();
     return trimmed;
   }
 
   drawRightAlignedWithin(page, text, rightX, y, font, size, maxWidth) {
-    const value = this.fitText(text, font, size, maxWidth);
-    const textWidth = font.widthOfTextAtSize(value, size);
-    page.drawText(value, {
+    const fitted = this.fitTextStyle(text, font, size, maxWidth);
+    const textWidth = font.widthOfTextAtSize(fitted.text, fitted.size);
+    page.drawText(fitted.text, {
       x: Math.max(rightX - textWidth, 0),
       y,
       font,
-      size,
+      size: fitted.size,
       color: REPORT_COLORS.text
     });
   }
 
   drawCenteredText(page, text, x, y, width, font, size, color) {
-    const value = this.fitText(text, font, size, width);
-    const textWidth = font.widthOfTextAtSize(value, size);
-    page.drawText(value, {
+    const fitted = this.fitTextStyle(text, font, size, width);
+    const textWidth = font.widthOfTextAtSize(fitted.text, fitted.size);
+    page.drawText(fitted.text, {
       x: x + Math.max((width - textWidth) / 2, 0),
       y,
       font,
-      size,
+      size: fitted.size,
       color
     });
   }
@@ -2987,8 +2979,8 @@ class PdfService {
 
     const fileName = `relatorio-anual-${normalizedFilters.monthRef || [normalizedFilters.startDate, normalizedFilters.endDate].filter(Boolean).join("_") || data.year}.pdf`;
     const output = path.join(this.database.exportsDir, fileName);
-    fs.writeFileSync(output, await doc.save());
-    return { ok: true, path: output };
+    const saved = await this.saveValidatedPdf(doc, output, { documentType: "annual_report", minimumPages: 1 });
+    return { ok: true, path: output, qaReport: saved.qaReport };
   }
 
   async generateAnnualTaxReport(filters, taxType = "irt") {
@@ -3093,8 +3085,8 @@ class PdfService {
         ? `relatorio-anual-inss-${data.year}.pdf`
         : `relatorio-anual-irt-${data.year}.pdf`;
     const output = path.join(this.database.exportsDir, fileName);
-    fs.writeFileSync(output, await doc.save());
-    return { ok: true, path: output };
+    const saved = await this.saveValidatedPdf(doc, output, { documentType: `annual_${taxType}_report`, minimumPages: 1 });
+    return { ok: true, path: output, qaReport: saved.qaReport };
   }
 
   buildAnnualTaxReportData(filters, taxType = "irt") {
@@ -3513,7 +3505,7 @@ class PdfService {
       ["Período de referência", `Janeiro a Dezembro de ${data.year}`],
       ["Data de emissão", this.formatDate(new Date().toISOString())],
       ["Documento", "Confidencial - Uso interno"],
-      ["Âmbito", isNaN(data.currentTotal) ? "-" : `${data.shortLabel} anual consolidado`]
+      ["Ambito", isNaN(data.currentTotal) ? "-" : `${data.shortLabel} anual consolidado`]
     ];
     let y = height - 410;
     details.forEach(([label, value]) => {
@@ -3696,29 +3688,11 @@ class PdfService {
       });
       page.drawText(month.shortLabel, { x: 336, y, font: bold, size: 10, color: REPORT_COLORS.text });
       if (data.taxType === "inss") {
-        page.drawText(this.fitText(`Func.: ${this.currency(month.employeeValue)}`, font, 9.2, 110), {
-          x: 386,
-          y,
-          font,
-          size: 9.2,
-          color: REPORT_COLORS.text
-        });
-        page.drawText(this.fitText(`Emp.: ${this.currency(month.employerValue)}`, font, 9.2, 110), {
-          x: 498,
-          y,
-          font,
-          size: 9.2,
-          color: REPORT_COLORS.text
-        });
+        this.drawFittedText(page, `Func.: ${this.currency(month.employeeValue)}`, 386, y, font, 9.2, 110, REPORT_COLORS.text);
+        this.drawFittedText(page, `Emp.: ${this.currency(month.employerValue)}`, 498, y, font, 9.2, 110, REPORT_COLORS.text);
         this.drawRightText(page, this.currency(month.totalValue), width - REPORT_MARGIN - 10, y, bold, 9.6);
       } else {
-        page.drawText(this.fitText(`Base: ${this.currency(month.taxableBase)}`, font, 9.2, 170), {
-          x: 386,
-          y,
-          font,
-          size: 9.2,
-          color: REPORT_COLORS.text
-        });
+        this.drawFittedText(page, `Base: ${this.currency(month.taxableBase)}`, 386, y, font, 9.2, 170, REPORT_COLORS.text);
         this.drawRightText(page, this.currency(month.totalValue), width - REPORT_MARGIN - 10, y, bold, 9.6);
       }
       y -= 28;
@@ -3820,13 +3794,7 @@ class PdfService {
           this.drawCenteredText(page, text, column.x, y + 3, column.width, font, 8.1, REPORT_COLORS.text);
           return;
         }
-        page.drawText(this.fitText(text, font, 8.1, column.width - 4), {
-          x: column.x + 2,
-          y: y + 3,
-          font,
-          size: 8.1,
-          color: REPORT_COLORS.text
-        });
+        this.drawFittedText(page, text, column.x + 2, y + 3, font, 8.1, column.width - 4, REPORT_COLORS.text);
       });
       y -= rowHeight;
     });
@@ -3888,13 +3856,7 @@ class PdfService {
     let y = 294;
     lines.forEach((line) => {
       page.drawCircle({ x: REPORT_MARGIN + 24, y: y + 4, size: 2.5, color: REPORT_COLORS.accent });
-      page.drawText(this.fitText(line, font, 10.5, width - REPORT_MARGIN * 2 - 54), {
-        x: REPORT_MARGIN + 34,
-        y,
-        font,
-        size: 10.5,
-        color: REPORT_COLORS.text
-      });
+      this.drawFittedText(page, line, REPORT_MARGIN + 34, y, font, 10.5, width - REPORT_MARGIN * 2 - 54, REPORT_COLORS.text);
       y -= 26;
     });
   }
@@ -4197,7 +4159,7 @@ class PdfService {
 
     page.drawRectangle({ x: REPORT_MARGIN, y: topY - 14, width: tableWidth, height: 20, color: REPORT_COLORS.title });
     columns.forEach((column) => {
-      page.drawText(this.fitText(column.label, bold, 7.1, column.width - 4), { x: column.x + 2, y: topY - 6, font: bold, size: 7.1, color: rgb(1, 1, 1) });
+      this.drawFittedText(page, column.label, column.x + 2, topY - 6, bold, 7.1, column.width - 4, rgb(1, 1, 1), 5.2);
     });
 
     let y = topY - 36;
@@ -4214,7 +4176,7 @@ class PdfService {
           this.drawCenteredText(page, text, column.x, y + 3, column.width, font, 7.1, REPORT_COLORS.text);
           return;
         }
-        page.drawText(this.fitText(text, font, 7.1, column.width - 4), { x: column.x + 2, y: y + 3, font, size: 7.1, color: REPORT_COLORS.text });
+        this.drawFittedText(page, text, column.x + 2, y + 3, font, 7.1, column.width - 4, REPORT_COLORS.text, 5.2);
       });
       y -= rowHeight;
     });
@@ -4289,7 +4251,7 @@ class PdfService {
       page.drawText(`Total: ${lines[0]?.startsWith("Sem ") ? 0 : lines.length}`, { x: 430, y, font, size: 10.2, color: REPORT_COLORS.subtitle });
       y -= 18;
       lines.forEach((line) => {
-        page.drawText(this.fitText(line, font, 10.3, 470), { x: REPORT_MARGIN + 8, y, font, size: 10.3, color: REPORT_COLORS.text });
+        this.drawFittedText(page, line, REPORT_MARGIN + 8, y, font, 10.3, 470, REPORT_COLORS.text);
         y -= 16;
       });
       y -= 20;

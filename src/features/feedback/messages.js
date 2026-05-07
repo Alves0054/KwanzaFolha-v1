@@ -46,10 +46,10 @@ export function contextualizeFeedback(actionLabel, resultMessage, fallbackMessag
 
   const normalized = normalizeText(message);
   if (normalized.includes("permiss")) {
-    return `${actionLabel}: a sua conta nao tem permissao para executar esta acao.`;
+    return `${actionLabel}: a sua conta não tem permissão para executar esta ação.`;
   }
   if (normalized.includes("fechado")) {
-    return `${actionLabel}: o periodo em causa esta fechado. Reabra-o primeiro ou escolha outro mes.`;
+    return `${actionLabel}: o período em causa está fechado. Reabra-o primeiro ou escolha outro mês.`;
   }
   if (
     normalized.includes("assinatura digital") ||
@@ -57,7 +57,7 @@ export function contextualizeFeedback(actionLabel, resultMessage, fallbackMessag
     normalized.includes("token de licenca") ||
     normalized.includes("token de licen")
   ) {
-    return `${actionLabel}: a licenca foi encontrada, mas a assinatura digital nao corresponde a esta versao do aplicativo. Atualize o servidor de licencas com a chave privada correta ou instale a build que corresponde ao servidor.`;
+    return `${actionLabel}: a licença foi encontrada, mas a assinatura digital não corresponde a esta versão do aplicativo. Atualize o servidor de licenças com a chave privada correta ou instale a build correspondente ao servidor.`;
   }
   if (
     normalized.includes("iban") ||

@@ -1,5 +1,10 @@
 const OPERATOR_PERMISSIONS = new Set([
   "employees.view",
+  "employees.manage",
+  "organization.view",
+  "organization.manage",
+  "enterprise.view",
+  "enterprise.manage",
   "events.view",
   "events.manage",
   "attendance.view",
@@ -10,30 +15,47 @@ const OPERATOR_PERMISSIONS = new Set([
   "vacation.manage",
   "documents.view",
   "documents.manage",
+  "hr.view",
+  "hr.manage",
   "financial.view",
+  "financial.manage",
   "shifts.view",
+  "shifts.manage",
   "salary_scales.view",
+  "salary_scales.manage",
   "payroll.view",
+  "payroll.process",
+  "payroll.period.manage",
   "reports.view",
+  "audit.view",
   "exports.generate",
   "bank.export",
-  "pdf.generate"
+  "pdf.generate",
+  "company.manage",
+  "users.manage",
+  "backup.manage",
+  "app.update.manage",
+  "vacation.balance.manage"
 ]);
 
 const PERMISSION_LABELS = {
-  "employees.manage": "gerir o cadastro de funcionarios",
+  "employees.manage": "gerir o cadastro de funcionários",
+  "organization.manage": "gerir empresas, filiais, departamentos, cargos e centros de custo",
+  "enterprise.manage": "gerir contratos, recrutamento, desempenho, formação, workflows e sincronização",
   "events.manage": "registar movimentos salariais",
   "attendance.manage": "registar ou importar assiduidade",
-  "leave.manage": "gerir licencas e ausencias",
-  "vacation.balance.manage": "ajustar saldos anuais de ferias",
-  "vacation.manage": "registar ferias",
+  "leave.manage": "gerir licenças e ausências",
+  "vacation.balance.manage": "ajustar saldos anuais de férias",
+  "vacation.manage": "registar férias",
   "documents.view": "consultar documentos laborais",
   "documents.manage": "gerir documentos laborais",
-  "financial.manage": "gerir emprestimos e adiantamentos",
+  "hr.view": "consultar RH 360",
+  "hr.manage": "gerir RH 360",
+  "financial.manage": "gerir empréstimos e adiantamentos",
   "payroll.process": "processar a folha salarial",
-  "payroll.period.manage": "alterar periodos da folha",
+  "payroll.period.manage": "alterar períodos da folha",
   "company.manage": "alterar os dados da empresa",
-  "settings.manage": "alterar configuracoes do sistema",
+  "settings.manage": "alterar configurações do sistema",
   "users.manage": "gerir utilizadores",
   "salary_scales.manage": "gerir escalas salariais",
   "shifts.manage": "gerir turnos",
@@ -64,8 +86,8 @@ function hasPermission(user, permission) {
 }
 
 function getPermissionDeniedMessage(permission) {
-  const label = PERMISSION_LABELS[permission] || "executar esta operacao";
-  return `O seu perfil nao tem permissao para ${label}.`;
+  const label = PERMISSION_LABELS[permission] || "executar esta operação";
+  return `O seu perfil não tem permissão para ${label}.`;
 }
 
 module.exports = {

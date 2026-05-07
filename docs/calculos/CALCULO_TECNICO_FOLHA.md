@@ -1,6 +1,6 @@
-# Calculo Tecnico da Folha (Rastreavel por Modulo)
+# Calculo Tecnico da Folha (Rastreavel por Módulo)
 
-## Modulos de referencia no codigo
+## Módulos de referência no codigo
 
 - folha salarial: `electron/services/payroll.js`
 - engine de salario: `electron/services/core/payroll/salaryEngine.js`
@@ -8,7 +8,7 @@
 - IRT: `electron/services/core/irt/irtCalculator.js`
 - INSS: `electron/services/core/inss/inssCalculator.js`
 - perfil fiscal vigente: `electron/services/core/fiscal/index.js`
-- validacao AGT: `electron/services/database.js` (`buildAgtMonthlyRemunerationMap`)
+- validação AGT: `electron/services/database.js` (`buildAgtMonthlyRemunerationMap`)
 
 ## Formula base do processamento mensal
 
@@ -34,18 +34,18 @@
   - bases legais
   - perfil fiscal usado
   - totais de deducoes
-  - decomposicao de componentes da remuneracao
+  - decomposição de componentes da remuneração
 - auditoria de calculo exportavel:
   - `DatabaseService.exportPayrollCalculationAudit`
   - saidas JSON e CSV em pasta de auditoria
 
-## Fecho de periodo
+## Fecho de período
 
-- periodo fechado bloqueia alteracao sem reabertura/autorizacao
-- reprocessamento de periodo fechado exige motivo explicito
+- período fechado bloqueia alteracao sem reabertura/autorização
+- reprocessamento de período fechado exige motivo explicito
 
 ## Mapas e exportacoes
 
-- mapa AGT: validacao de NIF/NISS/BI + consistencia de bases IRT/INSS
+- mapa AGT: validação de NIF/NISS/BI + consistencia de bases IRT/INSS
 - exportacoes PS2/PSX: exigem banco e conta de origem da empresa configurados
-- formatos PS2/PSX exigem validacao externa por banco para certificacao operacional
+- formatos PS2/PSX exigem validação externa por banco para certificacao operacional

@@ -72,22 +72,22 @@ class MailerService {
 
   async sendPasswordResetTokenOnline({ email, fullName, username, resetToken, expiresAt }) {
     if (!this.licensing?.getApiBaseUrl) {
-      return { ok: false, message: "Servico online de e-mail indisponivel (licensing nao inicializado)." };
+      return { ok: false, message: "Serviço online de e-mail indisponível (licensing não inicializado)." };
     }
 
     if (typeof fetch !== "function") {
-      return { ok: false, message: "Esta versao nao suporta envio de e-mail via servico online." };
+      return { ok: false, message: "Esta versão não suporta envio de e-mail via serviço online." };
     }
 
     if (!isValidEmail(email)) {
-      return { ok: false, message: "O utilizador nao tem um e-mail valido para receber o codigo de redefinicao." };
+      return { ok: false, message: "O utilizador não tem um e-mail válido para receber o código de redefinição." };
     }
 
     let apiBaseUrl = "";
     try {
       apiBaseUrl = String(this.licensing.getApiBaseUrl() || "").trim().replace(/\/+$/, "");
     } catch (error) {
-      return { ok: false, message: error?.message || "URL do servidor online invalida." };
+      return { ok: false, message: error?.message || "URL do servidor onliné inválida." };
     }
 
     try {
@@ -110,7 +110,7 @@ class MailerService {
       });
 
       if (!response.ok) {
-        return { ok: false, message: "Nao foi possivel contactar o servico online de e-mail." };
+        return { ok: false, message: "Não foi possível contactar o serviço online de e-mail." };
       }
 
       const payload = await response.json().catch(() => ({}));
@@ -122,7 +122,7 @@ class MailerService {
     } catch (error) {
       return {
         ok: false,
-        message: `Nao foi possivel enviar o e-mail via servico online: ${error?.message || "erro desconhecido"}.`
+        message: `Não foi possível enviar o e-mail via serviço online: ${error?.message || "erro desconhecido"}.`
       };
     }
   }
@@ -134,7 +134,7 @@ class MailerService {
     }
 
     if (!isValidEmail(email)) {
-      return { ok: false, message: "O utilizador nao tem um e-mail valido para receber o codigo de redefinicao." };
+      return { ok: false, message: "O utilizador não tem um e-mail válido para receber o código de redefinição." };
     }
 
     const config = validation.config;
@@ -149,10 +149,10 @@ class MailerService {
       "",
       `Utilizador: ${username}`,
       `Codigo de redefinicao: ${resetToken}`,
-      expiryLabel ? `Valido ate: ${expiryLabel}` : "",
+      expiryLabel ? `Válido até: ${expiryLabel}` : "",
       "",
-      "Por seguranca, este codigo so pode ser usado uma vez.",
-      "Se nao reconhece este pedido, contacte o administrador do sistema.",
+      "Por segurança, este código só pode ser usado uma vez.",
+      "Se não reconhece este pedido, contacte o administrador do sistema.",
       "",
       `Mensagem automatica enviada por ${config.companyName}.`
     ].filter(Boolean).join("\n");
@@ -166,10 +166,10 @@ class MailerService {
         <div style="background: #f4f7fb; border: 1px solid #d7e2f1; border-radius: 10px; padding: 16px; margin: 16px 0;">
           <p style="margin: 0 0 8px 0;"><strong>Utilizador:</strong> ${username}</p>
           <p style="margin: 0 0 8px 0;"><strong>Codigo de redefinicao:</strong> ${resetToken}</p>
-          ${expiryLabel ? `<p style="margin: 0;"><strong>Valido ate:</strong> ${expiryLabel}</p>` : ""}
+          ${expiryLabel ? `<p style="margin: 0;"><strong>Válido até:</strong> ${expiryLabel}</p>` : ""}
         </div>
-        <p>Por seguranca, este codigo so pode ser usado uma vez.</p>
-        <p>Se nao reconhece este pedido, contacte o administrador do sistema.</p>
+        <p>Por segurança, este código só pode ser usado uma vez.</p>
+        <p>Se não reconhece este pedido, contacte o administrador do sistema.</p>
         <p style="color: #64748b; font-size: 12px; margin-top: 24px;">Mensagem automatica enviada por ${config.companyName}.</p>
       </div>
     `;
@@ -187,7 +187,7 @@ class MailerService {
     } catch (error) {
       return {
         ok: false,
-        message: `Nao foi possivel enviar o e-mail com o codigo de redefinicao: ${error.message || "erro desconhecido"}.`
+        message: `Não foi possível enviar o e-mail com o código de redefinição: ${error.message || "erro desconhecido"}.`
       };
     }
   }
@@ -232,7 +232,7 @@ class MailerService {
       "Teste de envio de e-mail (SMTP) do Kwanza Folha.",
       "",
       `Servidor: ${config.host}:${config.port}`,
-      `Segurança (secure): ${config.secure ? "sim" : "nao"}`,
+      `Segurança (secure): ${config.secure ? "sim" : "não"}`,
       "",
       `Emitido em: ${new Date().toLocaleString("pt-PT")}`
     ].join("\n");
@@ -248,7 +248,7 @@ class MailerService {
           <p>Este e-mail confirma que o servidor SMTP foi configurado com sucesso no Kwanza Folha.</p>
           <ul>
             <li><strong>Servidor:</strong> ${config.host}:${config.port}</li>
-            <li><strong>Secure:</strong> ${config.secure ? "sim" : "nao"}</li>
+            <li><strong>Secure:</strong> ${config.secure ? "sim" : "não"}</li>
           </ul>
           <p style="color: #64748b; font-size: 12px;">Emitido em ${new Date().toLocaleString("pt-PT")}.</p>
         </div>`

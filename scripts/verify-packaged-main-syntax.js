@@ -67,13 +67,13 @@ function main() {
 
     if (typeof checkResult.status !== "number") {
       throw new Error(
-        `Falha ao validar sintaxe de '${entryPath}' no app.asar: status de processo invalido.`
+        `Falha ao validar sintaxe de '${entryPath}' no app.asar: status de processo inválido.`
       );
     }
 
     if (checkResult.status !== 0) {
       const details = [checkResult.stdout, checkResult.stderr].filter(Boolean).join("\n").trim();
-      throw new Error(`Sintaxe invalida em '${entryPath}' dentro do app.asar.\n${details}`);
+      throw new Error(`Sintaxé inválida em '${entryPath}' dentro do app.asar.\n${details}`);
     }
 
     console.log(

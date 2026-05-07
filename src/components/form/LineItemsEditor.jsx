@@ -8,7 +8,7 @@ const fiscalModeOptions = [
   { value: "taxable", label: "INSS + IRT" },
   { value: "irt_only", label: "So IRT" },
   { value: "inss_only", label: "So INSS" },
-  { value: "exempt", label: "Nao sujeito / Isento" }
+  { value: "exempt", label: "Não sujeito / isento" }
 ];
 
 export default function LineItemsEditor({

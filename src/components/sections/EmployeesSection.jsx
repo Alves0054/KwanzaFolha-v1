@@ -43,7 +43,7 @@ export default function EmployeesSection({
   const activeShifts = (boot.workShifts || []).filter((shift) => shift.active);
   const detectedBank = inferBankFromIban(employeeForm.iban, banks);
   const detectedRegistryCode = extractAngolaBankRegistryCode(employeeForm.iban);
-  const canManageEmployees = user?.role === "admin";
+  const canManageEmployees = Boolean(user);
 
   return (
     <section className="two-column">
@@ -382,7 +382,7 @@ export default function EmployeesSection({
           </form>
         ) : (
           <p className="empty-note">
-            Apenas administradores podem gerir o cadastro de funcionários. As contas de operador mantêm acesso de consulta.
+            Inicie sessão para gerir o cadastro de funcionários.
           </p>
         )}
       </div>

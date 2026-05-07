@@ -14,9 +14,7 @@ function getLicenseToneClass(tone) {
   return "danger";
 }
 
-export default function TopBar({ monthRef, setMonthRef, runPayroll, updateState, licenseBanner, theme, setTheme, user }) {
-  const canProcessPayroll = user?.role === "admin";
-
+export default function TopBar({ monthRef, setMonthRef, updateState, licenseBanner, theme, setTheme }) {
   return (
     <header className="topbar">
       <div className="topbar-copy">
@@ -75,17 +73,6 @@ export default function TopBar({ monthRef, setMonthRef, runPayroll, updateState,
             Light
           </button>
         </div>
-
-        <button
-          type="button"
-          className="topbar-primary"
-          onClick={canProcessPayroll ? runPayroll : undefined}
-          disabled={!canProcessPayroll}
-          title={!canProcessPayroll ? "Apenas administradores podem processar a folha." : undefined}
-        >
-          <AppIcon name="process" size={16} />
-          Processar folha
-        </button>
       </div>
     </header>
   );

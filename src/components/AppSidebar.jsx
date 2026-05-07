@@ -1,18 +1,21 @@
 import { useMemo } from "react";
 import AppIcon from "./AppIcon";
-import brandIcon from "../assets/logos/logo-icon.png";
+import brandIcon from "../assets/logos/logo-icon.ico";
 import brandLogo from "../assets/logos/logo-light.png";
 
 const navItems = [
   { key: "dashboard", icon: "dashboard", label: "Dashboard" },
+  { key: "organizacao", icon: "company", label: "Organização" },
+  { key: "empresarial", icon: "process", label: "Suite RH" },
+  { key: "rh360", icon: "hr", label: "RH 360" },
   { key: "funcionarios", icon: "users", label: "Funcionários" },
   { key: "eventos", icon: "activity", label: "Movimentos" },
   { key: "historico", icon: "history", label: "Histórico" },
   { key: "processamento", icon: "payroll", label: "Folha Salarial" },
   { key: "estado", icon: "state", label: "Pagamento ao Estado" },
   { key: "relatorios", icon: "reports", label: "Relatórios" },
-  { key: "utilizador", icon: "user", label: "Utilizador", role: "admin", section: "secondary" },
-  { key: "auditoria", icon: "audit", label: "Auditoria", role: "admin", section: "secondary" },
+  { key: "utilizador", icon: "user", label: "Utilizador", section: "secondary" },
+  { key: "auditoria", icon: "audit", label: "Auditoria", section: "secondary" },
   { key: "configuracoes", icon: "settings", label: "Configurações", role: "admin", section: "secondary" }
 ];
 
@@ -77,19 +80,6 @@ export default function AppSidebar({ tab, setTab, user, collapsed, setCollapsed 
             </button>
           ))}
         </nav>
-      </div>
-
-      <div className="sidebar-shortcuts">
-        {!collapsed && <span className="sidebar-section__title">Acesso rápido</span>}
-        <button
-          type="button"
-          className={`sidebar-shortcut ${tab === "relatorios" ? "sidebar-shortcut--active" : ""}`}
-          onClick={() => setTab("relatorios")}
-          title={collapsed ? "Recibos" : undefined}
-        >
-          <AppIcon name="receipt" size={18} />
-          {!collapsed && <span>Recibos</span>}
-        </button>
       </div>
 
       {!!secondaryItems.length && (
