@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-07T09:58:38.209Z",
+  "generatedAt": "2026-05-07T10:24:37.002Z",
   "files": [
     {
       "path": "electron/bootstrap.js",
@@ -51,7 +51,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "7bc3d1a384be9c90484b1b2db9f699abb153c2e4f4bd2e715b8bece3ff3272b2",
+      "sha256": "97a369165fc6d5db87be9b2b58088fea6ba0b21c227382197376909e22093f94",
       "packaged": false,
       "development": true
     }

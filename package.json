@@ -120,7 +120,7 @@
       "uninstallerSidebar": "assets/images/uninstallerSidebar.bmp",
       "license": "build/installer-license.txt",
       "include": "build/installer.nsh",
-      "perMachine": true,
+      "perMachine": false,
       "packElevateHelper": true,
       "runAfterFinish": true
     }
