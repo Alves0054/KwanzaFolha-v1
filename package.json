@@ -1,6 +1,6 @@
 {
   "name": "kwanza-folha",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Sistema desktop de processamento salarial empresarial para Windows.",
   "main": "electron/bootstrap.js",
   "author": "Adérito Alves / Alves Estúdio",
@@ -112,7 +112,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Kwanza Folha",
-      "artifactName": "KwanzaFolha-Setup-1.0.0.${ext}",
+      "artifactName": "KwanzaFolha-Setup-1.0.2.${ext}",
       "installerIcon": "build/installerIcon.ico",
       "uninstallerIcon": "build/uninstallerIcon.ico",
       "installerHeader": "assets/images/installerHeader.bmp",

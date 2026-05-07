@@ -28,7 +28,7 @@ Principais áreas:
 
 ### 2.1 Instalar pela primeira vez
 
-1. Execute o instalador `KwanzaFolha-Setup-1.0.8.exe`.
+1. Execute o instalador `KwanzaFolha-Setup-1.0.2.exe`.
 2. Escolha a pasta de instalação quando solicitado.
 3. Conclua a instalação.
 4. Abra o Kwanza Folha pelo atalho criado.
