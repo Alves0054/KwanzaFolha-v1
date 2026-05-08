@@ -3,7 +3,7 @@ const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
 const licenseSource = require("../config/license-source");
-const { LICENSE_PLANS, DEFAULT_LICENSE_PLAN } = require("../../shared/license-plans");
+const { LICENSE_PLANS, DEFAULT_LICENSE_PLAN, normalizeBillingCycle, resolvePlanBilling } = require("../../shared/license-plans");
 
 let defaultLogger = console;
 try {
@@ -1137,9 +1137,18 @@ class LicensingService {
 
   async createPaymentReference(payload) {
     const requestedPlan = String(payload?.plan || "").trim().toLowerCase();
+    const plan = this.getPlan(requestedPlan || DEFAULT_LICENSE_PLAN.code);
+    const billingCycle = normalizeBillingCycle(payload?.billingCycle || payload?.billing_cycle);
+    const billing = resolvePlanBilling(plan, billingCycle);
+
     return this.apiRequest("/payment/create", {
       ...payload,
-      plan: requestedPlan || DEFAULT_LICENSE_PLAN.code
+      plan: requestedPlan || DEFAULT_LICENSE_PLAN.code,
+      billing_cycle: billing.code,
+      billingCycle: billing.code,
+      amount: billing.price,
+      period_days: billing.periodDays,
+      duration_days: billing.durationDays
     });
   }
 
@@ -1237,6 +1246,7 @@ class LicensingService {
     return this.createPaymentReference({
       ...payload,
       plan: String(payload?.plan || "").trim().toLowerCase() || DEFAULT_LICENSE_PLAN.code,
+      billingCycle: normalizeBillingCycle(payload?.billingCycle || payload?.billing_cycle),
       renewal: true
     });
   }

@@ -123,6 +123,7 @@ contextBridge.exposeInMainWorld("payrollAPI", {
   checkForUpdates: () => ipcRenderer.invoke("app:update-check"),
   downloadUpdate: () => ipcRenderer.invoke("app:update-download"),
   installUpdate: () => ipcRenderer.invoke("app:update-install"),
+  downloadClientManual: () => ipcRenderer.invoke("docs:download-client-manual"),
   selectLogo: () => ipcRenderer.invoke("dialog:select-logo"),
   selectAttendanceFile: () => ipcRenderer.invoke("dialog:select-attendance-file"),
   selectAttendanceFolder: () => ipcRenderer.invoke("dialog:select-attendance-folder"),

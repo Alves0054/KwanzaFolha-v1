@@ -5,18 +5,53 @@ function formatKz(value) {
   return `${Number(value || 0).toLocaleString("pt-PT")} Kz`;
 }
 
+function normalizeBillingCycle(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "annual" || normalized === "anual" ? "annual" : "monthly";
+}
+
+function getBillingOption(plan, billingCycle) {
+  const normalizedCycle = normalizeBillingCycle(billingCycle);
+  const options = Array.isArray(plan?.billingOptions) && plan.billingOptions.length
+    ? plan.billingOptions
+    : [
+        {
+          code: "monthly",
+          name: "Mensal",
+          price: plan?.price || 0,
+          periodDays: plan?.periodDays || 30,
+          renewalLabel: "Renovação mensal"
+        },
+        {
+          code: "annual",
+          name: "Anual",
+          price: Number(plan?.price || 0) * 12,
+          periodDays: 365,
+          renewalLabel: "Renovação anual"
+        }
+      ];
+
+  return options.find((option) => option.code === normalizedCycle) || options[0];
+}
+
 const FALLBACK_PLAN = {
   code: "profissional",
   name: "Profissional",
   price: 15000,
+  monthlyPrice: 15000,
+  annualPrice: 180000,
   periodDays: 30,
   maxEmployees: 50,
   maxDevices: 3,
+  billingOptions: [
+    { code: "monthly", name: "Mensal", price: 15000, periodDays: 30, renewalLabel: "Renovação mensal" },
+    { code: "annual", name: "Anual", price: 180000, periodDays: 365, renewalLabel: "Renovação anual" }
+  ],
   features: [
     "Até 50 funcionários ativos",
     "Até 3 PCs/dispositivos por licença",
-    "Validade de 30 dias",
-    "Renovação mensal"
+    "Pagamento mensal ou anual",
+    "Funcionamento offline durante a validade da licença"
   ]
 };
 
@@ -44,6 +79,8 @@ export default function LicenseScreen({
   const selectedPlanCode = String(purchaseForm?.plan || availablePlans?.[0]?.code || FALLBACK_PLAN.code).trim().toLowerCase();
   const selectedPlan = availablePlans.find((candidate) => candidate.code === selectedPlanCode) || availablePlans[0] || FALLBACK_PLAN;
   const plan = selectedPlan;
+  const selectedBillingCycle = normalizeBillingCycle(purchaseForm?.billingCycle || purchaseForm?.billing_cycle);
+  const selectedBilling = getBillingOption(plan, selectedBillingCycle);
 
   const title = isDeveloperActive
     ? "LICENÇA TÉCNICA DE DESENVOLVIMENTO"
@@ -58,8 +95,8 @@ export default function LicenseScreen({
     : isExpired
       ? "Sua licença do Kwanza Folha expirou. Renove para continuar usando o sistema."
       : isTrialExpired
-        ? "Os 15 dias gratuitos já terminaram. Para continuar, renove ou compre um plano mensal."
-        : "Ative a sua licença ou conclua a compra/renovação do plano mensal para continuar a usar o Kwanza Folha.";
+        ? "Os 15 dias gratuitos já terminaram. Para continuar, renove ou compre um plano mensal ou anual."
+        : "Ative a sua licença ou conclua a compra/renovação do plano mensal ou anual para continuar a usar o Kwanza Folha.";
 
   const returnMode = isExpired ? "renew" : "purchase";
   const paymentInstructions = paymentState?.paymentInstructions || {};
@@ -124,7 +161,7 @@ export default function LicenseScreen({
                 </span>
                 <div className="auth-highlight__content">
                   <strong>{plan.name}</strong>
-                  <small>{formatKz(plan.price)} por mês, com acesso completo ao sistema.</small>
+                  <small>{formatKz(selectedBilling.price)} no plano {selectedBilling.name.toLowerCase()}, com acesso completo ao sistema.</small>
                 </div>
               </div>
 
@@ -240,12 +277,35 @@ export default function LicenseScreen({
               <>
                 <div className="section-heading compact">
                   <h3>{licenseMode === "renew" ? "Renovar licença" : "Comprar licença"}</h3>
-                  <p>Preencha os dados da empresa para gerar a referência de pagamento da assinatura mensal.</p>
+                  <p>Escolha o plano e a periodicidade para gerar a referência de pagamento da assinatura.</p>
+                </div>
+
+                <div className="license-billing-toggle" role="radiogroup" aria-label="Periodicidade de pagamento">
+                  {[
+                    { code: "monthly", label: "Mensal", hint: "30 dias" },
+                    { code: "annual", label: "Anual", hint: "365 dias" }
+                  ].map((option) => (
+                    <button
+                      key={option.code}
+                      type="button"
+                      className={selectedBillingCycle === option.code ? "license-billing-option license-billing-option--active" : "license-billing-option"}
+                      onClick={() =>
+                        setPurchaseForm((current) => ({
+                          ...current,
+                          billingCycle: option.code
+                        }))
+                      }
+                    >
+                      <strong>{option.label}</strong>
+                      <span>{option.hint}</span>
+                    </button>
+                  ))}
                 </div>
 
                 <div className="license-plan-grid" role="list">
                   {availablePlans.map((candidate) => {
                     const isActive = candidate.code === selectedPlanCode;
+                    const billing = getBillingOption(candidate, selectedBillingCycle);
                     return (
                       <button
                         key={candidate.code}
@@ -260,10 +320,10 @@ export default function LicenseScreen({
                       >
                         <div className="license-plan-card__headline">
                           <strong>{candidate.name}</strong>
-                          <span>{formatKz(candidate.price)} por mês</span>
+                          <span>{formatKz(billing.price)}</span>
                         </div>
                         <small className="license-plan-card__meta">
-                          Validade de {candidate.periodDays || 30} dias com renovação mensal.
+                          Validade de {billing.periodDays || 30} dias com {String(billing.renewalLabel || "renovação").toLowerCase()}.
                         </small>
                         <ul className="license-plan-features">
                           {(candidate.features || FALLBACK_PLAN.features).map((feature) => (
@@ -341,7 +401,7 @@ export default function LicenseScreen({
 
                   <div>
                     <label>Plano</label>
-                    <strong>{paymentState.planName || plan.name}</strong>
+                    <strong>{paymentState.planName || plan.name} · {paymentState.billingCycle === "annual" ? "Anual" : "Mensal"}</strong>
                   </div>
 
                   <div>

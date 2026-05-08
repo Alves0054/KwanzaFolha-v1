@@ -319,6 +319,7 @@ export const initialLicenseActivationForm = {
 
 export const initialLicensePurchaseForm = {
   plan: "profissional",
+  billingCycle: "monthly",
   empresa: "",
   nif: "",
   email: "",

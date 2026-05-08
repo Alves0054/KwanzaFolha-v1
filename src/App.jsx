@@ -185,6 +185,7 @@ export default function App() {
     amount: 0,
     validUntil: "",
     planName: "",
+    billingCycle: "monthly",
     serialKey: "",
     paymentInstructions: null
   });
@@ -1288,6 +1289,7 @@ export default function App() {
       amount: result.amount,
       validUntil: result.valid_until,
       planName: result.plan,
+      billingCycle: result.billing_cycle || result.billingCycle || payload.billingCycle || "monthly",
       serialKey: result.serial_key || payload.serial_key || "",
       paymentInstructions: result.payment_instructions || null
     });
@@ -3207,6 +3209,19 @@ export default function App() {
     }
   }
 
+  async function downloadClientManual() {
+    try {
+      const result = await window.payrollAPI.downloadClientManual();
+      if (!result?.ok) {
+        setFeedback(contextualizeFeedback("Manual do Cliente", result?.message, "Não foi possível baixar o Manual do Cliente."));
+        return;
+      }
+      setFeedback(result.message || "Manual do Cliente baixado com sucesso.");
+    } catch (error) {
+      setFeedback(contextualizeFeedback("Manual do Cliente", error?.message, "Não foi possível baixar o Manual do Cliente."));
+    }
+  }
+
   async function chooseLogo() {
     const file = await window.payrollAPI.selectLogo();
     if (file) {
@@ -4144,6 +4159,7 @@ export default function App() {
             checkForUpdates={checkForUpdates}
             downloadUpdate={downloadUpdate}
             installUpdate={installUpdate}
+            downloadClientManual={downloadClientManual}
           />
         )}
 

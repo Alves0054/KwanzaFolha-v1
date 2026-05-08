@@ -1,3 +1,10 @@
+!macro customWelcomePage
+  !insertmacro MUI_PAGE_WELCOME
+  !insertmacro MUI_PAGE_LICENSE "${BUILD_RESOURCES_DIR}\CONTRATO_LICENCA.txt"
+  !insertmacro MUI_PAGE_LICENSE "${BUILD_RESOURCES_DIR}\TERMOS_DE_USO.txt"
+  !insertmacro MUI_PAGE_LICENSE "${BUILD_RESOURCES_DIR}\POLITICA_PRIVACIDADE.txt"
+!macroend
+
 !macro customInit
   DetailPrint "Preparando atualizacao limpa do Kwanza Folha..."
 

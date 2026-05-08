@@ -85,7 +85,7 @@ const {
   scanDirectory: scanSensitiveFiles,
   classifyForbidden: classifySensitivePath
 } = require("../scripts/validate-no-sensitive-files");
-const { LICENSE_PLANS, DEFAULT_LICENSE_PLAN } = require("../shared/license-plans");
+const { LICENSE_PLANS, DEFAULT_LICENSE_PLAN, resolvePlanBilling } = require("../shared/license-plans");
 const { enforceEmployeeLimit, canActivateDevice } = require("../shared/domain/licensing-limits");
 let LicensingServer = null;
 try {
@@ -1775,18 +1775,22 @@ runTest("Planos comerciais declaram preços e limites de funcionários/dispositi
     code: plan.code,
     name: plan.name,
     price: plan.price,
+    annualPrice: plan.annualPrice,
     maxEmployees: plan.maxEmployees,
     maxDevices: plan.maxDevices
   }));
 
   assert.deepEqual(snapshot, [
-    { code: "starter", name: "Starter", price: 7500, maxEmployees: 10, maxDevices: 1 },
-    { code: "basico", name: "Básico", price: 12500, maxEmployees: 25, maxDevices: 2 },
-    { code: "profissional", name: "Profissional", price: 15000, maxEmployees: 50, maxDevices: 3 },
-    { code: "empresa", name: "Empresa", price: 28000, maxEmployees: 100, maxDevices: 4 },
-    { code: "business", name: "Business", price: 48500, maxEmployees: 200, maxDevices: 6 }
+    { code: "starter", name: "Starter", price: 7500, annualPrice: 90000, maxEmployees: 10, maxDevices: 1 },
+    { code: "basico", name: "Básico", price: 12500, annualPrice: 150000, maxEmployees: 25, maxDevices: 2 },
+    { code: "profissional", name: "Profissional", price: 15000, annualPrice: 180000, maxEmployees: 50, maxDevices: 3 },
+    { code: "empresa", name: "Empresa", price: 28000, annualPrice: 336000, maxEmployees: 100, maxDevices: 4 },
+    { code: "business", name: "Business", price: 48500, annualPrice: 582000, maxEmployees: 200, maxDevices: 6 }
   ]);
 
+  assert.equal(resolvePlanBilling(DEFAULT_LICENSE_PLAN, "monthly").price, 15000);
+  assert.equal(resolvePlanBilling(DEFAULT_LICENSE_PLAN, "annual").price, 180000);
+  assert.equal(resolvePlanBilling(DEFAULT_LICENSE_PLAN, "annual").periodDays, 365);
   assert.equal(DEFAULT_LICENSE_PLAN.code, "profissional");
 });
 
@@ -1909,15 +1913,18 @@ runTest("Compra de licença gera referencia com plano normalizado", async () => 
   let captured = null;
   service.apiRequest = async (route, payload) => {
     captured = { route, payload };
-    return { ok: true, reference: "123456789012", amount: 15000, plan: payload.plan };
+    return { ok: true, reference: "123456789012", amount: payload.amount, plan: payload.plan, billing_cycle: payload.billing_cycle };
   };
 
-  const result = await service.createPaymentReference({ empresa: "Empresa", email: "cliente@empresa.ao", plan: "PROFISSIONAL" });
+  const result = await service.createPaymentReference({ empresa: "Empresa", email: "cliente@empresa.ao", plan: "PROFISSIONAL", billingCycle: "annual" });
 
   assert.equal(result.ok, true);
   assert.equal(result.reference, "123456789012");
+  assert.equal(result.amount, 180000);
   assert.equal(captured.route, "/payment/create");
   assert.equal(captured.payload.plan, "profissional");
+  assert.equal(captured.payload.billing_cycle, "annual");
+  assert.equal(captured.payload.period_days, 365);
 });
 
 runTest("Pagamento confirmado devolve serial_key para ativação local", async () => {

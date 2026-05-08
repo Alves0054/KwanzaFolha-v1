@@ -1,100 +1,84 @@
+const MONTHLY_PERIOD_DAYS = 30;
+const ANNUAL_PERIOD_DAYS = 365;
+
+function buildBillingOptions(monthlyPrice) {
+  const normalizedMonthlyPrice = Number(monthlyPrice || 0);
+  const annualPrice = normalizedMonthlyPrice * 12;
+
+  return [
+    {
+      code: "monthly",
+      name: "Mensal",
+      label: "Pagamento mensal",
+      price: normalizedMonthlyPrice,
+      durationDays: MONTHLY_PERIOD_DAYS,
+      periodDays: MONTHLY_PERIOD_DAYS,
+      renewalLabel: "Renovação mensal"
+    },
+    {
+      code: "annual",
+      name: "Anual",
+      label: "Pagamento anual",
+      price: annualPrice,
+      durationDays: ANNUAL_PERIOD_DAYS,
+      periodDays: ANNUAL_PERIOD_DAYS,
+      renewalLabel: "Renovação anual"
+    }
+  ];
+}
+
+function createPlan({ code, name, price, maxEmployees, maxDevices }) {
+  const billingOptions = buildBillingOptions(price);
+
+  return {
+    code,
+    name,
+    price,
+    monthlyPrice: price,
+    annualPrice: price * 12,
+    currency: "Kz",
+    billingCycle: "monthly",
+    durationDays: MONTHLY_PERIOD_DAYS,
+    periodDays: MONTHLY_PERIOD_DAYS,
+    maxUsers: null,
+    maxEmployees,
+    maxDevices,
+    billingOptions,
+    features: [
+      `Até ${maxEmployees} funcionários ativos`,
+      `Até ${maxDevices} ${maxDevices === 1 ? "PC/dispositivo" : "PCs/dispositivos"} por licença`,
+      "Pagamento mensal ou anual",
+      "Funcionamento offline durante a validade da licença"
+    ]
+  };
+}
+
 const LICENSE_PLANS = [
-  {
-    code: "starter",
-    name: "Starter",
-    price: 7500,
-    currency: "Kz",
-    billingCycle: "monthly",
-    durationDays: 30,
-    periodDays: 30,
-    maxUsers: null,
-    maxEmployees: 10,
-    maxDevices: 1,
-    features: [
-      "Até 10 funcionários ativos",
-      "Até 1 PC/dispositivo por licença",
-      "Validade de 30 dias",
-      "Renovação mensal"
-    ]
-  },
-  {
-    code: "basico",
-    name: "Básico",
-    price: 12500,
-    currency: "Kz",
-    billingCycle: "monthly",
-    durationDays: 30,
-    periodDays: 30,
-    maxUsers: null,
-    maxEmployees: 25,
-    maxDevices: 2,
-    features: [
-      "Até 25 funcionários ativos",
-      "Até 2 PCs/dispositivos por licença",
-      "Validade de 30 dias",
-      "Renovação mensal"
-    ]
-  },
-  {
-    code: "profissional",
-    name: "Profissional",
-    price: 15000,
-    currency: "Kz",
-    billingCycle: "monthly",
-    durationDays: 30,
-    periodDays: 30,
-    maxUsers: null,
-    maxEmployees: 50,
-    maxDevices: 3,
-    features: [
-      "Até 50 funcionários ativos",
-      "Até 3 PCs/dispositivos por licença",
-      "Validade de 30 dias",
-      "Renovação mensal"
-    ]
-  },
-  {
-    code: "empresa",
-    name: "Empresa",
-    price: 28000,
-    currency: "Kz",
-    billingCycle: "monthly",
-    durationDays: 30,
-    periodDays: 30,
-    maxUsers: null,
-    maxEmployees: 100,
-    maxDevices: 4,
-    features: [
-      "Até 100 funcionários ativos",
-      "Até 4 PCs/dispositivos por licença",
-      "Validade de 30 dias",
-      "Renovação mensal"
-    ]
-  },
-  {
-    code: "business",
-    name: "Business",
-    price: 48500,
-    currency: "Kz",
-    billingCycle: "monthly",
-    durationDays: 30,
-    periodDays: 30,
-    maxUsers: null,
-    maxEmployees: 200,
-    maxDevices: 6,
-    features: [
-      "Até 200 funcionários ativos",
-      "Até 6 PCs/dispositivos por licença",
-      "Validade de 30 dias",
-      "Renovação mensal"
-    ]
-  }
+  createPlan({ code: "starter", name: "Starter", price: 7500, maxEmployees: 10, maxDevices: 1 }),
+  createPlan({ code: "basico", name: "Básico", price: 12500, maxEmployees: 25, maxDevices: 2 }),
+  createPlan({ code: "profissional", name: "Profissional", price: 15000, maxEmployees: 50, maxDevices: 3 }),
+  createPlan({ code: "empresa", name: "Empresa", price: 28000, maxEmployees: 100, maxDevices: 4 }),
+  createPlan({ code: "business", name: "Business", price: 48500, maxEmployees: 200, maxDevices: 6 })
 ];
 
 const DEFAULT_LICENSE_PLAN = LICENSE_PLANS.find((plan) => plan.code === "profissional") || LICENSE_PLANS[0];
 
-module.exports = {
-  LICENSE_PLANS,
-  DEFAULT_LICENSE_PLAN
-};
+function normalizeBillingCycle(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "annual" || normalized === "anual" ? "annual" : "monthly";
+}
 
+function resolvePlanBilling(plan, billingCycle = "monthly") {
+  const normalizedCycle = normalizeBillingCycle(billingCycle);
+  const options = Array.isArray(plan?.billingOptions) ? plan.billingOptions : buildBillingOptions(plan?.price);
+  return options.find((option) => option.code === normalizedCycle) || options[0];
+}
+
+module.exports = {
+  ANNUAL_PERIOD_DAYS,
+  DEFAULT_LICENSE_PLAN,
+  LICENSE_PLANS,
+  MONTHLY_PERIOD_DAYS,
+  normalizeBillingCycle,
+  resolvePlanBilling
+};

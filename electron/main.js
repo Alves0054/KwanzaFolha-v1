@@ -864,6 +864,42 @@ function openExternalSafely(targetUrl) {
   });
 }
 
+function resolveClientManualPath() {
+  const candidates = [
+    path.join(process.resourcesPath || "", "docs", "utilizador", "Manual do Cliente.pdf"),
+    path.join(__dirname, "..", "docs", "utilizador", "Manual do Cliente.pdf"),
+    path.join(app.getAppPath(), "docs", "utilizador", "Manual do Cliente.pdf")
+  ].filter(Boolean);
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) || "";
+}
+
+async function downloadClientManual() {
+  const sourcePath = resolveClientManualPath();
+  if (!sourcePath) {
+    return {
+      ok: false,
+      message: "O Manual do Cliente não foi encontrado na instalação."
+    };
+  }
+
+  const downloadsDir = app.getPath("downloads");
+  const destinationPath = path.join(downloadsDir, "Kwanza Folha - Manual do Cliente.pdf");
+  fs.copyFileSync(sourcePath, destinationPath);
+
+  try {
+    shell.showItemInFolder(destinationPath);
+  } catch (error) {
+    log.warn("Não foi possível mostrar o Manual do Cliente na pasta Downloads.", error);
+  }
+
+  return {
+    ok: true,
+    path: destinationPath,
+    message: `Manual do Cliente guardado em ${destinationPath}.`
+  };
+}
+
 function stopAttendanceWatcher() {
   if (attendanceSyncTimer) {
     clearTimeout(attendanceSyncTimer);
@@ -2707,6 +2743,7 @@ function registerIpc() {
   ipcMain.handle("app:update-check", withAuth(async () => services.updater.checkForUpdates()));
   ipcMain.handle("app:update-download", withPermission("app.update.manage", async () => services.updater.downloadUpdate()));
   ipcMain.handle("app:update-install", withPermission("app.update.manage", async () => services.updater.installDownloadedUpdate()));
+  ipcMain.handle("docs:download-client-manual", withAuth(async () => downloadClientManual()));
   ipcMain.handle("dialog:select-logo", withPermission("company.manage", async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ["openFile"],

@@ -91,7 +91,8 @@ export default function SettingsSection({
   updateState,
   checkForUpdates,
   downloadUpdate,
-  installUpdate
+  installUpdate,
+  downloadClientManual
 }) {
   const [backupSearch, setBackupSearch] = useState("");
   const salaryScales = boot.salaryScales || [];
@@ -423,6 +424,26 @@ export default function SettingsSection({
       </section>
 
       <section className="two-column">
+        <div className="panel settings-panel">
+          <div className="section-heading">
+            <h2>Manual de utilização</h2>
+            <p>Descarregue o manual completo para consultar os módulos, procedimentos e recomendações de uso.</p>
+          </div>
+
+          <div className="update-panel">
+            <div className="update-panel__status">
+              <span className="status-chip status-chip--info">PDF incluído na instalação</span>
+              <p>O ficheiro é guardado na pasta Downloads do Windows para facilitar a consulta pelo cliente.</p>
+            </div>
+
+            <div className="inline-actions">
+              <button type="button" onClick={downloadClientManual}>
+                Manual do Cliente
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div className="panel settings-panel">
           <div className="section-heading">
             <h2>Licenciamento</h2>
