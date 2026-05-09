@@ -207,7 +207,8 @@
 }
 
 .settings-panel {
-  height: 100%;
+  height: auto;
+  align-self: start;
 }
 
 .settings-panel .section-heading {
@@ -222,6 +223,20 @@
 
 .settings-panel .section-heading p {
   font-size: 14px;
+}
+
+.settings-panel--attendance-integrations {
+  min-height: 0;
+}
+
+.settings-panel--attendance-integrations .settings-form {
+  align-content: start;
+  gap: 18px 16px;
+}
+
+.settings-panel--attendance-integrations button[type="submit"] {
+  width: fit-content;
+  min-width: 260px;
 }
 
 .settings-panel .update-panel {
@@ -276,7 +291,7 @@
   gap: 10px;
 }
 
-.fiscal-profile-row {
+.table-row.fiscal-profile-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(176px, max-content);
   align-items: flex-start;
@@ -294,7 +309,7 @@
   color: var(--text-secondary);
 }
 
-.fiscal-profile-row .inline-actions {
+.table-row.fiscal-profile-row .inline-actions {
   display: grid;
   justify-items: end;
   align-content: start;
@@ -303,11 +318,11 @@
   white-space: normal;
 }
 
-.fiscal-profile-row .inline-actions .status-chip {
+.table-row.fiscal-profile-row .inline-actions .status-chip {
   margin: 0;
 }
 
-.fiscal-profile-row .inline-actions .secondary-btn {
+.table-row.fiscal-profile-row .inline-actions .secondary-btn {
   width: 176px;
   min-height: 40px;
   white-space: normal;
@@ -764,17 +779,17 @@
     flex-direction: column;
   }
 
-  .fiscal-profile-row {
+  .table-row.fiscal-profile-row {
     grid-template-columns: 1fr;
     gap: 10px;
   }
 
-  .fiscal-profile-row .inline-actions {
+  .table-row.fiscal-profile-row .inline-actions {
     min-width: 0;
     justify-items: start;
   }
 
-  .fiscal-profile-row .inline-actions .secondary-btn {
+  .table-row.fiscal-profile-row .inline-actions .secondary-btn {
     width: min(100%, 220px);
   }
 

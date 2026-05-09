@@ -334,7 +334,8 @@
 }
 
 .dashboard-metrics-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
 }
 
 .dashboard-inconsistency-grid {
@@ -349,6 +350,34 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: end;
+}
+
+.attendance-dashboard-panel {
+  align-self: start;
+  display: grid;
+  gap: 16px;
+}
+
+.attendance-dashboard-panel .section-heading {
+  margin-bottom: 0;
+}
+
+.attendance-dashboard-panel .dashboard-filter-grid {
+  margin-bottom: 0;
+}
+
+.attendance-dashboard-panel .dashboard-metrics-grid,
+.attendance-dashboard-panel .dashboard-indicators {
+  margin-top: 0;
+}
+
+.attendance-dashboard-panel .stat-card--compact {
+  min-height: 124px;
+  padding: 12px 14px 12px 16px;
+}
+
+.operational-alerts-panel {
+  align-self: start;
 }
 
 .dashboard-context-card {
@@ -382,8 +411,8 @@
 
 .dashboard-indicators {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
 }
 
 .dashboard-inconsistency-card--danger {

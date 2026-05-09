@@ -801,7 +801,7 @@ export default function DashboardSection({
       </section>
 
       <section className="two-column">
-        <div className="panel">
+        <div className="panel attendance-dashboard-panel">
           <div className="section-heading">
             <h2>Painel de assiduidade e turnos</h2>
             <p>Resumo do mês por departamento e trabalhador, com foco em presença, pontualidade e ausência.</p>
@@ -889,7 +889,7 @@ export default function DashboardSection({
           </div>
         </div>
 
-        <div className="panel">
+        <div className="panel operational-alerts-panel">
           <div className="section-heading">
             <h2>Alertas operacionais</h2>
             <p>O que exige atenção para manter o processamento e a assiduidade mais fiáveis.</p>

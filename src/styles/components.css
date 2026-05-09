@@ -844,13 +844,13 @@ button.danger:not(.link-btn):hover:not(:disabled) {
 
 .organization-list-panel {
   gap: 12px;
-  max-height: calc(100vh - 128px);
+  max-height: calc(100vh - 96px);
   min-height: 0;
   overflow: hidden;
 }
 
 .organization-list {
-  max-height: min(520px, calc(100vh - 330px));
+  max-height: clamp(260px, 46vh, 390px);
   min-height: 220px;
   overflow-x: hidden;
   overflow-y: auto;

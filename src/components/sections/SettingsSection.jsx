@@ -309,7 +309,7 @@ export default function SettingsSection({
           </form>
         </div>
 
-        <div className="panel settings-panel settings-panel--system">
+        <div className="panel settings-panel settings-panel--system settings-panel--attendance-integrations">
           <div className="section-heading">
             <h2>Integrações de assiduidade</h2>
             <p>Configure a pasta monitorizada, a origem dos ficheiros e o perfil do biométrico ou leitor de cartão.</p>
