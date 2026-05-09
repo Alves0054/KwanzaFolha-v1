@@ -160,7 +160,7 @@ class InstallationIdentityService {
     const opened = this.secureStorage.unprotectDataDPAPI(buffer, "installation-identity");
     const parsed = safeJsonParse(opened.toString("utf8"));
     if (!parsed?.installId || !parsed?.installSecret) {
-      throw new Error("Identidade de instalacao invalida.");
+      throw new Error("Identidade de instalação inválida.");
     }
     return parsed;
   }
@@ -393,6 +393,7 @@ foreach ($path in $paths) {
 
   verifyExecutableSignature(executablePath, expectedThumbprint = "", options = {}) {
     const isDevelopmentMode = Boolean(options?.developmentMode);
+    const requireSignedExecutable = Boolean(options?.requireSignedExecutable);
     const normalizedAllowedThumbprints = Array.from(
       new Set(
         [
@@ -409,9 +410,9 @@ foreach ($path in $paths) {
             ok: true,
             warning: true,
             code: "dev_signature_target_missing",
-            message: "Executavel nao encontrado para validacao de assinatura em modo de desenvolvimento."
+            message: "Executável não encontrado para validação de assinatura em modo de desenvolvimento."
           }
-        : { ok: false, code: "signature_target_missing", message: "Executavel nao encontrado para validacao de assinatura." };
+        : { ok: false, code: "signature_target_missing", message: "Executável não encontrado para validação de assinatura." };
     }
 
     try {
@@ -445,7 +446,7 @@ if ($signature.SignerCertificate) { $thumbprint = $signature.SignerCertificate.T
             return {
               ok: false,
               code: "hash_mismatch",
-              message: "O executavel parece ter sido alterado apos a assinatura (HashMismatch).",
+              message: "O executavel parece ter sido alterado após a assinatura (HashMismatch).",
               result
             };
           }
@@ -453,7 +454,7 @@ if ($signature.SignerCertificate) { $thumbprint = $signature.SignerCertificate.T
             return {
               ok: false,
               code: "thumbprint_mismatch",
-              message: "O thumbprint do executavel nao corresponde ao certificado esperado.",
+              message: "O thumbprint do executável não corresponde ao certificado esperado.",
               result
             };
           }
@@ -463,7 +464,7 @@ if ($signature.SignerCertificate) { $thumbprint = $signature.SignerCertificate.T
               warning: true,
               code: "signed_but_untrusted",
               message:
-                "Executavel assinado, mas a cadeia de confianca nao foi validada neste Windows. Instale a build oficial assinada (certificado confiavel) para eliminar este aviso.",
+                "Executável assinado, mas a cadeia de confiança não foi validada neste Windows. Instale a build oficial assinada (certificado confiável) para eliminar este aviso.",
               result
             };
           }
@@ -474,7 +475,19 @@ if ($signature.SignerCertificate) { $thumbprint = $signature.SignerCertificate.T
             warning: true,
             code: "untrusted_chain_with_expected_thumbprint",
             message:
-              "Assinatura do executavel corresponde ao certificado esperado, mas a cadeia de confianca nao foi validada neste Windows.",
+              "Assinatura do executável corresponde ao certificado esperado, mas a cadeia de confiança não foi validada neste Windows.",
+            result
+          };
+        }
+        if (status === "notsigned" && !requireSignedExecutable) {
+          return {
+            ok: true,
+            warning: true,
+            code: normalizedAllowedThumbprints.length > 0
+              ? "unsigned_trial_startup_allowed"
+              : "unsigned_without_expected_thumbprint",
+            message:
+              "Executavel sem assinatura digital. A aplicação pode iniciar o trial, mas a distribuicao comercial deve usar instalador assinado.",
             result
           };
         }
@@ -483,14 +496,14 @@ if ($signature.SignerCertificate) { $thumbprint = $signature.SignerCertificate.T
             ok: true,
             warning: true,
             code: status === "notsigned" ? "dev_unsigned" : "dev_invalid_signature",
-            message: "Assinatura digital nao valida em modo de desenvolvimento local.",
+            message: "Assinatura digital não válida em modo de desenvolvimento local.",
             result
           };
         }
         return {
           ok: false,
           code: status === "notsigned" ? "unsigned" : "invalid_signature",
-          message: "A assinatura digital do executavel nao e valida.",
+          message: "A assinatura digital do executável não é válida.",
           result
         };
       }
@@ -498,7 +511,7 @@ if ($signature.SignerCertificate) { $thumbprint = $signature.SignerCertificate.T
         return {
           ok: false,
           code: "thumbprint_mismatch",
-          message: "O thumbprint do executavel nao corresponde ao certificado esperado.",
+          message: "O thumbprint do executável não corresponde ao certificado esperado.",
           result
         };
       }
@@ -509,10 +522,10 @@ if ($signature.SignerCertificate) { $thumbprint = $signature.SignerCertificate.T
             ok: true,
             warning: true,
             code: "dev_signature_check_failed",
-            message: "Nao foi possivel validar a assinatura no modo de desenvolvimento local.",
+            message: "Não foi possível validar a assinatura no modo de desenvolvimento local.",
             error: error.message
           }
-        : { ok: false, code: "signature_check_failed", message: "Nao foi possivel validar a assinatura do executavel.", error: error.message };
+        : { ok: false, code: "signature_check_failed", message: "Não foi possível validar a assinatura do executável.", error: error.message };
     }
   }
 }

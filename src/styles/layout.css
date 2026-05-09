@@ -282,12 +282,25 @@
 .page-intro__actions,
 .page-intro__action-group,
 .inline-actions,
+.form-actions,
 .action-row,
 .payroll-values {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
+}
+
+.form-actions {
+  gap: 10px;
+  row-gap: 10px;
+  align-items: center;
+}
+
+.form-actions > button,
+.inline-actions > button,
+.action-row > button {
+  margin: 0;
 }
 
 .page-intro__actions {
@@ -421,14 +434,16 @@
 
   .topbar-actions,
   .page-intro__actions,
-  .page-intro__action-group {
+  .page-intro__action-group,
+  .form-actions {
     width: 100%;
     justify-content: stretch;
   }
 
   .topbar-actions > *,
   .page-intro__actions > *,
-  .page-intro__action-group > * {
+  .page-intro__action-group > *,
+  .form-actions > * {
     width: 100%;
   }
 }

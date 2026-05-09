@@ -39,7 +39,7 @@ if (-not $SkipSignatureCheck) {
 
     $status = [string]$signature.Status
     if ($status -eq "NotSigned" -or $status -eq "HashMismatch") {
-      throw "Smoke falhou: assinatura invalida para '$PathToFile'. Estado: $status."
+      throw "Smoke falhou: assinatura inválida para '$PathToFile'. Estado: $status."
     }
     if (-not $signature.TimeStamperCertificate) {
       throw "Smoke falhou: '$PathToFile' esta assinado sem timestamp."
@@ -67,6 +67,7 @@ if ($SkipSignatureCheck) {
 
 $process = $null
 try {
+  $launchStartedAt = Get-Date
   $process = Start-Process -FilePath $appExe -WorkingDirectory (Split-Path $appExe -Parent) -PassThru
   Start-Sleep -Seconds $BootWaitSeconds
 
@@ -77,8 +78,9 @@ try {
       break
     }
     if (Test-Path $logPath) {
+      $logItem = Get-Item -LiteralPath $logPath -ErrorAction SilentlyContinue
       $logText = Get-Content -Path $logPath -Raw -ErrorAction SilentlyContinue
-      if ($logText -match "\[BOOT\] startup sequence finished") {
+      if ($logItem -and $logItem.LastWriteTime -ge $launchStartedAt -and $logText -match "\[BOOT\] startup sequence finished") {
         $startupFinished = $true
         break
       }
@@ -117,6 +119,9 @@ if (-not (Test-Path $logPath)) {
 $logText = Get-Content -Path $logPath -Raw -ErrorAction Stop
 if ($logText -notmatch "\[BOOT\] startup sequence finished") {
   throw "Smoke falhou: marcador [BOOT] startup sequence finished ausente no log final."
+}
+if ($logText -match "NODE_MODULE_VERSION|compiled against a different Node\.js version|Falha de compatibilidade dos modulos SQLite") {
+  throw "Smoke falhou: o log contem falha de ABI/SQLite nativo."
 }
 
 Write-Host "Smoke empacotado concluido com sucesso." -ForegroundColor Green

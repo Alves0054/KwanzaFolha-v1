@@ -241,18 +241,18 @@ function buildPayrollAuditArtifact({
 function buildPayrollAuditCsv(artifact = {}) {
   const header = [
     "Payroll Run ID",
-    "Funcionario ID",
-    "Funcionario",
-    "Periodo",
-    "Salario Base",
+    "Funcionário ID",
+    "Funcionário",
+    "Período",
+    "Salário base",
     "Bruto",
-    "INSS Funcionario",
+    "INSS funcionário",
     "INSS Empresa",
     "IRT",
     "Descontos Totais",
     "Liquido",
     "Perfil Fiscal",
-    "Versao Fiscal"
+    "Versão fiscal"
   ];
 
   const rows = [header];

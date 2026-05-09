@@ -6,21 +6,21 @@ Aplicacao desktop (Electron + React + SQLite) para processamento salarial e oper
 
 - processamento mensal da folha salarial
 - calculo fiscal Grupo A (IRT + INSS) com perfil fiscal versionado por vigencia
-- assiduidade, faltas, licencas e ferias
-- processamento de subsidio de ferias e subsidio de natal
-- relatorios e documentos PDF
+- assiduidade, faltas, licenças e férias
+- processamento de subsídio de férias e subsídio de Natal
+- relatórios e documentos PDF
 - exportacoes Excel, CSV bancario, PS2 e PSX
-- mapa mensal de remuneracoes AGT (geracao e validacao assistida)
-- auditoria operacional (logs de acoes e exportacao CSV/XLS)
-- licenciamento local com trial, ativacao e renovacao
+- mapa mensal de remuneracoes AGT (geracao e validação assistida)
+- auditoria operacional (logs de acoes e exportação CSV/XLS)
+- licenciamento local com trial, ativação e renovacao
 - backups e restauro de base local
 
 ## Trial e licenciamento (estado real)
 
-- trial padrao: **15 dias**
+- trial padrão: **15 dias**
 - quando o trial termina, o sistema entra em estado bloqueado para uso comercial
 - modo tecnico (`developer-license.json` e `KWANZA_DEV_LICENSE_MODE=1`) so e aceite em runtime local de desenvolvimento
-- build empacotada de producao exige fluxo comercial normal de licenca
+- build empacotada de produção exige fluxo comercial normal de licença
 
 ## Arquitetura atual
 
@@ -50,20 +50,41 @@ Aplicacao desktop (Electron + React + SQLite) para processamento salarial e oper
 | `npm run smoke:packaged` | Smoke de boot em build empacotada |
 | `npm run smoke:packaged:e2e` | Smoke funcional empacotado |
 | `npm run verify:packaged:main` | Verifica sintaxe do main empacotado |
-| `npm run report:boot-integrity` | Coleta relatorio de arranque/integridade |
+| `npm run report:boot-integrity` | Coleta relatório de arranque/integridade |
 
 ## Tipos de build suportados
 
 | Tipo | Suporte |
 |---|---|
 | NSIS Installer (`KwanzaFolha-Setup-<versao>.exe`) | Suportado |
-| Portable | **Nao suportado** |
+| Portable | **Não suportado** |
 
 ## Fluxo rapido local
 
 1. `npm install`
 2. `npm run dev`
 3. `npm test`
+
+## Documentacao de entrega
+
+- [docs/README.md](./docs/README.md)
+- [Manual do Cliente](./docs/utilizador/MANUAL_CLIENTE.md)
+- [IRT 2026 - Fontes e Validacao](./docs/fiscalidade/IRT_2026_FONTES_E_VALIDACAO.md)
+- [Validacao por Contabilista](./docs/fiscalidade/VALIDACAO_CONTABILISTA.md)
+- [Contrato de Licença](./docs/legal/CONTRATO_LICENCA.md)
+- [Termos de Uso](./docs/legal/TERMOS_DE_USO.md)
+- [Politica de Privacidade](./docs/legal/POLITICA_PRIVACIDADE.md)
+- [Checklist de Entrega](./docs/entrega/CHECKLIST_ENTREGA.md)
+
+## Release final para cliente
+
+Pacote final versionado:
+
+```powershell
+npm run release:final
+```
+
+O script executa testes, gera instalador unsigned por defeito, copia documentacao de entrega e gera checksums SHA256. Para entrega comercial, assinar digitalmente o instalador e validar fiscalidade/juridico antes de entregar.
 
 ## Release (local)
 
@@ -79,12 +100,12 @@ Aplicacao desktop (Electron + React + SQLite) para processamento salarial e oper
 
 ## Limitacoes atuais conhecidas
 
-- validacao oficial AGT depende de homologacao externa em ambiente real
-- validacao formal de PS2/PSX depende de confirmacao com bancos alvo
-- revisao juridica de todos os documentos emitidos ainda depende de validacao humana externa
+- validação oficial AGT depende de homologacao externa em ambiente real
+- validação formal de PS2/PSX depende de confirmacao com bancos alvo
+- revisão jurídica de todos os documentos emitidos ainda depende de validação humana externa
 - `electron/services/database.js`, `electron/main.js` e `electron/services/pdf.js` continuam grandes apesar de extracoes incrementais
 
-## Pre-requisitos para producao
+## Pre-requisitos para produção
 
 - certificado de code signing valido e segredo protegido
 - servidor de licenciamento online com HTTPS e monitorizacao basica
@@ -92,12 +113,12 @@ Aplicacao desktop (Electron + React + SQLite) para processamento salarial e oper
 - suporte tecnico com acesso a bundle de diagnostico
 - checklist de release e rollback seguida em todas as publicacoes
 
-## O que depende de validacao externa
+## O que depende de validação externa
 
-- parecer contabilistico/fiscal sobre regras e relatarios legais
-- validacao bancaria dos ficheiros PS2/PSX por instituicao
-- validacao legal dos templates/documentos emitidos
-- aprovacao de claims comerciais de conformidade
+- parecer contabilístico/fiscal sobre regras e relatarios legais
+- validação bancaria dos ficheiros PS2/PSX por instituicao
+- validação legal dos templates/documentos emitidos
+- aprovação de claims comerciais de conformidade
 
 ## Documentacao complementar
 

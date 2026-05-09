@@ -1,4 +1,5 @@
 import { angolaBanks, extractAngolaBankRegistryCode, inferBankFromIban } from "../../utils/payroll";
+import { careerLevelOptions } from "../../entities/forms/defaults";
 import LineItemsEditor from "../form/LineItemsEditor";
 
 function findMatchingSalaryScale(scales, jobTitle, department) {
@@ -25,6 +26,14 @@ function findMatchingSalaryScale(scales, jobTitle, department) {
   );
 }
 
+function activeRows(rows) {
+  return (rows || []).filter((item) => item.active !== false && !item.deleted_at);
+}
+
+function sameId(left, right) {
+  return Number(left || 0) === Number(right || 0);
+}
+
 export default function EmployeesSection({
   employeeForm,
   setEmployeeForm,
@@ -41,9 +50,93 @@ export default function EmployeesSection({
 }) {
   const matchingScale = findMatchingSalaryScale(boot.salaryScales || [], employeeForm.job_title, employeeForm.department);
   const activeShifts = (boot.workShifts || []).filter((shift) => shift.active);
+  const organization = boot?.organization || {};
+  const companies = activeRows(organization.companies);
+  const selectedCompanyId = employeeForm.company_id || companies[0]?.id || "";
+  const branches = activeRows(organization.branches).filter((item) => !selectedCompanyId || sameId(item.company_id, selectedCompanyId));
+  const selectedBranchId = employeeForm.branch_id || "";
+  const departments = activeRows(organization.departments).filter((item) => {
+    if (selectedCompanyId && !sameId(item.company_id, selectedCompanyId)) return false;
+    if (selectedBranchId && item.branch_id && !sameId(item.branch_id, selectedBranchId)) return false;
+    return true;
+  });
+  const selectedDepartmentId = employeeForm.department_id || "";
+  const jobPositions = activeRows(organization.jobPositions).filter((item) => {
+    if (selectedCompanyId && !sameId(item.company_id, selectedCompanyId)) return false;
+    if (selectedDepartmentId && item.department_id && !sameId(item.department_id, selectedDepartmentId)) return false;
+    return true;
+  });
+  const costCenters = activeRows(organization.costCenters).filter((item) => {
+    if (selectedCompanyId && !sameId(item.company_id, selectedCompanyId)) return false;
+    if (selectedDepartmentId && item.department_id && !sameId(item.department_id, selectedDepartmentId)) return false;
+    return true;
+  });
+  const supervisors = (boot.employees || []).filter((item) => item.status === "ativo" && !sameId(item.id, employeeForm.id));
   const detectedBank = inferBankFromIban(employeeForm.iban, banks);
   const detectedRegistryCode = extractAngolaBankRegistryCode(employeeForm.iban);
-  const canManageEmployees = user?.role === "admin";
+  const canManageEmployees = Boolean(user);
+
+  function updateEmployee(nextValues) {
+    setEmployeeForm((current) => ({ ...current, ...nextValues }));
+  }
+
+  function handleCompanyChange(companyId) {
+    updateEmployee({
+      company_id: companyId,
+      branch_id: "",
+      department_id: "",
+      job_position_id: "",
+      cost_center_id: "",
+      job_title: "",
+      department: "",
+      professional_category: ""
+    });
+  }
+
+  function handleBranchChange(branchId) {
+    updateEmployee({
+      branch_id: branchId,
+      department_id: "",
+      job_position_id: "",
+      cost_center_id: "",
+      job_title: "",
+      department: "",
+      professional_category: ""
+    });
+  }
+
+  function handleDepartmentChange(departmentId) {
+    const department = departments.find((item) => sameId(item.id, departmentId));
+    updateEmployee({
+      department_id: departmentId,
+      department: department?.name || "",
+      branch_id: department?.branch_id ? String(department.branch_id) : employeeForm.branch_id,
+      cost_center_id: department?.cost_center_id ? String(department.cost_center_id) : "",
+      job_position_id: "",
+      job_title: "",
+      professional_category: ""
+    });
+  }
+
+  function handleJobPositionChange(positionId) {
+    const position = jobPositions.find((item) => sameId(item.id, positionId));
+    const department = departments.find((item) => sameId(item.id, position?.department_id || employeeForm.department_id));
+    updateEmployee({
+      job_position_id: positionId,
+      job_title: position?.name || "",
+      department_id: position?.department_id ? String(position.department_id) : employeeForm.department_id,
+      department: department?.name || employeeForm.department,
+      professional_category: position?.professional_category || employeeForm.professional_category || "",
+      base_salary:
+        !String(employeeForm.base_salary || "").trim() && position?.suggested_base_salary
+          ? String(position.suggested_base_salary)
+          : employeeForm.base_salary
+    });
+  }
+
+  function handleCostCenterChange(costCenterId) {
+    updateEmployee({ cost_center_id: costCenterId });
+  }
 
   return (
     <section className="two-column">
@@ -194,20 +287,103 @@ export default function EmployeesSection({
           </div>
 
           <label>
-            Cargo
-            <input
-              value={employeeForm.job_title}
-              onChange={(event) => setEmployeeForm((current) => ({ ...current, job_title: event.target.value }))}
-              required
-            />
+            Empresa
+            <select value={selectedCompanyId} onChange={(event) => handleCompanyChange(event.target.value)}>
+              <option value="">Selecionar empresa</option>
+              {companies.map((company) => (
+                <option key={company.id} value={company.id}>
+                  {company.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Filial
+            <select value={employeeForm.branch_id || ""} onChange={(event) => handleBranchChange(event.target.value)}>
+              <option value="">Sem filial</option>
+              {branches.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.code ? `${branch.code} - ${branch.name}` : branch.name}
+                </option>
+              ))}
+            </select>
           </label>
           <label>
             Departamento
-            <input
-              value={employeeForm.department}
-              onChange={(event) => setEmployeeForm((current) => ({ ...current, department: event.target.value }))}
-              required
-            />
+            {departments.length ? (
+              <select value={employeeForm.department_id || ""} onChange={(event) => handleDepartmentChange(event.target.value)} required>
+                <option value="">Selecionar departamento</option>
+                {departments.map((department) => (
+                  <option key={department.id} value={department.id}>
+                    {department.code ? `${department.code} - ${department.name}` : department.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                value={employeeForm.department}
+                onChange={(event) => setEmployeeForm((current) => ({ ...current, department: event.target.value, department_id: "" }))}
+                placeholder="Crie departamentos em Organização para selecionar aqui"
+                required
+              />
+            )}
+          </label>
+          <label>
+            Cargo
+            {jobPositions.length ? (
+              <select value={employeeForm.job_position_id || ""} onChange={(event) => handleJobPositionChange(event.target.value)} required>
+                <option value="">Selecionar cargo</option>
+                {jobPositions.map((position) => (
+                  <option key={position.id} value={position.id}>
+                    {position.name}
+                    {position.department_name ? ` - ${position.department_name}` : ""}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                value={employeeForm.job_title}
+                onChange={(event) => setEmployeeForm((current) => ({ ...current, job_title: event.target.value, job_position_id: "" }))}
+                placeholder="Crie cargos em Organização para selecionar aqui"
+                required
+              />
+            )}
+          </label>
+          <label>
+            Centro de custo
+            <select value={employeeForm.cost_center_id || ""} onChange={(event) => handleCostCenterChange(event.target.value)}>
+              <option value="">Sem centro de custo</option>
+              {costCenters.map((costCenter) => (
+                <option key={costCenter.id} value={costCenter.id}>
+                  {costCenter.code ? `${costCenter.code} - ${costCenter.name}` : costCenter.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Supervisor
+            <select value={employeeForm.supervisor_id || ""} onChange={(event) => updateEmployee({ supervisor_id: event.target.value })}>
+              <option value="">Sem supervisor</option>
+              {supervisors.map((employee) => (
+                <option key={employee.id} value={employee.id}>
+                  {employee.full_name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Escalão profissional
+            <select
+              value={employeeForm.professional_category || ""}
+              onChange={(event) => updateEmployee({ professional_category: event.target.value })}
+            >
+              <option value="">Selecionar escalão</option>
+              {careerLevelOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
           </label>
           <label>
             Salário base
@@ -382,7 +558,7 @@ export default function EmployeesSection({
           </form>
         ) : (
           <p className="empty-note">
-            Apenas administradores podem gerir o cadastro de funcionários. As contas de operador mantêm acesso de consulta.
+            Inicie sessão para gerir o cadastro de funcionários.
           </p>
         )}
       </div>

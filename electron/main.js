@@ -9,6 +9,7 @@ const { SecureStorageService } = require("./services/secure-storage");
 const { InstallationIdentityService } = require("./services/installation-identity");
 const { AntiTamperService } = require("./services/anti-tamper");
 const { SupportDiagnosticsService } = require("./services/support-diagnostics");
+const startupErrors = require("./services/startup-errors");
 const { hasPermission, getPermissionDeniedMessage } = require("./services/permissions");
 const { enforceEmployeeLimit } = require("../shared/domain/licensing-limits");
 const { LICENSE_PLANS } = require("../shared/license-plans");
@@ -72,7 +73,7 @@ function markServicesFailed(error) {
   }
 }
 
-function buildStartupDegradedMessage(fallback = "Os servicos principais ainda nao ficaram disponiveis.") {
+function buildStartupDegradedMessage(fallback = "Os serviços principais ainda não ficaram disponíveis.") {
   const stagePrefix = startupIntegrityState?.stage ? `[${startupIntegrityState.stage}] ` : "";
   return `${stagePrefix}${startupIntegrityState?.message || fallback}`;
 }
@@ -88,10 +89,10 @@ function buildActivationPendingResponse(activationResult = {}, reason = "") {
   const integrityBlocked = startupIntegrityState && startupIntegrityState.ok === false;
   const technicalReason = integrityBlocked
     ? startupIntegrityState.message || "Falha de integridade no arranque."
-    : reason || "O modulo local de ativacao ainda nao iniciou.";
+    : reason || "O módulo local de ativação ainda não iniciou.";
   const message = integrityBlocked
-    ? `A licenca foi recebida e gravada localmente, mas o arranque comercial esta bloqueado: ${technicalReason}`
-    : "Licenca recebida com sucesso. Reinicie o aplicativo para concluir a ativacao.";
+    ? `A licença foi recebida e gravada localmente, mas o arranque comercial está bloqueado: ${technicalReason}`
+    : "Licença recebida com sucesso. Reinicie o aplicativo para concluir a ativação.";
 
   return {
     ok: false,
@@ -116,7 +117,7 @@ async function activateLicenseThroughAvailableCore(payload, options = {}) {
     servicesReady: Boolean(services?.licensingCore),
     bootCoreReady: Boolean(bootLicensingCore)
   });
-  recordSupportEvent("info", "licensing", "licensing.activate.requested", "Pedido de ativacao local recebido.", {
+  recordSupportEvent("info", "licensing", "licensing.activate.requested", "Pedido de ativação local recebido.", {
     source,
     email: normalizedPayload.email,
     hasSerial: Boolean(normalizedPayload.serialKey),
@@ -124,7 +125,7 @@ async function activateLicenseThroughAvailableCore(payload, options = {}) {
   });
 
   if (!normalizedPayload.serialKey) {
-    return { ok: false, message: "Introduza o serial da licenca antes de ativar." };
+    return { ok: false, message: "Introduza o serial da licença antes de ativar." };
   }
 
   const readyServices = services?.licensingCore
@@ -137,7 +138,7 @@ async function activateLicenseThroughAvailableCore(payload, options = {}) {
       result?.ok ? "info" : "error",
       "licensing",
       "licensing.activate.local",
-      result?.ok ? "Licenca ativada pelo core principal." : result?.message || "Falha na ativacao pelo core principal.",
+      result?.ok ? "Licença ativada pelo core principal." : result?.message || "Falha na ativação pelo core principal.",
       {
         source,
         email: normalizedPayload.email,
@@ -149,7 +150,7 @@ async function activateLicenseThroughAvailableCore(payload, options = {}) {
   }
 
   if (!bootLicensingCore?.activateLicense) {
-    const message = buildStartupDegradedMessage("O modulo local de ativacao ainda nao iniciou.");
+    const message = buildStartupDegradedMessage("O módulo local de ativação ainda não iniciou.");
     recordSupportEvent("error", "licensing", "licensing.activate.unavailable", message, {
       source,
       email: normalizedPayload.email,
@@ -158,7 +159,7 @@ async function activateLicenseThroughAvailableCore(payload, options = {}) {
     return {
       ok: false,
       status: "activation_services_unavailable",
-      message: `A licenca foi recebida, mas o modulo local de ativacao ainda nao iniciou. ${message}`
+      message: `A licença foi recebida, mas o módulo local de ativação ainda não iniciou. ${message}`
     };
   }
 
@@ -175,7 +176,7 @@ async function activateLicenseThroughAvailableCore(payload, options = {}) {
 
   const result = await bootLicensingCore.activateLicense(normalizedPayload);
   if (!result?.ok) {
-    recordSupportEvent("error", "licensing", "licensing.activate.boot-core.failed", result?.message || "Falha na ativacao pelo core de boot.", {
+    recordSupportEvent("error", "licensing", "licensing.activate.boot-core.failed", result?.message || "Falha na ativação pelo core de boot.", {
       source,
       email: normalizedPayload.email,
       status: String(result?.status || "").trim()
@@ -183,13 +184,13 @@ async function activateLicenseThroughAvailableCore(payload, options = {}) {
     return result;
   }
 
-  recordSupportEvent("warn", "licensing", "licensing.activate.boot-core.stored", "Licenca gravada pelo core de boot; app continua a aguardar servicos principais.", {
+  recordSupportEvent("warn", "licensing", "licensing.activate.boot-core.stored", "Licença gravada pelo core de boot; app continua a aguardar serviços principais.", {
     source,
     email: normalizedPayload.email,
     status: String(result?.status || "").trim(),
     startupIntegrity: startupIntegrityState
   });
-  return buildActivationPendingResponse(result, buildStartupDegradedMessage("Servicos principais indisponiveis apos a ativacao local."));
+  return buildActivationPendingResponse(result, buildStartupDegradedMessage("Serviços principais indisponíveis após a ativação local."));
 }
 
 async function waitForServicesReady({ timeoutMs = 12000 } = {}) {
@@ -392,22 +393,132 @@ function summarizeAnchorVerification(result = {}) {
   };
 }
 
-function cleanupLegacyData() {
-  const oldPath = path.join(process.env.APPDATA || "", "Kwanza Folha");
-  if (!oldPath || !fs.existsSync(oldPath)) {
+function copyFileIfMissing(sourcePath, targetPath) {
+  if (!sourcePath || !targetPath || !fs.existsSync(sourcePath) || fs.existsSync(targetPath)) {
+    return false;
+  }
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.copyFileSync(sourcePath, targetPath);
+  return true;
+}
+
+function copyDirectoryMissingFiles(sourceDir, targetDir) {
+  if (!sourceDir || !targetDir || !fs.existsSync(sourceDir)) {
+    return 0;
+  }
+  let copied = 0;
+  for (const item of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+    const sourcePath = path.join(sourceDir, item.name);
+    const targetPath = path.join(targetDir, item.name);
+    if (item.isDirectory()) {
+      copied += copyDirectoryMissingFiles(sourcePath, targetPath);
+    } else if (item.isFile() && copyFileIfMissing(sourcePath, targetPath)) {
+      copied += 1;
+    }
+  }
+  return copied;
+}
+
+function findLegacyDataSources() {
+  const appData = process.env.APPDATA || "";
+  return [
+    path.join(appData, "Kwanza Folha"),
+    path.join(appData, "Kwanza Folha.legacy_backup"),
+    path.join(appData, "kwanza-facto-desktop")
+  ].filter((candidate, index, list) => candidate && list.indexOf(candidate) === index && fs.existsSync(candidate));
+}
+
+function sourceHasLegacyBusinessData(sourceDir) {
+  const candidates = [
+    "kwanza-folha.sqlite",
+    "kwanza-folha.runtime.sqlite",
+    "kwanza-folha.sqlite.enc",
+    "license.json",
+    "license.dat",
+    path.join("secure-store", "license-cache.bin"),
+    path.join("secure-store", "trial-cache.bin")
+  ];
+  return candidates.some((relativePath) => fs.existsSync(path.join(sourceDir, relativePath)));
+}
+
+function currentInstallHasDatabase(userDataPath, programDataPath) {
+  const protectedDataRoot = path.join(programDataPath || path.join(process.env.ProgramData || "C:\\ProgramData", "Kwanza Folha"), "LocalState");
+  const candidates = [
+    path.join(protectedDataRoot, "kwanza-folha.sqlite"),
+    path.join(protectedDataRoot, "kwanza-folha.runtime.sqlite"),
+    path.join(protectedDataRoot, "kwanza-folha.sqlite.enc"),
+    path.join(userDataPath, "kwanza-folha.sqlite"),
+    path.join(userDataPath, "kwanza-folha.runtime.sqlite"),
+    path.join(userDataPath, "kwanza-folha.sqlite.enc")
+  ];
+  return candidates.some((candidate) => fs.existsSync(candidate));
+}
+
+function migrateLegacyDataIfNeeded(userDataPath, programDataPath) {
+  const sources = findLegacyDataSources().filter(sourceHasLegacyBusinessData);
+  if (!sources.length) {
     return;
   }
 
-  const backupPath = `${oldPath}.legacy_backup`;
-  if (fs.existsSync(backupPath)) {
-    return;
+  fs.mkdirSync(userDataPath, { recursive: true });
+  const protectedDataRoot = path.join(programDataPath, "LocalState");
+  fs.mkdirSync(protectedDataRoot, { recursive: true });
+
+  const sourceDir = sources[0];
+  const copied = [];
+  const currentHasDatabase = currentInstallHasDatabase(userDataPath, programDataPath);
+
+  if (!currentHasDatabase) {
+    for (const fileName of ["kwanza-folha.sqlite.enc", "kwanza-folha.sqlite", "kwanza-folha.runtime.sqlite"]) {
+      if (copyFileIfMissing(path.join(sourceDir, fileName), path.join(userDataPath, fileName))) {
+        copied.push(fileName);
+      }
+    }
   }
 
-  try {
-    fs.renameSync(oldPath, backupPath);
-    log.warn("[BOOT][LEGACY-MIGRATION] dados legados movidos para backup", { oldPath, backupPath });
-  } catch (error) {
-    console.warn("legacy cleanup failed", error);
+  for (const fileName of [
+    "license.json",
+    "license.dat",
+    "developer-license.json",
+    "data-protection.key",
+    "session-state.key",
+    "session-state.json",
+    "backup-state.json",
+    "install.cache"
+  ]) {
+    if (copyFileIfMissing(path.join(sourceDir, fileName), path.join(userDataPath, fileName))) {
+      copied.push(fileName);
+    }
+  }
+
+  const secureStoreCopied = copyDirectoryMissingFiles(path.join(sourceDir, "secure-store"), path.join(userDataPath, "secure-store"));
+  if (secureStoreCopied > 0) {
+    copied.push(`secure-store:${secureStoreCopied}`);
+  }
+
+  if (copied.length) {
+    const receiptPath = path.join(userDataPath, "legacy-migration.json");
+    try {
+      fs.writeFileSync(
+        receiptPath,
+        JSON.stringify(
+          {
+            migrated_at: new Date().toISOString(),
+            source: sourceDir,
+            copied,
+            current_database_preserved: currentHasDatabase
+          },
+          null,
+          2
+        ),
+        "utf8"
+      );
+    } catch {}
+    log.warn("[BOOT][LEGACY-MIGRATION] dados legados copiados para a instalação atual", {
+      sourceDir,
+      copied,
+      currentHasDatabase
+    });
   }
 }
 
@@ -422,30 +533,30 @@ function withAuth(handler) {
         "error",
         "boot",
         "boot.services.unavailable",
-        startupIntegrityState?.message || "Os servicos principais ainda nao ficaram disponiveis.",
+        startupIntegrityState?.message || "Os serviços principais ainda não ficaram disponíveis.",
         startupIntegrityState
       );
       return {
         ok: false,
-        message: startupIntegrityState?.message || "Os servicos principais ainda nao ficaram disponiveis."
+        message: startupIntegrityState?.message || "Os serviços principais ainda não ficaram disponíveis."
       };
     }
     const user = getSessionUser();
     if (!user) {
-      return { ok: false, message: "Sessao invalida. Inicie sessao novamente." };
+      return { ok: false, message: "Sessao inválida. Inicie sessão novamente." };
     }
     const licenseGuard = services.licensingCore.getGuardResult();
     if (!licenseGuard.ok) {
       log.warn("[BOOT][FALLBACK]", {
         stage: "license-guard",
         code: licenseGuard.code || "invalid",
-        message: licenseGuard.message || "Licenciamento invalido ou expirado."
+        message: licenseGuard.message || "Licenciamento inválido ou expirado."
       });
       recordSupportEvent(
         "warn",
         "licensing",
         "licensing.guard.denied",
-        licenseGuard.message || "Licenciamento invalido ou expirado.",
+        licenseGuard.message || "Licenciamento inválido ou expirado.",
         {
           code: licenseGuard.code || "invalid",
           status: licenseGuard?.license?.status || ""
@@ -453,7 +564,7 @@ function withAuth(handler) {
       );
       return {
         ok: false,
-        message: licenseGuard.message || "Licenciamento invalido ou expirado. Ative ou renove para continuar."
+        message: licenseGuard.message || "Licenciamento inválido ou expirado. Ative ou renove para continuar."
       };
     }
     return handler(user, ...args);
@@ -487,7 +598,7 @@ function registerStartupIpcFallbacks() {
       if (!response.ok) {
         return {
           ok: false,
-          message: result?.message || `Nao foi possivel concluir o pedido (${response.status}).`
+          message: result?.message || `Não foi possível concluir o pedido (${response.status}).`
         };
       }
       return result;
@@ -498,27 +609,27 @@ function registerStartupIpcFallbacks() {
         try {
           return new URL(baseUrl).host;
         } catch {
-          return "servidor de licencas";
+          return "servidor de licenças";
         }
       })();
 
       if (networkCode === "ENOTFOUND") {
         return {
           ok: false,
-          message: `Nao foi possivel resolver o dominio do servidor de licencas (${configuredHost}). Verifique o DNS do subdominio.`
+          message: `Não foi possível resolver o dominio do servidor de licenças (${configuredHost}). Verifique o DNS do subdomínio.`
         };
       }
 
       if (networkCode === "ECONNREFUSED" || networkCode === "EHOSTUNREACH" || networkCode === "ETIMEDOUT") {
         return {
           ok: false,
-          message: `Nao foi possivel ligar ao servidor de licencas (${configuredHost}). Verifique se o servico esta online e com HTTPS ativo.`
+          message: `Não foi possível ligar ao servidor de licenças (${configuredHost}). Verifique se o serviço está online e com HTTPS ativo.`
         };
       }
 
       return {
         ok: false,
-        message: error.name === "AbortError" ? "O servidor de licencas demorou demasiado tempo a responder." : failureMessage || "Nao foi possivel comunicar com o servidor de licencas."
+        message: error.name === "AbortError" ? "O servidor de licenças demorou demasiado tempo a responder." : failureMessage || "Não foi possível comunicar com o servidor de licenças."
       };
     } finally {
       clearTimeout(timeout);
@@ -556,7 +667,7 @@ function registerStartupIpcFallbacks() {
         canUseApp: false,
         status: "core_services_unavailable",
         licenseStored: true,
-        message: `Licenca local valida, mas os servicos principais nao iniciaram. ${degradedMessage}`
+        message: `Licença local válida, mas os serviços principais não iniciaram. ${degradedMessage}`
       };
     }
 
@@ -623,7 +734,7 @@ function registerStartupIpcFallbacks() {
   }));
   safeHandle("support:export-logs", async () => {
     if (!supportDiagnostics) {
-      return { ok: false, message: "Servico de diagnostico indisponivel." };
+      return { ok: false, message: "Serviço de diagnóstico indisponivel." };
     }
     return supportDiagnostics.exportSupportBundle({
       reason: "startup_degraded",
@@ -649,7 +760,7 @@ function registerStartupIpcFallbacks() {
 function withAdmin(handler) {
   return withAuth(async (user, ...args) => {
     if (user.role !== "admin") {
-      return { ok: false, message: "Apenas administradores podem executar esta operacao." };
+      return { ok: false, message: "Apenas administradores podem executar esta operação." };
     }
     return handler(user, ...args);
   });
@@ -722,7 +833,7 @@ function resolveAppUrl() {
 }
 
 function isHttpUrl(targetUrl) {
-  return /^https?:\/\//i.test(String(targetUrl || "").trim());
+  return /^httpsó:\/\//i.test(String(targetUrl || "").trim());
 }
 
 function isAllowedAppNavigation(targetUrl) {
@@ -749,8 +860,44 @@ function openExternalSafely(targetUrl) {
   }
 
   shell.openExternal(String(targetUrl).trim()).catch((error) => {
-    log.error("Nao foi possivel abrir a ligacao externa em seguranca", error);
+    log.error("Não foi possível abrir a ligação externa em segurança", error);
   });
+}
+
+function resolveClientManualPath() {
+  const candidates = [
+    path.join(process.resourcesPath || "", "docs", "utilizador", "Manual do Cliente.pdf"),
+    path.join(__dirname, "..", "docs", "utilizador", "Manual do Cliente.pdf"),
+    path.join(app.getAppPath(), "docs", "utilizador", "Manual do Cliente.pdf")
+  ].filter(Boolean);
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) || "";
+}
+
+async function downloadClientManual() {
+  const sourcePath = resolveClientManualPath();
+  if (!sourcePath) {
+    return {
+      ok: false,
+      message: "O Manual do Cliente não foi encontrado na instalação."
+    };
+  }
+
+  const downloadsDir = app.getPath("downloads");
+  const destinationPath = path.join(downloadsDir, "Kwanza Folha - Manual do Cliente.pdf");
+  fs.copyFileSync(sourcePath, destinationPath);
+
+  try {
+    shell.showItemInFolder(destinationPath);
+  } catch (error) {
+    log.warn("Não foi possível mostrar o Manual do Cliente na pasta Downloads.", error);
+  }
+
+  return {
+    ok: true,
+    path: destinationPath,
+    message: `Manual do Cliente guardado em ${destinationPath}.`
+  };
 }
 
 function stopAttendanceWatcher() {
@@ -853,7 +1000,7 @@ async function runPackagedSmokeE2EScenario() {
 
   try {
     if (!services?.database || !services?.auth || !services?.payroll || !services?.licensingCore) {
-      throw new Error("Servicos principais indisponiveis para o smoke E2E empacotado.");
+      throw new Error("Serviços principais indisponíveis para o smoke E2E empacotado.");
     }
 
     const primeResult = services.licensingCore.primeInstallation
@@ -866,7 +1013,7 @@ async function runPackagedSmokeE2EScenario() {
 
     const licenseStatus = services.licensingCore.getStatus(true);
     if (!licenseStatus?.canUseApp) {
-      throw new Error(licenseStatus?.message || "Licenca invalida para smoke E2E.");
+      throw new Error(licenseStatus?.message || "Licença inválida para smoke E2E.");
     }
     addSmokeStep(report, "license", true, {
       status: licenseStatus.status || "unknown",
@@ -893,7 +1040,7 @@ async function runPackagedSmokeE2EScenario() {
         username: credentials.username,
         password: credentials.password
       });
-      assertSmokeResult(registerResult, "Nao foi possivel concluir o registo inicial para o smoke E2E.");
+      assertSmokeResult(registerResult, "Não foi possível concluir o registo inicial para o smoke E2E.");
       addSmokeStep(report, "register-initial", true, {
         setupRequired: true,
         username: credentials.username
@@ -940,7 +1087,7 @@ async function runPackagedSmokeE2EScenario() {
       }
     }
 
-    assertSmokeResult(loginResult, "Nao foi possivel autenticar no smoke E2E empacotado.");
+    assertSmokeResult(loginResult, "Não foi possível autenticar no smoke E2E empacotado.");
     if (loginResult?.user?.id) {
       services.auth.persistSession(loginResult.user.id);
     }
@@ -955,7 +1102,7 @@ async function runPackagedSmokeE2EScenario() {
     const domesticAccount = `${employeeToken}${String(Math.floor(Math.random() * 1_000_000_000_000)).padStart(11, "0")}`;
     const employeeIban = buildAoIban(bankRegistryCode, domesticAccount);
     const saveEmployeeResult = services.database.saveEmployee({
-      full_name: `Funcionario Smoke ${employeeToken}`,
+      full_name: `Funcionário Smoke ${employeeToken}`,
       document_type: "bi",
       bi: `123456789LA${employeeToken.slice(-3)}`,
       driver_license_number: "",
@@ -984,11 +1131,11 @@ async function runPackagedSmokeE2EScenario() {
       recurring_bonuses: [],
       special_payments: []
     });
-    assertSmokeResult(saveEmployeeResult, "Nao foi possivel criar funcionario para o smoke E2E.");
+    assertSmokeResult(saveEmployeeResult, "Não foi possível criar funcionário para o smoke E2E.");
 
     const smokeEmployee = (saveEmployeeResult?.employees || []).find((item) => String(item.attendance_code || "").startsWith("SMK"));
     if (!smokeEmployee?.id) {
-      throw new Error("Funcionario smoke nao foi localizado apos criacao.");
+      throw new Error("Funcionário smoke não foi localizado após criação.");
     }
     addSmokeStep(report, "employee-create", true, {
       employeeId: smokeEmployee.id,
@@ -1008,11 +1155,11 @@ async function runPackagedSmokeE2EScenario() {
       approval_status: "approved",
       notes: "Entrada automatica do smoke release."
     });
-    assertSmokeResult(attendanceResult, "Nao foi possivel registar assiduidade para o smoke E2E.");
+    assertSmokeResult(attendanceResult, "Não foi possível registar assiduidade para o smoke E2E.");
 
     const closeAttendanceResult = services.database.closeAttendancePeriod(monthRef, loginResult.user.id);
     if (!closeAttendanceResult?.ok && !isAlreadyClosedPeriodMessage(closeAttendanceResult?.message)) {
-      throw new Error(closeAttendanceResult?.message || "Nao foi possivel fechar a assiduidade do periodo.");
+      throw new Error(closeAttendanceResult?.message || "Não foi possível fechar a assiduidade do período.");
     }
     addSmokeStep(report, "attendance-close", true, {
       monthRef,
@@ -1023,7 +1170,7 @@ async function runPackagedSmokeE2EScenario() {
       includePreview: false,
       resetExisting: true
     });
-    if (!payrollResult?.ok && /periodo .* fechado|período .* fechado/i.test(String(payrollResult?.message || ""))) {
+    if (!payrollResult?.ok && /período .* fechado|período .* fechado/i.test(String(payrollResult?.message || ""))) {
       const reopenResult = services.database.reopenPayrollPeriod(monthRef, loginResult.user.id);
       if (reopenResult?.ok) {
         payrollResult = services.payroll.processMonth(monthRef, {
@@ -1032,7 +1179,7 @@ async function runPackagedSmokeE2EScenario() {
         });
       }
     }
-    assertSmokeResult(payrollResult, "Nao foi possivel processar a folha no smoke E2E.");
+    assertSmokeResult(payrollResult, "Não foi possível processar a folha no smoke E2E.");
     addSmokeStep(report, "payroll-process", true, {
       monthRef,
       count: payrollResult?.items?.length || 0
@@ -1043,9 +1190,9 @@ async function runPackagedSmokeE2EScenario() {
     const stateExport = services.database.exportStatePaymentsExcel(exportFilters);
     const agtExport = services.database.exportAgtMonthlyRemunerationExcel(exportFilters);
 
-    assertSmokeResult(payrollExport, "Falha na exportacao Excel da folha salarial.");
-    assertSmokeResult(stateExport, "Falha na exportacao Excel de pagamento ao Estado.");
-    assertSmokeResult(agtExport, "Falha na exportacao AGT.");
+    assertSmokeResult(payrollExport, "Falha na exportação Excel da folha salarial.");
+    assertSmokeResult(stateExport, "Falha na exportação Excel de pagamento ao Estado.");
+    assertSmokeResult(agtExport, "Falha na exportação AGT.");
 
     report.artifacts = {
       payrollExcel: payrollExport.path,
@@ -1136,7 +1283,7 @@ function notifyStartupIntegrityIssue() {
     return;
   }
   if (isLocalPackagedBuildRuntime() && String(startupIntegrityState?.stage || "") === "executable-signature") {
-    log.warn("[BOOT][LOCAL-PACKAGED] aviso de assinatura suprimido para validacao local.", startupIntegrityState);
+    log.warn("[BOOT][LOCAL-PACKAGED] aviso de assinatura suprimido para validação local.", startupIntegrityState);
     return;
   }
 
@@ -1148,17 +1295,17 @@ function notifyStartupIntegrityIssue() {
     "legacy-data-cleanup"
   ]);
   const isIntegrityIssue = integrityStages.has(String(startupIntegrityState?.stage || "").trim());
-  const title = isIntegrityIssue ? "Integridade da instalacao" : "Inicializacao do sistema";
+  const title = isIntegrityIssue ? "Integridade da instalação" : "Inicializacao do sistema";
   const message = isIntegrityIssue
-    ? "Erro de integridade da instalacao. Contacte o suporte para reativacao."
-    : "Nao foi possivel inicializar todos os servicos internos.";
+    ? "Erro de integridade da instalação. Contacte o suporte para reativação."
+    : "Não foi possível inicializar todos os serviços internos.";
   const detailHint = (() => {
     const stage = String(startupIntegrityState?.stage || "").trim();
     if (stage === "executable-signature") {
-      return "Instale uma build assinada (Setup oficial) e evite executar binarios nao assinados.";
+      return "Instale uma build assinada (Setup oficial) e evite executar binários não assinados.";
     }
     if (stage === "services-init") {
-      return "Reinicie a aplicacao. Se persistir, restaure o ultimo backup valido.";
+      return "Reinicie a aplicação. Se persistir, restaure o ultimo backup valido.";
     }
     return "";
   })();
@@ -1175,60 +1322,20 @@ function notifyStartupIntegrityIssue() {
       detail
     })
     .catch((error) => {
-      log.error("Nao foi possivel apresentar o aviso de integridade", error);
+      log.error("Não foi possível apresentar o aviso de integridade", error);
     });
 }
 
 function resolveStartupFailureMessage(error) {
-  const rawMessage = String(error?.message || "");
-
-  if (/NODE_MODULE_VERSION|compiled against a different Node\.js version|better-sqlite3/i.test(rawMessage)) {
-    return "Falha de compatibilidade dos modulos SQLite. Atualize/reinstale a aplicacao para a mesma versao do Electron.";
-  }
-
-  if (/Unsupported state or unable to authenticate data|failed to decrypt database|decrypt/i.test(rawMessage)) {
-    return "Nao foi possivel abrir a base de dados cifrada. Valide a chave local e os ficheiros de dados.";
-  }
-
-  if (/file is not a database|database disk image is malformed/i.test(rawMessage)) {
-    return "A base de dados local estava invalida e o sistema tentou recuperar automaticamente. Reinicie a aplicacao e valide os dados recentes.";
-  }
-
-  if (/cannot open|unable to open|readonly database|disk i\/o error|sqlcipher|sqlite/i.test(rawMessage)) {
-    return "Nao foi possivel abrir a base de dados local. O sistema tentou recuperacao automatica; reinicie e valide os dados recentes.";
-  }
-
-  if (/license|licenca|licensing/i.test(rawMessage)) {
-    return "Nao foi possivel inicializar o servico de licenciamento. O sistema abriu em modo restrito para evitar falhas totais.";
-  }
-
-  if (/ipc|handler/i.test(rawMessage)) {
-    return "Falha ao registar canais internos (IPC). Reinicie a aplicacao e valide os modulos do sistema.";
-  }
-
-  return "Erro de integridade da instalacao. Contacte o suporte para reativacao.";
+  return startupErrors.resolveStartupFailureMessage(error);
 }
 
 function isRecoverableDatabaseStartupError(error) {
-  const rawMessage = String(error?.message || "").toLowerCase();
-  return (
-    rawMessage.includes("file is not a database") ||
-    rawMessage.includes("database disk image is malformed") ||
-    rawMessage.includes("failed to decrypt database") ||
-    rawMessage.includes("unsupported state or unable to authenticate data")
-  );
+  return startupErrors.isRecoverableDatabaseStartupError(error);
 }
 
 function isDatabaseStartupError(error) {
-  const rawMessage = String(error?.message || "").toLowerCase();
-  return (
-    isRecoverableDatabaseStartupError(error) ||
-    rawMessage.includes("sqlite") ||
-    rawMessage.includes("database") ||
-    rawMessage.includes("sqlcipher") ||
-    rawMessage.includes("cannot open") ||
-    rawMessage.includes("unable to open")
-  );
+  return startupErrors.isDatabaseStartupError(error);
 }
 
 function quarantineRuntimeDatabaseForStartupRetry(userDataPath) {
@@ -1251,7 +1358,7 @@ function quarantineRuntimeDatabaseForStartupRetry(userDataPath) {
       fs.copyFileSync(`${runtimeDbPath}-shm`, `${quarantinedMainPath}-shm`);
     }
   } catch (copyError) {
-    log.warn("[BOOT][RECOVERY] nao foi possivel copiar runtime DB para diagnostico", {
+    log.warn("[BOOT][RECOVERY] não foi possível copiar runtime DB para diagnóstico", {
       error: String(copyError?.message || copyError)
     });
   }
@@ -1293,7 +1400,7 @@ function quarantineDatabaseArtifactsForStartupRetry(userDataPath, programDataPat
       fs.copyFileSync(sourcePath, targetPath);
       quarantined.push(targetPath);
     } catch (copyError) {
-      log.warn("[BOOT][RECOVERY] nao foi possivel copiar artefacto DB para diagnostico", {
+      log.warn("[BOOT][RECOVERY] não foi possível copiar artefacto DB para diagnóstico", {
         sourcePath,
         error: String(copyError?.message || copyError)
       });
@@ -1333,6 +1440,28 @@ function registerIpc() {
   ipcMain.removeHandler("auth:register-initial");
   ipcMain.removeHandler("auth:restore-session");
   ipcMain.removeHandler("auth:request-password-reset");
+  ipcMain.removeHandler("organization:list");
+  ipcMain.removeHandler("organization:save");
+  ipcMain.removeHandler("organization:delete");
+  ipcMain.removeHandler("organization:report");
+  ipcMain.removeHandler("organization:export-excel");
+  ipcMain.removeHandler("enterprise:list");
+  ipcMain.removeHandler("enterprise:summary-export");
+  ipcMain.removeHandler("enterprise:save");
+  ipcMain.removeHandler("enterprise:delete");
+  ipcMain.removeHandler("enterprise:generate-contract");
+  ipcMain.removeHandler("enterprise:contract-action");
+  ipcMain.removeHandler("enterprise:approval-transition");
+  ipcMain.removeHandler("enterprise:convert-candidate");
+  ipcMain.removeHandler("enterprise:sync-mark");
+  ipcMain.removeHandler("enterprise:sync-retry-failed");
+  ipcMain.removeHandler("enterprise:sync-export");
+  ipcMain.removeHandler("enterprise:payroll-version");
+  ipcMain.removeHandler("enterprise:payroll-version-compare");
+  ipcMain.removeHandler("enterprise:fiscal-map");
+  ipcMain.removeHandler("enterprise:fiscal-map-status");
+  ipcMain.removeHandler("employees:import-file");
+  ipcMain.removeHandler("employees:export-excel");
   ipcMain.removeHandler("support:health");
   ipcMain.removeHandler("support:export-logs");
   ipcMain.handle("app:get-version", async () => ({ version: app.getVersion() }));
@@ -1347,7 +1476,7 @@ function registerIpc() {
         "warn",
         "licensing",
         "licensing.status.blocked",
-        status?.message || "Licenca bloqueada.",
+        status?.message || "Licença bloqueada.",
         {
           status: status?.status || "invalid",
           requiresLicense: Boolean(status?.requiresLicense)
@@ -1374,7 +1503,7 @@ function registerIpc() {
       result?.ok ? "info" : "warn",
       "licensing",
       "licensing.payment.create",
-      result?.ok ? "Referencia de pagamento criada." : result?.message || "Falha ao criar referencia de pagamento.",
+      result?.ok ? "Referência de pagamento criada." : result?.message || "Falha ao criar referência de pagamento.",
       {
         plan: String(payload?.plan || "").trim(),
         ok: Boolean(result?.ok)
@@ -1394,7 +1523,7 @@ function registerIpc() {
       result?.ok ? "info" : "warn",
       "licensing",
       "licensing.payment.status",
-      result?.ok ? "Consulta de pagamento concluida." : result?.message || "Falha ao consultar pagamento.",
+      result?.ok ? "Consulta de pagamento concluída." : result?.message || "Falha ao consultar pagamento.",
       {
         reference: String(payload?.reference || "").trim(),
         status: String(result?.status || "").trim(),
@@ -1410,7 +1539,7 @@ function registerIpc() {
       result?.ok ? "info" : "error",
       "licensing",
       "licensing.activate",
-      result?.ok ? "Licenca ativada com sucesso." : result?.message || "Falha na ativacao da licenca.",
+      result?.ok ? "Licença ativada com sucesso." : result?.message || "Falha na ativação da licença.",
       {
         email: String(payload?.email || "").trim().toLowerCase(),
         status: String(result?.status || "").trim(),
@@ -1425,7 +1554,7 @@ function registerIpc() {
       result?.ok ? "info" : "warn",
       "licensing",
       "licensing.renew",
-      result?.ok ? "Fluxo de renovacao iniciado." : result?.message || "Falha ao iniciar renovacao.",
+      result?.ok ? "Fluxo de renovação iniciado." : result?.message || "Falha ao iniciar renovação.",
       {
         email: String(payload?.email || "").trim().toLowerCase(),
         ok: Boolean(result?.ok)
@@ -1546,10 +1675,10 @@ function registerIpc() {
   });
   ipcMain.handle("auth:change-password", withAuth(async (user, payload) => {
     if (!payload?.resetByAdmin && Number(payload?.userId) !== Number(user.id)) {
-      return { ok: false, message: "Nao pode alterar a senha de outro utilizador." };
+      return { ok: false, message: "Não pode alterar a senha de outro utilizador." };
     }
-    if (payload?.resetByAdmin && user.role !== "admin") {
-      return { ok: false, message: "Apenas administradores podem redefinir senhas." };
+    if (payload?.resetByAdmin && !hasPermission(user, "users.manage")) {
+      return { ok: false, message: getPermissionDeniedMessage("users.manage") };
     }
     const result = services.auth.changePassword(payload);
     if (result?.ok) {
@@ -1564,7 +1693,7 @@ function registerIpc() {
     }
     return result;
   }));
-  ipcMain.handle("users:save", withAdmin(async (user, payload) => {
+  ipcMain.handle("users:save", withPermission("users.manage", async (user, payload) => {
     if (!payload?.id) {
       const licenseStatus = services.licensingCore.getStatus();
       const maxUsers = 0;
@@ -1599,7 +1728,7 @@ function registerIpc() {
     }
     return result;
   }));
-  ipcMain.handle("users:delete", withAdmin(async (user, userId) => {
+  ipcMain.handle("users:delete", withPermission("users.manage", async (user, userId) => {
     const before = services.database.getUserSnapshot(userId);
     const result = services.database.deleteUser(userId);
     if (result?.ok) {
@@ -1607,7 +1736,7 @@ function registerIpc() {
     }
     return result;
   }));
-  ipcMain.handle("company:save", withAdmin(async (user, payload) => {
+  ipcMain.handle("company:save", withPermission("company.manage", async (user, payload) => {
     const before = services.database.getCompanySnapshot();
     const result = services.database.saveCompanyProfile(payload);
     if (!result?.ok) {
@@ -1617,6 +1746,206 @@ function registerIpc() {
     logAudit(user, "company.update", "company", payload.name || "Empresa", { before, after, changes: buildDiff(before, after) });
     return result;
   }));
+  ipcMain.handle("organization:list", withPermission("organization.view", async (user, payload) => ({
+    ok: true,
+    organization: services.database.getOrganizationBootstrap(),
+    items: payload?.entityType ? services.database.listOrganizationEntities(payload.entityType, payload.filters || {}) : []
+  })));
+  ipcMain.handle("organization:save", withPermission("organization.manage", async (user, payload) => {
+    const entityType = String(payload?.entityType || "").trim();
+    const itemPayload = payload?.item || {};
+    const before = itemPayload?.id ? services.database.getOrganizationSnapshot(entityType, itemPayload.id) : null;
+    const result = services.database.saveOrganizationEntity(entityType, itemPayload);
+    if (result?.ok) {
+      const after = result.item || (itemPayload?.id ? services.database.getOrganizationSnapshot(entityType, itemPayload.id) : null);
+      logAudit(
+        user,
+        itemPayload?.id ? "organization.update" : "organization.create",
+        entityType || "organization",
+        after?.name || itemPayload.name || "Organizacao",
+        { before, after, changes: buildDiff(before, after) },
+        after?.id ?? itemPayload?.id ?? null
+      );
+    }
+    return result;
+  }));
+  ipcMain.handle("organization:delete", withPermission("organization.manage", async (user, payload) => {
+    const entityType = String(payload?.entityType || "").trim();
+    const before = services.database.getOrganizationSnapshot(entityType, payload?.id);
+    const result = services.database.deleteOrganizationEntity(entityType, payload?.id);
+    if (result?.ok) {
+      logAudit(
+        user,
+        "organization.delete",
+        entityType || "organization",
+        before?.name || `Organizacao ${payload?.id}`,
+        { before, after: null },
+        payload?.id ?? null
+      );
+    }
+    return result;
+  }));
+  ipcMain.handle("organization:report", withPermission("organization.view", async (user, filters) => services.database.buildOrganizationReport(filters || {})));
+  ipcMain.handle("organization:export-excel", withPermission("exports.generate", async (user, filters) => services.database.exportOrganizationExcel(filters || {})));
+  ipcMain.handle("enterprise:list", withPermission("enterprise.view", async (user, payload) => ({
+    ok: true,
+    modules: services.database.getEnterpriseModulesBootstrap(),
+    items: payload?.type ? services.database.listEnterpriseRecords(payload.type, payload.filters || {}) : []
+  })));
+  ipcMain.handle("enterprise:summary-export", withPermission("exports.generate", async (user, payload) => {
+    const result = services.database.exportEnterpriseSummaryExcel(payload || {});
+    if (result?.ok) {
+      logAudit(user, "enterprise.summary.export", "enterprise_summary", "Resumo executivo Suite RH", { path: result.path });
+    }
+    return result;
+  }));
+  ipcMain.handle("enterprise:save", withPermission("enterprise.manage", async (user, payload) => {
+    const type = String(payload?.type || "").trim();
+    const item = payload?.item || {};
+    const before = item?.id ? services.database.listEnterpriseRecords(type, { id: item.id })[0] || null : null;
+    const result = services.database.saveEnterpriseRecord(type, item, user.id);
+    if (result?.ok) {
+      const after = result.item || null;
+      logAudit(
+        user,
+        item?.id ? "enterprise.update" : "enterprise.create",
+        type || "enterprise",
+        after?.row_label || after?.name || after?.title || item.name || item.title || "Registo empresarial",
+        { before, after, changes: buildDiff(before, after) },
+        after?.id ?? item?.id ?? null
+      );
+    }
+    return result;
+  }));
+  ipcMain.handle("enterprise:delete", withPermission("enterprise.manage", async (user, payload) => {
+    const type = String(payload?.type || "").trim();
+    const before = services.database.listEnterpriseRecords(type, { id: payload?.id })[0] || null;
+    const result = services.database.deleteEnterpriseRecord(type, payload?.id);
+    if (result?.ok) {
+      logAudit(user, "enterprise.delete", type || "enterprise", before?.row_label || `Registo ${payload?.id}`, { before, after: null }, payload?.id ?? null);
+    }
+    return result;
+  }));
+  ipcMain.handle("enterprise:generate-contract", withPermission("documents.manage", async (user, payload) => {
+    const result = services.database.generateContractDocument(payload?.contractId, payload?.templateId, user.id);
+    if (result?.ok) {
+      logAudit(user, "contract.generate_document", "contract", `Contrato ${payload?.contractId}`, { path: result.path }, payload?.contractId ?? null);
+    }
+    return result;
+  }));
+  ipcMain.handle("enterprise:contract-action", withPermission("enterprise.manage", async (user, payload) => {
+    const before = services.database.listEnterpriseRecords("contracts", { id: payload?.id })[0] || null;
+    const result = services.database.transitionContract(payload?.id, payload?.action, payload || {}, user.id);
+    if (result?.ok) {
+      logAudit(
+        user,
+        `contract.${String(payload?.action || "").trim() || "transition"}`,
+        "contract",
+        result.item?.row_label || before?.row_label || `Contrato ${payload?.id}`,
+        { before, after: result.item || null, changes: buildDiff(before, result.item || null) },
+        payload?.id ?? null
+      );
+    }
+    return result;
+  }));
+  ipcMain.handle("enterprise:approval-transition", withPermission("enterprise.manage", async (user, payload) => {
+    const before = services.database.listEnterpriseRecords("approvalRequests", { id: payload?.id })[0] || null;
+    const result = services.database.transitionApprovalRequest(payload?.id, payload?.action, user.id, payload?.notes || "");
+    if (result?.ok) {
+      const after = result.item || null;
+      logAudit(
+        user,
+        `approval.${String(payload?.action || "").trim() || "transition"}`,
+        "approval_request",
+        after?.row_label || `Pedido ${payload?.id}`,
+        { before, after, notes: payload?.notes || "", changes: buildDiff(before, after) },
+        payload?.id ?? null
+      );
+    }
+    return result;
+  }));
+  ipcMain.handle("enterprise:convert-candidate", withPermission("employees.manage", async (user, payload) => {
+    const before = services.database.listEnterpriseRecords("recruitmentCandidates", { id: payload?.candidateId })[0] || null;
+    const result = services.database.convertCandidateToEmployee(payload?.candidateId, payload?.employee || {}, user.id);
+    if (result?.ok) {
+      logAudit(
+        user,
+        "recruitment.convert_to_employee",
+        "recruitment_candidate",
+        before?.full_name || `Candidato ${payload?.candidateId}`,
+        { before, employee: result.employee, contract: result.contract },
+        payload?.candidateId ?? null
+      );
+    }
+    return result;
+  }));
+  ipcMain.handle("enterprise:sync-mark", withPermission("enterprise.manage", async (user, payload) => services.database.markSyncEvent(payload?.id, payload?.status, payload?.errorMessage)));
+  ipcMain.handle("enterprise:sync-retry-failed", withPermission("enterprise.manage", async (user) => {
+    const result = services.database.retryFailedSyncEvents();
+    if (result?.ok) {
+      logAudit(user, "sync.retry_failed", "sync_outbox", "Reprocessamento da fila de sincronizacao", { retried: result.retried });
+    }
+    return result;
+  }));
+  ipcMain.handle("enterprise:sync-export", withPermission("exports.generate", async (user, payload) => {
+    const result = services.database.exportSyncOutboxPackage(payload || {});
+    if (result?.ok) {
+      logAudit(user, "sync.export_package", "sync_outbox", result.packageId, { path: result.path, count: result.count, checksum: result.checksum });
+    }
+    return result;
+  }));
+  ipcMain.handle("enterprise:payroll-version", withPermission("payroll.period.manage", async (user, payload) => {
+    const result = services.database.createPayrollRunVersion(payload?.monthRef, user.id, payload?.reason || "");
+    if (result?.ok) {
+      logAudit(user, "payroll.version.create", "payroll_period", payload?.monthRef, { reason: payload?.reason || "", versionNumber: result.versionNumber }, null, payload?.monthRef);
+    }
+    return result;
+  }));
+  ipcMain.handle("enterprise:payroll-version-compare", withPermission("exports.generate", async (user, payload) => {
+    const result = services.database.exportPayrollVersionComparisonExcel(payload || {});
+    if (result?.ok) {
+      logAudit(
+        user,
+        "payroll.version.compare",
+        "payroll_period",
+        payload?.monthRef,
+        { path: result.path, totals: result.comparison?.totals },
+        null,
+        payload?.monthRef || null
+      );
+    }
+    return result;
+  }));
+  ipcMain.handle("enterprise:fiscal-map", withPermission("exports.generate", async (user, payload) => {
+    const result = services.database.buildFinalFiscalMap(payload?.monthRef, payload?.mapType || "agt", user.id);
+    if (result?.ok) {
+      logAudit(user, "fiscal_map.build", "fiscal_map", `${payload?.mapType || "agt"} ${payload?.monthRef}`, { map: result.map }, result.map?.id ?? null, payload?.monthRef);
+    }
+    return result;
+  }));
+  ipcMain.handle("enterprise:fiscal-map-status", withPermission("exports.generate", async (user, payload) => {
+    const result = services.database.updateFiscalMonthlyMapStatus(payload?.id, payload || {}, user.id);
+    if (result?.ok) {
+      logAudit(
+        user,
+        "fiscal_map.status",
+        "fiscal_map",
+        `${result.map?.map_type || "mapa"} ${result.map?.month_ref || ""}`.trim(),
+        { status: payload?.status, proof_reference: payload?.proof_reference || "", proof_path: payload?.proof_path || "" },
+        payload?.id ?? null,
+        result.map?.month_ref || null
+      );
+    }
+    return result;
+  }));
+  ipcMain.handle("employees:import-file", withPermission("employees.manage", async (user, payload) => {
+    const result = services.database.importEmployeesFile(payload?.filePath, user.id);
+    if (result?.ok) {
+      logAudit(user, "employees.import", "employee", "Importação de funcionários", { imported: result.imported, failed: result.failed });
+    }
+    return result;
+  }));
+  ipcMain.handle("employees:export-excel", withPermission("exports.generate", async (user, filters) => services.database.exportEmployeesExcel(filters || {})));
   ipcMain.handle("settings:save", withAdmin(async (user, payload) => {
       if (app.isPackaged) {
         const currentSettings = services.database.getSystemSettings();
@@ -1687,7 +2016,7 @@ function registerIpc() {
     const before = services.database.getEmployeeSnapshot(employeeId);
     const result = services.database.deleteEmployee(employeeId);
     if (result?.ok) {
-      logAudit(user, "employee.delete", "employee", before?.full_name || `Funcionario ${employeeId}`, { before, after: null }, employeeId);
+      logAudit(user, "employee.delete", "employee", before?.full_name || `Funcionário ${employeeId}`, { before, after: null }, employeeId);
     }
     return result;
   }));
@@ -1726,46 +2055,110 @@ function registerIpc() {
   ipcMain.handle("documents:open", withPermission("documents.view", async (user, documentId) => {
     const document = services.database.getEmployeeDocumentSnapshot(documentId);
     if (!document) {
-      return { ok: false, message: "O documento laboral selecionado ja nao existe." };
+      return { ok: false, message: "O documento laboral selecionado já não existe." };
     }
     const storedPath = path.resolve(String(document.stored_file_path || "").trim());
     if (!storedPath || !fs.existsSync(storedPath)) {
-      return { ok: false, message: "O ficheiro do documento nao foi encontrado na pasta oficial." };
+      return { ok: false, message: "O ficheiro do documento não foi encontrado na pasta oficial." };
     }
 
     const allowedExtensions = new Set([".pdf", ".doc", ".docx", ".xls", ".xlsx", ".png", ".jpg", ".jpeg", ".txt"]);
     const extension = path.extname(storedPath).toLowerCase();
     if (!allowedExtensions.has(extension)) {
-      return { ok: false, message: "Extensao de ficheiro nao permitida para abertura direta." };
+      return { ok: false, message: "Extensão de ficheiro não permitida para abertura direta." };
     }
 
     if (!services.database.isManagedEmployeeDocumentPath(storedPath)) {
-      return { ok: false, message: "Caminho do documento invalido (fora da pasta oficial)." };
+      return { ok: false, message: "Caminho do documento inválido (fora da pasta oficial)." };
     }
 
     try {
       const stat = fs.lstatSync(storedPath);
       if (!stat.isFile()) {
-        return { ok: false, message: "O caminho do documento nao corresponde a um ficheiro valido." };
+        return { ok: false, message: "O caminho do documento não corresponde a um ficheiro válido." };
       }
       if (stat.isSymbolicLink()) {
-        return { ok: false, message: "Nao e permitido abrir documentos apontados por atalhos/symlinks." };
+        return { ok: false, message: "Não é permitido abrir documentos apontados por atalhos/symlinks." };
       }
 
       const rootDir = fs.realpathSync(services.database.employeeDocumentsDir);
       const realTarget = fs.realpathSync(storedPath);
       if (!(realTarget === rootDir || realTarget.startsWith(`${rootDir}${path.sep}`))) {
-        return { ok: false, message: "O documento resolve para fora da pasta oficial (bloqueado por seguranca)." };
+        return { ok: false, message: "O documento resolve para fora da pasta oficial (bloqueado por segurança)." };
       }
     } catch (error) {
-      return { ok: false, message: `Nao foi possivel validar o documento: ${error.message || error}` };
+      return { ok: false, message: `Não foi possível validar o documento: ${error.message || error}` };
     }
 
     const openResult = await shell.openPath(storedPath);
     if (openResult) {
-      return { ok: false, message: `Nao foi possivel abrir o documento: ${openResult}` };
+      return { ok: false, message: `Não foi possível abrir o documento: ${openResult}` };
     }
 
+    return { ok: true, path: storedPath };
+  }));
+  ipcMain.handle("hr:list", withPermission("hr.view", async (user, filters) => ({ ok: true, items: services.database.listHrSuiteItems(filters || {}) })));
+  ipcMain.handle("hr:save", withPermission("hr.manage", async (user, payload) => {
+    const before = payload?.id ? services.database.getHrSuiteSnapshot(payload.id) : null;
+    const result = services.database.saveHrSuiteItem(payload, user.id);
+    if (result?.ok) {
+      const after = result.item || (payload?.id ? services.database.getHrSuiteSnapshot(payload.id) : null);
+      logAudit(
+        user,
+        payload?.id ? "hr.update" : "hr.create",
+        "hr_suite_item",
+        after?.title || payload?.title || "RH 360",
+        { before, after, changes: buildDiff(before, after) },
+        after?.id ?? payload?.id ?? null
+      );
+    }
+    return result;
+  }));
+  ipcMain.handle("hr:delete", withPermission("hr.manage", async (user, itemId) => {
+    const before = services.database.getHrSuiteSnapshot(itemId);
+    const result = services.database.deleteHrSuiteItem(itemId);
+    if (result?.ok) {
+      logAudit(user, "hr.delete", "hr_suite_item", before?.title || `RH 360 ${itemId}`, { before, after: null }, itemId);
+    }
+    return result;
+  }));
+  ipcMain.handle("hr:open-attachment", withPermission("hr.view", async (user, itemId) => {
+    const item = services.database.getHrSuiteSnapshot(itemId);
+    if (!item) {
+      return { ok: false, message: "O registo RH selecionado já não existe." };
+    }
+    const storedPath = path.resolve(String(item.attachment_path || "").trim());
+    if (!storedPath || !fs.existsSync(storedPath)) {
+      return { ok: false, message: "O anexo RH não foi encontrado na pasta oficial." };
+    }
+
+    const allowedExtensions = new Set([".pdf", ".doc", ".docx", ".xls", ".xlsx", ".png", ".jpg", ".jpeg", ".txt"]);
+    const extension = path.extname(storedPath).toLowerCase();
+    if (!allowedExtensions.has(extension)) {
+      return { ok: false, message: "Extensão de ficheiro não permitida para abertura direta." };
+    }
+    if (!services.database.isManagedHrSuiteAttachmentPath(storedPath)) {
+      return { ok: false, message: "Caminho do anexo RH inválido (fora da pasta oficial)." };
+    }
+
+    try {
+      const stat = fs.lstatSync(storedPath);
+      if (!stat.isFile() || stat.isSymbolicLink()) {
+        return { ok: false, message: "O caminho do anexo RH não corresponde a um ficheiro válido." };
+      }
+      const rootDir = fs.realpathSync(services.database.hrSuiteDocumentsDir);
+      const realTarget = fs.realpathSync(storedPath);
+      if (!(realTarget === rootDir || realTarget.startsWith(`${rootDir}${path.sep}`))) {
+        return { ok: false, message: "O anexo RH resolve para fora da pasta oficial (bloqueado por segurança)." };
+      }
+    } catch (error) {
+      return { ok: false, message: `Não foi possível validar o anexo RH: ${error.message || error}` };
+    }
+
+    const openResult = await shell.openPath(storedPath);
+    if (openResult) {
+      return { ok: false, message: `Não foi possível abrir o anexo RH: ${openResult}` };
+    }
     return { ok: true, path: storedPath };
   }));
   ipcMain.handle("events:list", withPermission("events.view", async (user, employeeId) => services.database.listEvents(employeeId)));
@@ -1895,7 +2288,7 @@ function registerIpc() {
       }
       return result;
     }));
-    ipcMain.handle("attendance:approve-adjustments", withAdmin(async (user, payload) => {
+    ipcMain.handle("attendance:approve-adjustments", withPermission("attendance.manage", async (user, payload) => {
       const monthRef = String(payload?.monthRef || "").trim();
       const employeeId = payload?.employeeId ? Number(payload.employeeId) : null;
       const result = services.database.approveAttendanceAdjustments(monthRef, user.id, { employeeId });
@@ -1916,7 +2309,7 @@ function registerIpc() {
       }
       return result;
     }));
-    ipcMain.handle("attendance:close-period", withAdmin(async (user, monthRef) => {
+    ipcMain.handle("attendance:close-period", withPermission("attendance.manage", async (user, monthRef) => {
       const result = services.database.closeAttendancePeriod(monthRef, user.id);
       if (result?.ok) {
         logAudit(
@@ -1934,7 +2327,7 @@ function registerIpc() {
       }
       return result;
     }));
-    ipcMain.handle("attendance:reopen-period", withAdmin(async (user, monthRef) => {
+    ipcMain.handle("attendance:reopen-period", withPermission("attendance.manage", async (user, monthRef) => {
       const result = services.database.reopenAttendancePeriod(monthRef, user.id);
       if (result?.ok) {
         logAudit(user, "attendance.reopen_period", "attendance_period", monthRef, { monthRef }, null, monthRef);
@@ -1942,7 +2335,7 @@ function registerIpc() {
       return result;
     }));
     ipcMain.handle("shifts:list", withPermission("shifts.view", async () => ({ ok: true, items: services.database.listWorkShifts() })));
-  ipcMain.handle("shifts:save", withAdmin(async (user, payload) => {
+  ipcMain.handle("shifts:save", withPermission("shifts.manage", async (user, payload) => {
     const before = payload?.id ? services.database.getWorkShiftSnapshot(payload.id) : null;
     const result = services.database.saveWorkShift(payload);
     if (result?.ok) {
@@ -1963,7 +2356,7 @@ function registerIpc() {
     }
     return result;
   }));
-  ipcMain.handle("shifts:delete", withAdmin(async (user, shiftId) => {
+  ipcMain.handle("shifts:delete", withPermission("shifts.manage", async (user, shiftId) => {
     const before = services.database.getWorkShiftSnapshot(shiftId);
     const result = services.database.deleteWorkShift(shiftId);
     if (result?.ok) {
@@ -2000,7 +2393,7 @@ function registerIpc() {
     }
     return result;
   }));
-  ipcMain.handle("leave:set-status", withAdmin(async (user, payload) => {
+  ipcMain.handle("leave:set-status", withPermission("leave.manage", async (user, payload) => {
     const before = services.database.getLeaveRequestSnapshot(payload?.id);
     const result = services.database.setLeaveRequestStatus(payload?.id, payload?.status, user.id, payload?.rejectionReason);
     if (result?.ok) {
@@ -2076,7 +2469,7 @@ function registerIpc() {
     }
     return result;
   }));
-  ipcMain.handle("vacation:set-status", withAdmin(async (user, payload) => {
+  ipcMain.handle("vacation:set-status", withPermission("vacation.manage", async (user, payload) => {
     const before = services.database.getVacationRequestSnapshot(payload?.id);
     const result = services.database.setVacationRequestStatus(payload?.id, payload?.status, user.id, payload?.rejectionReason);
     if (result?.ok) {
@@ -2148,7 +2541,7 @@ function registerIpc() {
     return result;
   }));
   ipcMain.handle("salary-scales:list", withPermission("salary_scales.view", async () => ({ ok: true, items: services.database.listSalaryScales() })));
-  ipcMain.handle("salary-scales:save", withAdmin(async (user, payload) => {
+  ipcMain.handle("salary-scales:save", withPermission("salary_scales.manage", async (user, payload) => {
     const before = payload?.id ? services.database.getSalaryScaleSnapshot(payload.id) : null;
     const result = services.database.saveSalaryScale(payload);
     if (result?.ok) {
@@ -2171,7 +2564,7 @@ function registerIpc() {
     }
     return result;
   }));
-  ipcMain.handle("salary-scales:delete", withAdmin(async (user, scaleId) => {
+  ipcMain.handle("salary-scales:delete", withPermission("salary_scales.manage", async (user, scaleId) => {
     const before = services.database.getSalaryScaleSnapshot(scaleId);
     const result = services.database.deleteSalaryScale(scaleId);
     if (result?.ok) {
@@ -2187,16 +2580,16 @@ function registerIpc() {
     return result;
   }));
   ipcMain.handle("payroll:process", withPermission("payroll.process", async (user, month) => {
-    const result = services.payroll.processMonth(month);
+    const result = services.payroll.processMonth(month, { userId: user.id });
     if (result?.ok) {
       logAudit(user, "payroll.process", "payroll_period", month, { itemCount: result.items?.length || 0 }, null, month);
     }
     return result;
   }));
-  ipcMain.handle("payroll:preview-reprocess", withAdmin(async (user, monthRef) => {
+  ipcMain.handle("payroll:preview-reprocess", withPermission("payroll.process", async (user, monthRef) => {
     return services.payroll.previewReprocessMonth(monthRef);
   }));
-  ipcMain.handle("payroll:reprocess", withAdmin(async (user, payload) => {
+  ipcMain.handle("payroll:reprocess", withPermission("payroll.period.manage", async (user, payload) => {
     const request =
       typeof payload === "string"
         ? { monthRef: payload }
@@ -2207,7 +2600,8 @@ function registerIpc() {
           };
     const result = services.payroll.reprocessMonth(request.monthRef, {
       allowClosedPeriod: request.allowClosedPeriod,
-      authorizationReason: request.authorizationReason
+      authorizationReason: request.authorizationReason,
+      userId: user.id
     });
     if (result?.ok) {
       logAudit(
@@ -2230,35 +2624,35 @@ function registerIpc() {
     return result;
   }));
   ipcMain.handle("payroll:list", withPermission("payroll.view", async () => services.database.listPayrollRuns()));
-  ipcMain.handle("payroll:delete-run", withAdmin(async (user, payrollRunId) => {
+  ipcMain.handle("payroll:delete-run", withPermission("payroll.period.manage", async (user, payrollRunId) => {
     const result = services.database.deletePayrollRun(payrollRunId);
     if (result?.ok) {
       logAudit(user, "payroll.delete_run", "payroll_run", `Pagamento ${payrollRunId}`, { payrollRunId }, payrollRunId);
     }
     return result;
   }));
-  ipcMain.handle("payroll:delete-month", withAdmin(async (user, monthRef) => {
+  ipcMain.handle("payroll:delete-month", withPermission("payroll.period.manage", async (user, monthRef) => {
     const result = services.database.deletePayrollRunsByMonth(monthRef);
     if (result?.ok) {
       logAudit(user, "payroll.delete_month", "payroll_period", monthRef, { monthRef }, null, monthRef);
     }
     return result;
   }));
-  ipcMain.handle("payroll:close-period", withAdmin(async (user, monthRef) => {
+  ipcMain.handle("payroll:close-period", withPermission("payroll.period.manage", async (user, monthRef) => {
     const result = services.database.closePayrollPeriod(monthRef, user.id);
     if (result?.ok) {
       logAudit(user, "payroll.close_period", "payroll_period", monthRef, { monthRef }, null, monthRef);
     }
     return result;
   }));
-  ipcMain.handle("payroll:reopen-period", withAdmin(async (user, monthRef) => {
+  ipcMain.handle("payroll:reopen-period", withPermission("payroll.period.manage", async (user, monthRef) => {
     const result = services.database.reopenPayrollPeriod(monthRef, user.id);
     if (result?.ok) {
       logAudit(user, "payroll.reopen_period", "payroll_period", monthRef, { monthRef }, null, monthRef);
     }
     return result;
   }));
-  ipcMain.handle("agt:save-submission", withAdmin(async (user, payload) => {
+  ipcMain.handle("agt:save-submission", withPermission("exports.generate", async (user, payload) => {
     const result = services.database.saveAgtMonthlySubmission(payload, user.id);
     if (result?.ok) {
       logAudit(
@@ -2279,12 +2673,12 @@ function registerIpc() {
     return result;
   }));
   ipcMain.handle("reports:summary", withPermission("reports.view", async (user, month) => services.payroll.getMonthlySummary(month)));
-  ipcMain.handle("audit:list", withAdmin(async (user, filters) => ({ ok: true, items: services.database.listAuditLogs(filters || {}) })));
-  ipcMain.handle("audit:export", withAdmin(async (user, filters) => services.database.exportAuditCsv(filters || {})));
-  ipcMain.handle("audit:export-excel", withAdmin(async (user, filters) => services.database.exportAuditExcel(filters || {})));
+  ipcMain.handle("audit:list", withPermission("audit.view", async (user, filters) => ({ ok: true, items: services.database.listAuditLogs(filters || {}) })));
+  ipcMain.handle("audit:export", withPermission("audit.view", async (user, filters) => services.database.exportAuditCsv(filters || {})));
+  ipcMain.handle("audit:export-excel", withPermission("audit.view", async (user, filters) => services.database.exportAuditExcel(filters || {})));
   ipcMain.handle(
     "audit:export-payroll-calculation",
-    withAdmin(async (user, filters) => services.database.exportPayrollCalculationAudit(filters || {}))
+    withPermission("audit.view", async (user, filters) => services.database.exportPayrollCalculationAudit(filters || {}))
   );
   ipcMain.handle("excel:export-monthly-payroll", withPermission("exports.generate", async (user, payload) => services.database.exportMonthlyPayrollExcel(payload)));
   ipcMain.handle(
@@ -2294,14 +2688,15 @@ function registerIpc() {
   ipcMain.handle("excel:export-state-payments", withPermission("exports.generate", async (user, payload) => services.database.exportStatePaymentsExcel(payload)));
   ipcMain.handle("excel:export-attendance", withPermission("exports.generate", async (user, payload) => services.database.exportAttendanceExcel(payload, payload?.reportType)));
   ipcMain.handle("excel:export-shift-map", withPermission("exports.generate", async (user, payload) => services.database.exportShiftMapExcel(payload, payload?.reportType)));
+  ipcMain.handle("excel:export-hr-suite", withPermission("exports.generate", async (user, payload) => services.database.exportHrSuiteExcel(payload || {})));
   ipcMain.handle("support:health", withAdmin(async () => {
     return supportDiagnostics?.buildHealthSnapshot({
       startupIntegrity: startupIntegrityState
-    }) || { ok: false, message: "Servico de diagnostico indisponivel." };
+    }) || { ok: false, message: "Serviço de diagnóstico indisponivel." };
   }));
   ipcMain.handle("support:export-logs", withAdmin(async (user, payload) => {
     if (!supportDiagnostics) {
-      return { ok: false, message: "Servico de diagnostico indisponivel." };
+      return { ok: false, message: "Serviço de diagnóstico indisponivel." };
     }
     return supportDiagnostics.exportSupportBundle({
       requestedByUserId: user?.id || null,
@@ -2321,15 +2716,15 @@ function registerIpc() {
   ipcMain.handle("pdf:payslips-by-month", withPermission("pdf.generate", async (user, monthRef) => services.pdf.generatePayslipsByMonth(monthRef)));
   ipcMain.handle("pdf:monthly-package", withPermission("pdf.generate", async (user, payload) => services.pdf.exportMonthlyPackage(payload)));
   ipcMain.handle("pdf:report", withPermission("pdf.generate", async (user, payload) => services.pdf.generateReport(payload)));
-  ipcMain.handle("backup:create", withAdmin(async (user) => {
+  ipcMain.handle("backup:create", withPermission("backup.manage", async (user) => {
     const result = services.database.createBackup();
     if (result?.ok) {
       logAudit(user, "backup.create", "backup", "Base de dados", { path: result.path });
     }
     return result;
   }));
-  ipcMain.handle("backup:list", withAdmin(async () => ({ ok: true, items: services.database.listBackups() })));
-  ipcMain.handle("backup:restore", withAdmin(async (user, backupPath) => {
+  ipcMain.handle("backup:list", withPermission("backup.manage", async () => ({ ok: true, items: services.database.listBackups() })));
+  ipcMain.handle("backup:restore", withPermission("backup.manage", async (user, backupPath) => {
     const result = services.database.restoreBackup(backupPath);
     if (!result?.ok) {
       return result;
@@ -2342,13 +2737,14 @@ function registerIpc() {
 
     return {
       ...result,
-      message: "Backup restaurado com sucesso. A aplicacao sera reiniciada para carregar os dados repostos."
+      message: "Backup restaurado com sucesso. A aplicação será reiniciada para carregar os dados repostos."
     };
   }));
   ipcMain.handle("app:update-check", withAuth(async () => services.updater.checkForUpdates()));
   ipcMain.handle("app:update-download", withPermission("app.update.manage", async () => services.updater.downloadUpdate()));
   ipcMain.handle("app:update-install", withPermission("app.update.manage", async () => services.updater.installDownloadedUpdate()));
-  ipcMain.handle("dialog:select-logo", withAdmin(async () => {
+  ipcMain.handle("docs:download-client-manual", withAuth(async () => downloadClientManual()));
+  ipcMain.handle("dialog:select-logo", withPermission("company.manage", async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ["openFile"],
       filters: [{ name: "Imagens", extensions: ["png", "jpg", "jpeg", "svg"] }]
@@ -2362,6 +2758,19 @@ function registerIpc() {
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ["openFile"],
       filters: [{ name: "Ficheiros de assiduidade", extensions: ["csv", "txt", "dat", "log"] }]
+    });
+    if (result.canceled || !result.filePaths[0]) {
+      return null;
+    }
+    return result.filePaths[0];
+  }));
+  ipcMain.handle("dialog:select-employee-import-file", withPermission("employees.manage", async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ["openFile"],
+      filters: [
+        { name: "Lista de funcionários", extensions: ["csv", "txt", "tsv", "xls", "html", "htm"] },
+        { name: "Todos os ficheiros", extensions: ["*"] }
+      ]
     });
     if (result.canceled || !result.filePaths[0]) {
       return null;
@@ -2390,6 +2799,19 @@ function registerIpc() {
     }
     return result.filePaths[0];
   }));
+  ipcMain.handle("dialog:select-hr-attachment", withPermission("hr.manage", async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ["openFile"],
+      filters: [
+        { name: "Anexos RH", extensions: ["pdf", "doc", "docx", "xls", "xlsx", "png", "jpg", "jpeg", "txt"] },
+        { name: "Todos os ficheiros", extensions: ["*"] }
+      ]
+    });
+    if (result.canceled || !result.filePaths[0]) {
+      return null;
+    }
+    return result.filePaths[0];
+  }));
 }
 
 app.whenReady().then(() => {
@@ -2398,7 +2820,6 @@ app.whenReady().then(() => {
   app.setName("Kwanza Folha");
   Menu.setApplicationMenu(null);
   registerStartupIpcFallbacks();
-  cleanupLegacyData();
   const userDataPath = app.getPath("userData");
   const isSmokeE2E = process.env.KWANZA_SMOKE_E2E === "1";
   const documentsPath = isSmokeE2E ? userDataPath : app.getPath("documents");
@@ -2407,6 +2828,7 @@ app.whenReady().then(() => {
   log.info("[BOOT] resolved paths", { userDataPath, documentsPath, programDataPath, isSmokeE2E });
   fs.mkdirSync(userDataPath, { recursive: true });
   fs.mkdirSync(programDataPath, { recursive: true });
+  migrateLegacyDataIfNeeded(userDataPath, programDataPath);
   ensureDir(app.getPath("sessionData"));
   ensureDir(cachePath);
   ensureDir(app.getPath("logs"));
@@ -2457,7 +2879,7 @@ app.whenReady().then(() => {
     installationIdentity
   }));
   log.info("[BOOT] independent licensing core ready");
-  recordSupportEvent("info", "licensing", "licensing.boot-core.ready", "Core independente de licenciamento pronto para ativacao critica de boot.", {
+  recordSupportEvent("info", "licensing", "licensing.boot-core.ready", "Core independente de licenciamento pronto para ativação critica de boot.", {
     hasSecureStorage: Boolean(secureStorage),
     hasInstallationIdentity: Boolean(installationIdentity)
   });
@@ -2475,15 +2897,15 @@ app.whenReady().then(() => {
     const anchors = installationIdentity.verifyInstallationAnchors();
     log.info("[BOOT] installation anchors verified", summarizeAnchorVerification(anchors));
     if (!anchors.ok) {
-      setStartupIntegrityIssue("installation-identity", "Nao foi possivel validar as ancoras de seguranca da instalacao.");
+      setStartupIntegrityIssue("installation-identity", "Não foi possível validar as âncoras de segurança da instalação.");
     }
   } catch (error) {
     setStartupIntegrityIssue(
       "installation-identity",
-      error.message || "Nao foi possivel validar a identidade da instalacao.",
+      error.message || "Não foi possível validar a identidade da instalação.",
       { error: String(error?.stack || error?.message || error) }
     );
-    log.error("Falha ao validar a identidade da instalacao", error);
+    log.error("Falha ao validar a identidade da instalação", error);
   }
 
   log.info("[BOOT] verifying executable signature");
@@ -2505,7 +2927,10 @@ app.whenReady().then(() => {
     expectedSignerThumbprints[0] || "",
     {
       developmentMode: !app.isPackaged || isLocalPackagedBuildRuntime(),
-      allowedThumbprints: expectedSignerThumbprints
+      allowedThumbprints: expectedSignerThumbprints,
+      requireSignedExecutable:
+        process.env.KWANZA_REQUIRE_SIGNED_EXECUTABLE === "1" ||
+        licenseSource.requireSignedExecutable === true
     }
   );
   log.info("[BOOT] executable signature result", executableSignature);
@@ -2515,11 +2940,11 @@ app.whenReady().then(() => {
     log.warn("[BOOT][WARN] assinatura validada com aviso em modo empacotado", executableSignature);
   } else if (app.isPackaged && !executableSignature.ok) {
     if (isLocalPackagedBuildRuntime()) {
-      log.warn("[BOOT][LOCAL-PACKAGED] assinatura invalida no binario local de QA; validacao estrita mantida apenas para instalacoes comerciais.");
+      log.warn("[BOOT][LOCAL-PACKAGED] assinatura inválida no binario local de QA; validação estrita mantida apenas para instalacoes comerciais.");
     } else {
     setStartupIntegrityIssue(
       "executable-signature",
-      executableSignature.message || "A assinatura do executavel nao pode ser validada.",
+      executableSignature.message || "A assinatura do executável não pode ser validada.",
       { code: executableSignature.code || "invalid_signature" }
     );
     }
@@ -2531,7 +2956,7 @@ app.whenReady().then(() => {
   if (!tamperCheck.ok) {
     setStartupIntegrityIssue(
       "module-integrity",
-      tamperCheck.message || "Foram detetadas alteracoes nos modulos criticos da aplicacao.",
+      tamperCheck.message || "Foram detetadas alterações nos módulos críticos da aplicação.",
       { mismatches: tamperCheck.mismatches || [] }
     );
   }
@@ -2612,7 +3037,7 @@ app.whenReady().then(() => {
                 { error: String(finalRetryError?.stack || finalRetryError?.message || finalRetryError) }
               );
               markServicesFailed(finalRetryError);
-              log.error("Falha ao inicializar os servicos da aplicacao apos recuperacao completa de DB", finalRetryError);
+              log.error("Falha ao inicializar os serviços da aplicação após recuperação completa de DB", finalRetryError);
             }
           } else {
             setStartupIntegrityIssue(
@@ -2621,7 +3046,7 @@ app.whenReady().then(() => {
               { error: String(retryError?.stack || retryError?.message || retryError) }
             );
             markServicesFailed(retryError);
-            log.error("Falha ao inicializar os servicos da aplicacao apos tentativa de recuperacao", retryError);
+            log.error("Falha ao inicializar os serviços da aplicação após tentativa de recuperação", retryError);
           }
         }
       } else {
@@ -2631,7 +3056,7 @@ app.whenReady().then(() => {
           { error: String(error?.stack || error?.message || error) }
         );
         markServicesFailed(error);
-        log.error("Falha ao inicializar os servicos da aplicacao", error);
+        log.error("Falha ao inicializar os serviços da aplicação", error);
       }
     }
   }
@@ -2737,7 +3162,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("render-process-gone", (_event, webContents, details) => {
-  const message = `Processo renderer terminou com razao '${details?.reason || "desconhecida"}'.`;
+  const message = `Processo renderer terminou com razão '${details?.reason || "desconhecida"}'.`;
   log.error(message, details);
   recordSupportEvent("error", "crash", "crash.render-process-gone", message, details || {});
   try {
@@ -2749,7 +3174,7 @@ app.on("render-process-gone", (_event, webContents, details) => {
 });
 
 app.on("child-process-gone", (_event, details) => {
-  const message = `Processo filho terminou com razao '${details?.reason || "desconhecida"}'.`;
+  const message = `Processo filho terminou com razão '${details?.reason || "desconhecida"}'.`;
   log.error(message, details);
   recordSupportEvent("error", "crash", "crash.child-process-gone", message, details || {});
   try {

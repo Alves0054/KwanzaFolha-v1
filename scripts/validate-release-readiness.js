@@ -5,14 +5,21 @@ const { execFileSync } = require("child_process");
 const PRECHECK_REQUIRED_DOCS = Object.freeze([
   "README.md",
   "SECURITY.md",
-  "RELEASE-POLICY.md",
-  "RELEASE-CHECKLIST.md",
-  "RELEASE_PROCESS.md",
-  "RELEASE_NOTES_TEMPLATE.md",
-  "COMPLIANCE_GAP_REPORT.md",
-  "SUPPORT_RUNBOOK.md",
-  "INCIDENT_RESPONSE.md",
-  "LICENSING_OPERATIONS.md"
+  "docs/README.md",
+  "docs/instalacao/INSTALACAO.md",
+  "docs/instalacao/REQUISITOS.md",
+  "docs/utilizador/MANUAL_CLIENTE.md",
+  "docs/fiscalidade/IRT_2026_FONTES_E_VALIDACAO.md",
+  "docs/fiscalidade/TESTES_FISCAIS.md",
+  "docs/fiscalidade/VALIDACAO_CONTABILISTA.md",
+  "docs/legal/CONTRATO_LICENCA.md",
+  "docs/legal/TERMOS_DE_USO.md",
+  "docs/legal/POLITICA_PRIVACIDADE.md",
+  "docs/entrega/CHECKLIST_ENTREGA.md",
+  "docs/entrega/RELEASE_NOTES.md",
+  "docs/entrega/CHECKSUMS.md",
+  "docs/entrega/README_ENTREGA.md",
+  "docs/validacao-externa-pendente/CHECKLIST_VALIDACAO_EXTERNA.md"
 ]);
 
 const REQUIRED_NPM_SCRIPTS = Object.freeze([
@@ -147,7 +154,7 @@ function assertPackageScripts(rootDir, requiredScripts = REQUIRED_NPM_SCRIPTS) {
   const scripts = packageJson.scripts || {};
   const missing = requiredScripts.filter((scriptName) => !scripts[scriptName]);
   if (missing.length) {
-    throw new Error(`Scripts obrigatorios em falta no package.json: ${missing.join(", ")}`);
+    throw new Error(`Scripts obrigatórios em falta no package.json: ${missing.join(", ")}`);
   }
 }
 
@@ -237,7 +244,7 @@ function assertPackagedArtifacts(distDir, packageVersion, options = {}) {
   if (requireReleaseBundle) {
     for (const requiredFile of ["SHA256SUMS.txt", "release-manifest.json", "release-notes-template.md"]) {
       if (!fileNames.includes(requiredFile)) {
-        throw new Error(`Artefacto obrigatorio em falta em dist-electron: ${requiredFile}`);
+        throw new Error(`Artefacto obrigatório em falta em dist-electron: ${requiredFile}`);
       }
     }
   }

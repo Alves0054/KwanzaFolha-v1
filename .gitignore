@@ -32,6 +32,7 @@ licensing-server/config/settings.json
 
 # Local deployment artifacts
 artifacts/
+release/
 dist.zip
 licensing-server.zip
 Kwanza Folha.zip

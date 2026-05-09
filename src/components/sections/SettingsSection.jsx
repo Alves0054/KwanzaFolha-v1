@@ -30,13 +30,36 @@ const deviceProfileOptions = [
 function formatMonthRefLabel(monthRef) {
   const normalized = String(monthRef || "").trim();
   if (!/^\d{4}-\d{2}$/.test(normalized)) {
-    return "Sem vigencia";
+    return "Sem vigência";
   }
 
   const [year, month] = normalized.split("-").map(Number);
   return new Intl.DateTimeFormat("pt-PT", { month: "long", year: "numeric" }).format(
     new Date(Date.UTC(year, month - 1, 1))
   );
+}
+
+function resolveLicenseTone(status) {
+  if (status === "active") return "success";
+  if (status === "trial_active") return "warning";
+  return "danger";
+}
+
+function resolveLicenseStatusLabel(status) {
+  if (status === "active") return "Licença ativa";
+  if (status === "trial_active") return "Período gratuito";
+  if (status === "expired") return "Licença expirada";
+  if (status === "trial_expired") return "Teste expirado";
+  return "Licença pendente";
+}
+
+function maskLicenseSerial(serialKey) {
+  const value = String(serialKey || "").trim();
+  if (!value) return "Ainda não ativado";
+
+  const compact = value.replace(/[^a-z0-9]/gi, "").toUpperCase();
+  const suffix = compact.slice(-4);
+  return suffix ? `Oculto (...${suffix})` : "Oculto";
 }
 
 export default function SettingsSection({
@@ -60,7 +83,16 @@ export default function SettingsSection({
   boot,
   runtimeFlags,
   generateBackup,
-  restoreBackup
+  restoreBackup,
+  licenseState,
+  licensePlans,
+  licenseBanner,
+  openLicenseCenter,
+  updateState,
+  checkForUpdates,
+  downloadUpdate,
+  installUpdate,
+  downloadClientManual
 }) {
   const [backupSearch, setBackupSearch] = useState("");
   const salaryScales = boot.salaryScales || [];
@@ -69,6 +101,7 @@ export default function SettingsSection({
   const payrollRuleEditingLocked = Boolean(runtimeFlags?.payrollRuleEditingLocked);
   const latestBackup = backupItems[0] || null;
   const resolvedFiscalProfile = settingsForm.resolvedFiscalProfile || null;
+  const currentPlan = licenseState?.plan || licensePlans?.[0]?.name || "Plano mensal";
   const fiscalProfiles = useMemo(
     () =>
       [...(settingsForm.fiscalProfiles || [])].sort((left, right) =>
@@ -170,20 +203,20 @@ export default function SettingsSection({
             </label>
             <div className="full-span update-panel fiscal-profile-panel">
               <div className="section-heading compact">
-                <h3>Vigencia fiscal</h3>
-                <p>Escolha o mes de entrada em vigor da revisao fiscal antes de guardar. Se usar um mes novo, o sistema cria uma nova versao.</p>
+                <h3>Vigência fiscal</h3>
+                <p>Escolha o mês de entrada em vigor da revisão fiscal antes de guardar. Se usar um mês novo, o sistema cria uma nova versão.</p>
               </div>
 
               <div className="info-grid">
                 <div>
                   <label>Perfil resolvido agora</label>
                   <strong>{resolvedFiscalProfile?.name || "Sem perfil"}</strong>
-                  <small>{resolvedFiscalProfile?.effectiveFrom ? formatMonthRefLabel(resolvedFiscalProfile.effectiveFrom) : "Sem vigencia"}</small>
+                  <small>{resolvedFiscalProfile?.effectiveFrom ? formatMonthRefLabel(resolvedFiscalProfile.effectiveFrom) : "Sem vigência"}</small>
                 </div>
                 <div>
-                  <label>Versao atual</label>
+                  <label>Versão atual</label>
                   <strong>{resolvedFiscalProfile?.version || "--"}</strong>
-                  <small>{resolvedFiscalProfile?.legalReference || "Sem referencia legal"}</small>
+                  <small>{resolvedFiscalProfile?.legalReference || "Sem referência legal"}</small>
                 </div>
               </div>
 
@@ -199,7 +232,7 @@ export default function SettingsSection({
                   />
                 </label>
                 <label>
-                  Nome da versao fiscal
+                  Nome da versão fiscal
                   <input
                     value={settingsForm.fiscalProfileName || ""}
                     onChange={(event) =>
@@ -215,7 +248,7 @@ export default function SettingsSection({
                     onChange={(event) =>
                       setSettingsForm((current) => ({ ...current, fiscalProfileLegalReference: event.target.value }))
                     }
-                    placeholder="Lei, despacho, circular ou validacao interna"
+                    placeholder="Lei, despacho, circular ou validação interna"
                   />
                 </label>
                 <label className="full-span">
@@ -226,15 +259,15 @@ export default function SettingsSection({
                     onChange={(event) =>
                       setSettingsForm((current) => ({ ...current, fiscalProfileNotes: event.target.value }))
                     }
-                    placeholder="Contexto da revisao fiscal, motivo da mudanca e observacoes"
+                    placeholder="Contexto da revisão fiscal, motivo da mudança e observações"
                   />
                 </label>
               </div>
 
               <div className="fiscal-profile-history">
                 <div className="section-heading compact">
-                  <h3>Historico de versoes</h3>
-                  <p>Use &quot;Carregar no formulario&quot; para rever ou atualizar uma versao existente.</p>
+                  <h3>Histórico de versões</h3>
+                  <p>Use &quot;Carregar no formulário&quot; para rever ou atualizar uma versão existente.</p>
                 </div>
 
                 <div className="table-list fiscal-profile-list">
@@ -243,9 +276,9 @@ export default function SettingsSection({
                       <div>
                         <strong>{profile.name || profile.id}</strong>
                         <small>
-                          Vigencia {formatMonthRefLabel(profile.effectiveFrom)} | versao {profile.version || "--"}
+                          Vigência {formatMonthRefLabel(profile.effectiveFrom)} | versão {profile.version || "--"}
                         </small>
-                        <small>{profile.legalReference || "Sem referencia legal"}</small>
+                        <small>{profile.legalReference || "Sem referência legal"}</small>
                       </div>
                       <div className="inline-actions">
                         <span
@@ -253,42 +286,30 @@ export default function SettingsSection({
                             profile.id === resolvedFiscalProfile?.id ? "status-chip--success" : "status-chip--info"
                           }`}
                         >
-                          {profile.id === resolvedFiscalProfile?.id ? "Atual" : "Historico"}
+                          {profile.id === resolvedFiscalProfile?.id ? "Atual" : "Histórico"}
                         </span>
                         <button type="button" className="secondary-btn" onClick={() => loadFiscalProfileIntoForm(profile)}>
-                          Carregar no formulario
+                          Carregar no formulário
                         </button>
                       </div>
                     </div>
                   ))}
 
                   {fiscalProfiles.length === 0 && (
-                    <p className="empty-note">Ainda nao existem versoes fiscais registadas.</p>
+                    <p className="empty-note">Ainda não existem versões fiscais registadas.</p>
                   )}
                 </div>
               </div>
             </div>
-            <label className="full-span">
-              Tabela de IRT editável em JSON
-              <textarea
-                className="code-area"
-                value={settingsForm.irtBrackets}
-                disabled={payrollRuleEditingLocked}
-                readOnly={payrollRuleEditingLocked}
-                onChange={(event) => setSettingsForm((current) => ({ ...current, irtBrackets: event.target.value }))}
-              />
-              {payrollRuleEditingLocked && (
-                <small className="form-hint">
-                  Em produção, a tabela de IRT fica bloqueada. Alterações só podem entrar por atualização oficial do
-                  motor fiscal.
-                </small>
-              )}
-            </label>
+            <div className="full-span empty-note">
+              A tabela de IRT fica oculta na interface normal e ? aplicada pelo motor fiscal versionado. Alterações fiscais
+              devem entrar por atualização validada.
+            </div>
             <button type="submit">Guardar configurações</button>
           </form>
         </div>
 
-        <div className="panel settings-panel settings-panel--system">
+        <div className="panel settings-panel settings-panel--system settings-panel--attendance-integrations">
           <div className="section-heading">
             <h2>Integrações de assiduidade</h2>
             <p>Configure a pasta monitorizada, a origem dos ficheiros e o perfil do biométrico ou leitor de cartão.</p>
@@ -400,28 +421,148 @@ export default function SettingsSection({
           </form>
         </div>
 
-        <div className="panel settings-panel settings-panel--system panel--full">
+      </section>
+
+      <section className="two-column">
+        <div className="panel settings-panel">
           <div className="section-heading">
-            <h2>Licenciamento</h2>
-            <p>
-              Configure o servidor de licenças usado para compra, renovação e ativação. Em produção, apenas HTTPS é permitido. A recuperação de palavra-passe por e-mail usa este mesmo servidor (SMTP configurado online).
-            </p>
+            <h2>Manual de utilização</h2>
+            <p>Descarregue o manual completo para consultar os módulos, procedimentos e recomendações de uso.</p>
           </div>
 
-          <form className="grid-form settings-form settings-form--system" onSubmit={saveSettings}>
-            <label className="full-span">
-              Servidor de licenças (HTTPS)
-              <input
-                value={settingsForm.licenseApiBaseUrl || ""}
-                onChange={(event) => setSettingsForm((current) => ({ ...current, licenseApiBaseUrl: event.target.value }))}
-                placeholder="https://license.suaempresa.ao"
-              />
-              <small className="helper-text">
-                Dica: não use localhost em builds empacotadas. Se deixar vazio, o sistema usa o endereço padrão embutido.
-              </small>
-            </label>
-            <button type="submit">Guardar licenciamento</button>
-          </form>
+          <div className="update-panel">
+            <div className="update-panel__status">
+              <span className="status-chip status-chip--info">PDF incluído na instalação</span>
+              <p>O ficheiro é guardado na pasta Downloads do Windows para facilitar a consulta pelo cliente.</p>
+            </div>
+
+            <div className="inline-actions">
+              <button type="button" onClick={downloadClientManual}>
+                Manual do Cliente
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="panel settings-panel">
+          <div className="section-heading">
+            <h2>Licenciamento</h2>
+            <p>Compre, renove ou ative a licença mensal do Kwanza Folha sem sair do aplicativo.</p>
+          </div>
+
+          <div className="update-panel">
+            <div className="update-panel__summary">
+              <div>
+                <label>Estado</label>
+                <strong>{resolveLicenseStatusLabel(licenseState?.status)}</strong>
+              </div>
+              <div>
+                <label>Plano</label>
+                <strong>{currentPlan}</strong>
+              </div>
+              <div>
+                <label>Serial</label>
+                <strong>{maskLicenseSerial(licenseState?.serialKey)}</strong>
+              </div>
+              <div>
+                <label>Validade</label>
+                <strong>{licenseState?.expireDate ? new Date(licenseState.expireDate).toLocaleDateString("pt-PT") : "-"}</strong>
+              </div>
+            </div>
+
+            <div className="update-panel__status">
+              <span className={`status-chip status-chip--${resolveLicenseTone(licenseState?.status)}`}>
+                {resolveLicenseStatusLabel(licenseState?.status)}
+              </span>
+              <p>{licenseBanner?.message || licenseState?.message || "A licença é validada offline depois da ativação."}</p>
+            </div>
+
+            <div className="inline-actions">
+              <button
+                type="button"
+                onClick={() =>
+                  openLicenseCenter(
+                    licenseState?.status === "active" || licenseState?.status === "expired" ? "renew" : "purchase"
+                  )
+                }
+              >
+                {licenseState?.status === "active" ? "Renovar licença" : "Comprar licença"}
+              </button>
+              <button type="button" className="secondary-btn" onClick={() => openLicenseCenter("activate")}>
+                Inserir licença
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="panel settings-panel">
+          <div className="section-heading">
+            <h2>Atualização da aplicação</h2>
+            <p>Verifique novas versões, descarregue o instalador e execute a atualização localmente.</p>
+          </div>
+
+          <div className="update-panel">
+            <div className="update-panel__summary">
+              <div>
+                <label>Versão atual</label>
+                <strong>{updateState.currentVersion || "-"}</strong>
+              </div>
+              <div>
+                <label>Última versão</label>
+                <strong>{updateState.latestVersion || "-"}</strong>
+              </div>
+              <div>
+                <label>Release</label>
+                <strong>{updateState.releaseName || "-"}</strong>
+              </div>
+              <div>
+                <label>Publicada em</label>
+                <strong>{updateState.publishedAt ? new Date(updateState.publishedAt).toLocaleDateString("pt-PT") : "-"}</strong>
+              </div>
+            </div>
+
+            <div className="update-panel__status">
+              <span
+                className={`status-chip ${
+                  updateState.downloaded ? "status-chip--success" : updateState.available ? "status-chip--warning" : "status-chip--info"
+                }`}
+              >
+                {updateState.downloaded
+                  ? "Atualização pronta a instalar"
+                  : updateState.available
+                    ? "Atualização disponível"
+                    : "Aplicação em dia"}
+              </span>
+              <p>{updateState.message || "Use a verificação manual para procurar novas versões da aplicação."}</p>
+              {updateState.path && <small>Ficheiro descarregado: {updateState.path}</small>}
+            </div>
+
+            <div className="inline-actions">
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={checkForUpdates}
+                disabled={updateState.checking || updateState.downloading || updateState.installing}
+              >
+                {updateState.checking ? "A verificar..." : "Verificar atualizações"}
+              </button>
+              <button
+                type="button"
+                onClick={downloadUpdate}
+                disabled={updateState.checking || updateState.downloading || updateState.installing}
+              >
+                {updateState.downloading ? "A descarregar..." : "Descarregar atualização"}
+              </button>
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={installUpdate}
+                disabled={!updateState.downloaded || updateState.installing}
+              >
+                {updateState.installing ? "A instalar..." : "Instalar atualização"}
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 

@@ -2,7 +2,7 @@ import AppIcon from "../../components/AppIcon";
 
 export default function PageHeader({
   icon,
-  eyebrow = "Modulo de trabalho",
+  eyebrow = "Módulo de trabalho",
   title,
   description,
   meta = null,

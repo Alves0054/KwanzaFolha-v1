@@ -90,7 +90,7 @@ class AntiTamperService {
     if (mismatches.length) {
       return {
         ok: false,
-        message: "Foram detetadas alteracoes em modulos criticos da aplicacao.",
+        message: "Foram detetadas alterações em módulos críticos da aplicação.",
         mismatches
       };
     }

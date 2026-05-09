@@ -22,7 +22,7 @@ function sanitizeSecretName(name) {
     .replace(/[^a-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "");
   if (!normalized) {
-    throw new Error("Nome de segredo invalido.");
+    throw new Error("Nome de segredo inválido.");
   }
   return normalized;
 }
@@ -137,7 +137,7 @@ if ($env:KWANZA_DPAPI_MODE -eq 'protect') {
       !parsed?.tag ||
       !parsed?.ciphertext
     ) {
-      throw new Error("Segredo fallback invalido.");
+      throw new Error("Segredo fallback inválido.");
     }
     const decipher = crypto.createDecipheriv(
       "aes-256-gcm",
@@ -199,7 +199,7 @@ if ($env:KWANZA_DPAPI_MODE -eq 'protect') {
   unwrapSecretPayload(name, rawBuffer) {
     const parsed = JSON.parse(Buffer.from(rawBuffer).toString("utf8"));
     if (!parsed || Number(parsed.version) !== STORE_VERSION || parsed.name !== sanitizeSecretName(name)) {
-      throw new Error("Segredo protegido invalido.");
+      throw new Error("Segredo protegido inválido.");
     }
     return Buffer.from(String(parsed.value || ""), "base64");
   }

@@ -22,17 +22,17 @@ const INSS_TRABALHADOR_RATE = 0.03;
 function normalizeSubsidioItem(item, index) {
   if (typeof item === "number" || typeof item === "string") {
     return {
-      descricao: `Subsidio ${index + 1}`,
+      descricao: `Subsídio ${index + 1}`,
       valor: parseNonNegativeNumber(item, `subsidios[${index}]`)
     };
   }
 
   if (!item || typeof item !== "object") {
-    throw new TypeError("Cada subsidio deve ser um numero ou um objeto com valor.");
+    throw new TypeError("Cada subsídio deve ser um número ou um objeto com valor.");
   }
 
   return {
-    descricao: String(item.descricao || item.label || item.description || `Subsidio ${index + 1}`).trim(),
+    descricao: String(item.descricao || item.label || item.description || `Subsídio ${index + 1}`).trim(),
     valor: parseNonNegativeNumber(item.valor ?? item.value ?? item.amount, `subsidios[${index}].valor`),
     fiscalMode: item.fiscalMode ?? item.fiscal_mode,
     subjectToInss: item.subjectToInss ?? item.subject_to_inss,

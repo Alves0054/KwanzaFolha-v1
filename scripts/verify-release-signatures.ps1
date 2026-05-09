@@ -29,7 +29,7 @@ foreach ($targetPath in $targets) {
 
   $status = [string]$signature.Status
   if ($status -eq "NotSigned" -or $status -eq "HashMismatch") {
-    throw "Assinatura invalida para '$targetPath'. Estado: $status."
+    throw "Assinatura inválida para '$targetPath'. Estado: $status."
   }
   if ($RequireTimestamp -and -not $signature.TimeStamperCertificate) {
     throw "Assinatura sem timestamp para '$targetPath'."

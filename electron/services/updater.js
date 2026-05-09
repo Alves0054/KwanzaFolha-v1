@@ -88,7 +88,7 @@ async function requestJson(url) {
   try {
     return JSON.parse(buffer.toString("utf8"));
   } catch (error) {
-    throw new Error("Nao foi possivel interpretar a resposta do GitHub.");
+    throw new Error("Não foi possível interpretar a resposta do GitHub.");
   }
 }
 
@@ -118,7 +118,7 @@ function downloadFile(url, destination) {
 
         if (response.statusCode !== 200) {
           response.resume();
-          reject(new Error(`Nao foi possivel descarregar a atualizacao. Estado ${response.statusCode}.`));
+          reject(new Error(`Não foi possível descarregar a atualização. Estado ${response.statusCode}.`));
           return;
         }
 
@@ -159,7 +159,7 @@ function selectChecksumAsset(assets = [], checksumHint = "sha256") {
   return (
     nonExecutables.find((asset) => String(asset.name || "").toLowerCase().includes(normalizedHint)) ||
     nonExecutables.find((asset) => /\.sha256(?:\.txt)?$/i.test(String(asset.name || ""))) ||
-    nonExecutables.find((asset) => /checksums?/i.test(String(asset.name || ""))) ||
+    nonExecutables.find((asset) => /checksums/i.test(String(asset.name || ""))) ||
     null
   );
 }
@@ -290,12 +290,12 @@ class UpdaterService {
 
   async verifyDownloadedUpdateIntegrity(downloadedUpdate = this.downloadedUpdate) {
     if (!downloadedUpdate || !downloadedUpdate.path || !fs.existsSync(downloadedUpdate.path)) {
-      return { ok: false, message: "Ainda nao existe nenhuma atualizacao descarregada." };
+      return { ok: false, message: "Ainda não existe nenhuma atualização descarregada." };
     }
 
     const expectedSha256 = normalizeSha256(downloadedUpdate.sha256);
     if (!expectedSha256) {
-      return { ok: false, message: "A atualizacao descarregada nao inclui um hash SHA-256 validado." };
+      return { ok: false, message: "A atualização descarregada não inclui um hash SHA-256 validado." };
     }
 
     const actualSha256 = await computeFileSha256(downloadedUpdate.path);
@@ -323,9 +323,9 @@ class UpdaterService {
     const available = latestVersion ? compareVersions(latestVersion, currentVersion) === 1 : false;
     const missingInstallerMessage = latestResult.asset
       ? ""
-      : "A release foi encontrada, mas ainda nao tem um instalador .exe anexado.";
+      : "A release foi encontrada, mas ainda não tem um instalador .exe anexado.";
     const missingChecksumMessage = latestResult.asset && !latestResult.checksumAsset
-      ? "A release foi encontrada, mas ainda nao publica um manifesto SHA-256 do instalador."
+      ? "A release foi encontrada, mas ainda não publica um manifesto SHA-256 do instalador."
       : "";
 
     return {
@@ -360,7 +360,7 @@ class UpdaterService {
       return {
         ok: true,
         available: false,
-        message: "Esta versao ja se encontra atualizada.",
+        message: "Esta versão já se encontra atualizada.",
         currentVersion: releaseResult.currentVersion,
         latestVersion: releaseResult.latestVersion
       };
@@ -369,14 +369,14 @@ class UpdaterService {
     if (!releaseResult.downloadUrl || !releaseResult.assetName) {
       return {
         ok: false,
-        message: "A release foi encontrada, mas ainda nao tem um instalador .exe compativel anexado."
+        message: "A release foi encontrada, mas ainda não tem um instalador .exe compatível anexado."
       };
     }
 
     if (!releaseResult.checksumUrl || !releaseResult.checksumAssetName) {
       return {
         ok: false,
-        message: "A release foi encontrada, mas ainda nao publica um manifesto SHA-256 do instalador."
+        message: "A release foi encontrada, mas ainda não publica um manifesto SHA-256 do instalador."
       };
     }
 
@@ -385,7 +385,7 @@ class UpdaterService {
     if (!expectedSha256) {
       return {
         ok: false,
-        message: "Nao foi possivel validar o manifesto SHA-256 da release."
+        message: "Não foi possível validar o manifesto SHA-256 da release."
       };
     }
 
@@ -429,7 +429,7 @@ class UpdaterService {
     if (!this.downloadedUpdate || !fs.existsSync(this.downloadedUpdate.path)) {
       return {
         ok: false,
-        message: "Ainda nao existe nenhuma atualizacao descarregada."
+        message: "Ainda não existe nenhuma atualização descarregada."
       };
     }
 
@@ -450,7 +450,7 @@ class UpdaterService {
         });
       }
 
-      return { ok: false, message: "Nao foi possivel abrir o instalador descarregado." };
+      return { ok: false, message: "Não foi possível abrir o instalador descarregado." };
     });
   }
 }

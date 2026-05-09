@@ -41,17 +41,26 @@ export default function AppShell({
   setSidebarCollapsed,
   monthRef,
   setMonthRef,
-  runPayroll,
   updateState,
   licenseBanner,
   theme,
   setTheme,
+  logout,
   pageMeta,
   pageActions = null,
   children
 }) {
   const showDashboardTopbar = tab === "dashboard";
   const activePageMeta = pageMeta?.[tab] || null;
+  const headerActions = tab === "utilizador" && user && logout ? (
+    <>
+      {pageActions}
+      <button type="button" className="secondary-btn topbar-logout" onClick={logout}>
+        <AppIcon name="logout" size={16} />
+        Sair
+      </button>
+    </>
+  ) : pageActions;
 
   return (
     <div className={`app-shell ${sidebarCollapsed ? "app-shell--sidebar-collapsed" : ""}`}>
@@ -68,12 +77,10 @@ export default function AppShell({
           <TopBar
             monthRef={monthRef}
             setMonthRef={setMonthRef}
-            runPayroll={runPayroll}
             updateState={updateState}
             licenseBanner={licenseBanner}
             theme={theme}
             setTheme={setTheme}
-            user={user}
           />
         ) : activePageMeta ? (
           <PageHeader
@@ -81,7 +88,7 @@ export default function AppShell({
             title={activePageMeta.title}
             description={activePageMeta.description}
             meta={renderLicenseMeta(licenseBanner)}
-            actions={pageActions}
+            actions={headerActions}
           />
         ) : null}
 

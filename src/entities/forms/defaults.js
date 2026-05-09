@@ -1,6 +1,19 @@
 import { angolaBanks, normalizeIban, extractAngolaBankRegistryCode, inferBankFromIban } from "../company/banks";
 import { shiftProfileOptions, weekdayOptions } from "../workforce/calendar";
 
+export const careerLevelOptions = [
+  "Candidato/a",
+  "Estagiário/a",
+  "Assistente",
+  "Júnior",
+  "Pleno/a",
+  "Sénior",
+  "Coordenador/a",
+  "Supervisor/a",
+  "Gerente",
+  "Gestor / Gestora"
+];
+
 export const initialEmployee = {
   full_name: "",
   document_type: "bi",
@@ -16,8 +29,15 @@ export const initialEmployee = {
   personal_phone: "",
   personal_email: "",
   address: "",
+  company_id: "",
+  branch_id: "",
+  department_id: "",
+  job_position_id: "",
+  cost_center_id: "",
+  supervisor_id: "",
   job_title: "",
   department: "",
+  professional_category: "",
   base_salary: "",
   contract_type: "Indeterminado",
   hire_date: "",
@@ -167,6 +187,62 @@ export const initialCompany = {
   origin_account: ""
 };
 
+export const initialOrganizationForms = {
+  companies: {
+    id: null,
+    name: "",
+    nif: "",
+    address: "",
+    phone: "",
+    email: "",
+    logo_path: "",
+    fiscal_regime: "geral",
+    receipt_footer: "",
+    report_notes: "",
+    active: true
+  },
+  branches: {
+    id: null,
+    company_id: "",
+    name: "",
+    code: "",
+    address: "",
+    manager: "",
+    phone: "",
+    email: "",
+    active: true
+  },
+  departments: {
+    id: null,
+    company_id: "",
+    branch_id: "",
+    cost_center_id: "",
+    name: "",
+    code: "",
+    manager: "",
+    active: true
+  },
+  jobPositions: {
+    id: null,
+    company_id: "",
+    department_id: "",
+    name: "",
+    professional_category: "",
+    suggested_base_salary: "",
+    description: "",
+    hierarchy_level: 0,
+    active: true
+  },
+  costCenters: {
+    id: null,
+    company_id: "",
+    department_id: "",
+    code: "",
+    name: "",
+    active: true
+  }
+};
+
 export const initialSettings = {
   currency: "Kz",
   inssEmployeeRate: 3,
@@ -243,6 +319,7 @@ export const initialLicenseActivationForm = {
 
 export const initialLicensePurchaseForm = {
   plan: "profissional",
+  billingCycle: "monthly",
   empresa: "",
   nif: "",
   email: "",

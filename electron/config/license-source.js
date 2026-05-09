@@ -4,6 +4,9 @@ module.exports = {
   productCode: "KWANZAFOLHA",
   localLicenseFile: "license.json",
   fingerprintPepper: "",
+  // Builds unsigned devem arrancar o trial de 15 dias. Ative como true apenas
+  // quando o instalador oficial estiver assinado e o bloqueio estrito for desejado.
+  requireSignedExecutable: false,
   expectedSignerThumbprint: "E2DD19624522D4F4FAB08207C8709030E4FF70CD",
   expectedSignerThumbprints: [
     "E2DD19624522D4F4FAB08207C8709030E4FF70CD",

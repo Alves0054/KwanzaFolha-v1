@@ -1,6 +1,6 @@
 {
   "name": "kwanza-folha",
-  "version": "1.0.8",
+  "version": "1.0.3",
   "description": "Sistema desktop de processamento salarial empresarial para Windows.",
   "main": "electron/bootstrap.js",
   "author": "Adérito Alves / Alves Estúdio",
@@ -12,7 +12,8 @@
     "dev:electron": "wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .",
     "integrity:generate": "node scripts\\generate-integrity-manifest.js",
     "native:rebuild:node": "powershell -ExecutionPolicy Bypass -File scripts\\rebuild-node-native.ps1",
-    "native:rebuild:electron": "npm rebuild better-sqlite3-multiple-ciphers better-sqlite3 --runtime=electron --target=35.7.5 --dist-url=https://electronjs.org/headers",
+    "native:rebuild:electron": "powershell -ExecutionPolicy Bypass -File scripts\\rebuild-electron-native.ps1",
+    "native:verify:electron": "node scripts\\verify-electron-native-modules.js",
     "prebuild": "npm run native:rebuild:electron && powershell -ExecutionPolicy Bypass -File scripts\\sync-folha-icon.ps1",
     "prebuild:unsigned": "npm run native:rebuild:electron && powershell -ExecutionPolicy Bypass -File scripts\\sync-folha-icon.ps1",
     "prebuild:installer:unsigned": "npm run native:rebuild:electron && powershell -ExecutionPolicy Bypass -File scripts\\sync-folha-icon.ps1",
@@ -25,6 +26,7 @@
     "security:scan": "node scripts\\validate-no-sensitive-files.js --rootDir . --distDir dist-electron",
     "release:prepare": "powershell -ExecutionPolicy Bypass -File scripts\\prepare-release.ps1 -Channel stable -Target all",
     "release:prepare:beta": "powershell -ExecutionPolicy Bypass -File scripts\\prepare-release.ps1 -Channel beta -Target all",
+    "release:final": "powershell -ExecutionPolicy Bypass -File scripts\\build-final-release.ps1",
     "clean:workspace": "powershell -ExecutionPolicy Bypass -File scripts\\clean-workspace.ps1",
     "report:boot-integrity": "powershell -ExecutionPolicy Bypass -File scripts\\collect-boot-integrity-report.ps1 -OutputDir dist-electron",
     "smoke:packaged": "powershell -ExecutionPolicy Bypass -File scripts\\smoke-packaged.ps1",
@@ -80,6 +82,17 @@
       {
         "from": "build/Folha.png",
         "to": "Folha.png"
+      },
+      {
+        "from": "docs/utilizador/Manual do Cliente.pdf",
+        "to": "docs/utilizador/Manual do Cliente.pdf"
+      },
+      {
+        "from": "docs/legal",
+        "to": "docs/legal",
+        "filter": [
+          "*.md"
+        ]
       }
     ],
     "extraMetadata": {
@@ -110,13 +123,14 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Kwanza Folha",
-      "artifactName": "KwanzaFolha-Setup-${version}.${ext}",
+      "artifactName": "KwanzaFolha-Setup-1.0.3.${ext}",
       "installerIcon": "build/installerIcon.ico",
       "uninstallerIcon": "build/uninstallerIcon.ico",
       "installerHeader": "assets/images/installerHeader.bmp",
       "installerSidebar": "assets/images/installerSidebar.bmp",
       "uninstallerSidebar": "assets/images/uninstallerSidebar.bmp",
-      "license": "build/installer-license.txt",
+      "include": "build/installer.nsh",
+      "perMachine": false,
       "packElevateHelper": true,
       "runAfterFinish": true
     }

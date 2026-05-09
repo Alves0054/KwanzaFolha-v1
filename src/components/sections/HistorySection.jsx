@@ -34,7 +34,7 @@ const documentCategoryOptions = [
   { value: "contract_addendum", label: "Adenda contratual" },
   { value: "identification", label: "Identificacao" },
   { value: "tax", label: "Fiscal" },
-  { value: "social_security", label: "Seguranca Social" },
+  { value: "social_security", label: "Segurança Social" },
   { value: "medical", label: "Medico" },
   { value: "disciplinary", label: "Disciplinar" },
   { value: "payroll_support", label: "Suporte salarial" },
@@ -271,18 +271,32 @@ export default function HistorySection({
     [attendanceRecords]
   );
 
-  const historyTabs = [
-    { key: "eventos", label: "Eventos", icon: "activity", count: events.length },
-    { key: "documentos", label: "Documentos", icon: "receipt", count: employeeDocuments.length },
-    { key: "creditos", label: "Créditos", icon: "payroll", count: financialObligations.length },
-    { key: "licencas", label: "Licenças", icon: "calendar", count: leaveRequests.length },
-    { key: "assiduidade", label: "Assiduidade", icon: "history", count: attendanceRecords.length },
-    { key: "ferias", label: "Férias", icon: "sun", count: vacationRequests.length }
-  ];
+  const historyTabs = useMemo(() => {
+    const tabs = [
+      { key: "eventos", label: "Eventos", icon: "activity", count: events.length },
+      { key: "documentos", label: "Documentos", icon: "receipt", count: employeeDocuments.length },
+      { key: "creditos", label: "Créditos", icon: "payroll", count: financialObligations.length },
+      { key: "licencas", label: "Licenças", icon: "calendar", count: leaveRequests.length },
+      { key: "assiduidade", label: "Assiduidade", icon: "history", count: attendanceRecords.length },
+      { key: "ferias", label: "Férias", icon: "sun", count: vacationRequests.length }
+    ];
 
-  if (user?.role === "admin") {
-    historyTabs.push({ key: "auditoria", label: "Auditoria", icon: "audit", count: auditLogs.length });
-  }
+    if (user?.role === "admin") {
+      tabs.push({ key: "auditoria", label: "Auditoria", icon: "audit", count: auditLogs.length });
+    }
+
+    return tabs;
+  }, [
+    auditLogs.length,
+    attendanceRecords.length,
+    employeeDocuments.length,
+    events.length,
+    financialObligations.length,
+    leaveRequests.length,
+    user?.role,
+    vacationRequests.length
+  ]);
+  const availableHistoryTabKeys = useMemo(() => historyTabs.map((item) => item.key).join("|"), [historyTabs]);
 
   const activeHistoryTab = historyTabs.find((item) => item.key === activeTab)?.key || historyTabs[0]?.key || "eventos";
   const canManageDocuments = Boolean(user);
@@ -292,11 +306,11 @@ export default function HistorySection({
       return;
     }
 
-    const tabExists = historyTabs.some((item) => item.key === preferredTab);
+    const tabExists = availableHistoryTabKeys.split("|").includes(preferredTab);
     if (tabExists && preferredTab !== activeHistoryTab) {
       setActiveTab(preferredTab);
     }
-  }, [activeHistoryTab, historyTabs, preferredTab]);
+  }, [availableHistoryTabKeys, preferredTab]);
 
   useEffect(() => {
     if (typeof onActiveTabChange === "function") {
@@ -304,13 +318,20 @@ export default function HistorySection({
     }
   }, [activeHistoryTab, onActiveTabChange]);
 
+  function changeHistoryTab(nextTab) {
+    setActiveTab(nextTab);
+    if (typeof onActiveTabChange === "function") {
+      onActiveTabChange(nextTab);
+    }
+  }
+
   function renderEmployeeScope() {
     if (!boot?.employees?.length) {
       return (
         <div className="history-scope-card">
           <span className="topbar-eyebrow">
             <AppIcon name="users" size={14} />
-            Âmbito analisado
+            Ambito analisado
           </span>
           <h3>Sem trabalhadores registados</h3>
           <p>Assim que cadastrar os colaboradores, o histórico passa a ficar disponível para consulta segmentada.</p>
@@ -323,7 +344,7 @@ export default function HistorySection({
         <div className="history-scope-card">
           <span className="topbar-eyebrow">
             <AppIcon name="users" size={14} />
-            Âmbito analisado
+            Ambito analisado
           </span>
           <h3>Todos os trabalhadores</h3>
           <p>Escolha um colaborador acima para abrir o histórico detalhado de eventos, assiduidade, férias e licenças.</p>
@@ -335,7 +356,7 @@ export default function HistorySection({
       <div className="history-scope-card">
         <span className="topbar-eyebrow">
           <AppIcon name="users" size={14} />
-          Âmbito analisado
+          Ambito analisado
         </span>
         <h3>{selectedEmployee.full_name}</h3>
         <p>{selectedEmployee.department || "Sem departamento"} • {selectedEmployee.job_title || "Sem função definida"}</p>
@@ -470,7 +491,7 @@ export default function HistorySection({
           <article className="stat-card stat-card--compact">
             <span>Expirados</span>
             <strong>{documentSummary.expired}</strong>
-            <small>Precisam de renovacao</small>
+            <small>Precisam de renovação</small>
           </article>
           <article className="stat-card stat-card--compact">
             <span>Anexos disponiveis</span>
@@ -503,7 +524,7 @@ export default function HistorySection({
                 placeholder="Ex.: Contrato de trabalho 2026"
               />
             </label>
-            <label>Numero / referencia
+            <label>Numero / referência
               <input
                 value={employeeDocumentForm.document_number}
                 onChange={(event) => setEmployeeDocumentForm((current) => ({ ...current, document_number: event.target.value }))}
@@ -984,7 +1005,7 @@ export default function HistorySection({
             </select>
           </label>
           <label>Módulo visível
-            <select value={activeHistoryTab} onChange={(event) => setActiveTab(event.target.value)}>
+            <select value={activeHistoryTab} onChange={(event) => changeHistoryTab(event.target.value)}>
               {historyTabs.map((item) => (
                 <option key={item.key} value={item.key}>{item.label}</option>
               ))}
@@ -1031,7 +1052,7 @@ export default function HistorySection({
               role="tab"
               aria-selected={activeHistoryTab === item.key}
               className={`history-tab ${activeHistoryTab === item.key ? "history-tab--active" : ""}`}
-              onClick={() => setActiveTab(item.key)}
+              onClick={() => changeHistoryTab(item.key)}
             >
               <span className="history-tab__icon">
                 <AppIcon name={item.icon} size={16} />

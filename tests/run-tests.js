@@ -1,4 +1,4 @@
-﻿const assert = require("node:assert/strict");
+const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -60,19 +60,32 @@ const {
   PayrollService
 } = require("../electron/services/payroll");
 const { LicensingService } = require("../electron/services/licensing");
+const { InstallationIdentityService } = require("../electron/services/installation-identity");
 const { MailerService } = require("../electron/services/mailer");
 const { PdfService } = require("../electron/services/pdf");
+const { buildXlsxBuffer, readXlsxRows } = require("../electron/services/core/xlsx");
 const { UpdaterService, extractSemanticVersion, resolveReleaseVersion } = require("../electron/services/updater");
 const { SupportDiagnosticsService } = require("../electron/services/support-diagnostics");
 const { buildFiscalProfile, resolveFiscalProfileForMonth } = require("../electron/services/fiscal-config");
+const startupErrors = require("../electron/services/startup-errors");
+const {
+  ANGOLA_IRT_2020_PROFILE_ID,
+  ANGOLA_IRT_2026_PROFILE_ID,
+  ANGOLA_IRT_GROUP_A_BRACKETS_2020,
+  ANGOLA_IRT_GROUP_A_BRACKETS_2026
+} = require("../electron/services/core/fiscal");
 const { hasPermission, getPermissionDeniedMessage } = require("../electron/services/permissions");
 const { buildReleaseManifest, collectReleaseArtifacts, writeReleaseBundle } = require("../scripts/release-artifacts");
-const { parseArgs: parseReleaseValidationArgs, validateReleaseReadiness } = require("../scripts/validate-release-readiness");
+const {
+  PRECHECK_REQUIRED_DOCS,
+  parseArgs: parseReleaseValidationArgs,
+  validateReleaseReadiness
+} = require("../scripts/validate-release-readiness");
 const {
   scanDirectory: scanSensitiveFiles,
   classifyForbidden: classifySensitivePath
 } = require("../scripts/validate-no-sensitive-files");
-const { LICENSE_PLANS, DEFAULT_LICENSE_PLAN } = require("../shared/license-plans");
+const { LICENSE_PLANS, DEFAULT_LICENSE_PLAN, resolvePlanBilling } = require("../shared/license-plans");
 const { enforceEmployeeLimit, canActivateDevice } = require("../shared/domain/licensing-limits");
 let LicensingServer = null;
 try {
@@ -173,11 +186,11 @@ function buildAoIban(bankRegistryCode, accountDigits = "00000000000000000") {
   return `${countryCode}${checksum}${bban}`;
 }
 
-runTest("IRT aplica escalÃµes legais", () => {
-  assert.equal(calculateIRT(100000, brackets), 0);
-  assert.equal(calculateIRT(100001, brackets), 0.13);
-  assert.equal(calculateIRT(150001, brackets), 6500.16);
-  assert.equal(calculateIRT(194000, brackets), 13540);
+runTest("IRT aplica escalões legais", () => {
+  assert.equal(calculateIRT(150000, brackets), 0);
+  assert.equal(calculateIRT(150001, brackets), 12500.16);
+  assert.equal(calculateIRT(194000, brackets), 19540);
+  assert.equal(calculateIRT(242500, brackets), 38900);
 });
 
 runTest("Salário legal calcula segurança social e matéria colectável", () => {
@@ -186,12 +199,12 @@ runTest("Salário legal calcula segurança social e matéria colectável", () =>
     salarioBase: 200000,
     segurancaSocial: 6000,
     materiaColectavel: 194000,
-    irt: 13540,
-    salarioLiquido: 180460
+    irt: 19540,
+    salarioLiquido: 174460
   });
 });
 
-runTest("Grupo A calcula INSS e IRT sobre a remuneracao tributavel do periodo", () => {
+runTest("Grupo A calcula INSS e IRT sobre a remuneração tributável do período", () => {
   const result = calculateAngolaPayrollGrupoA({
     salarioBase: 200000,
     subsidios: [
@@ -208,24 +221,38 @@ runTest("Grupo A calcula INSS e IRT sobre a remuneracao tributavel do periodo", 
     irtBaseBeforeInss: 250000,
     inss: 7500,
     baseIRT: 242500,
-    irt: 22150,
-    salarioLiquido: 220350
+    irt: 38900,
+    salarioLiquido: 203600
   });
 });
 
 runTest("Grupo A usa a tabela progressiva em JSON com a formula parcela fixa mais taxa marginal", () => {
   assert.deepEqual(GRUPO_A_IRT_BRACKETS, [
-    { min: 0, max: 100000, rate: 0, fixed: 0 },
-    { min: 100000, max: 150000, rate: 0.13, fixed: 0 },
-    { min: 150000, max: 200000, rate: 0.16, fixed: 6500 },
-    { min: 200000, max: 300000, rate: 0.18, fixed: 14500 },
-    { min: 300000, max: 500000, rate: 0.19, fixed: 32500 },
-    { min: 500000, max: 1000000, rate: 0.2, fixed: 70500 },
-    { min: 1000000, max: Infinity, rate: 0.21, fixed: 170500 }
+    { min: 0, max: 150000, rate: 0, fixed: 0 },
+    { min: 150000, max: 200000, rate: 0.16, fixed: 12500 },
+    { min: 200000, max: 300000, rate: 0.18, fixed: 31250 },
+    { min: 300000, max: 500000, rate: 0.19, fixed: 49250 },
+    { min: 500000, max: 1000000, rate: 0.2, fixed: 87250 },
+    { min: 1000000, max: 1500000, rate: 0.21, fixed: 187250 },
+    { min: 1500000, max: 2000000, rate: 0.22, fixed: 292250 },
+    { min: 2000000, max: 2500000, rate: 0.23, fixed: 402250 },
+    { min: 2500000, max: 5000000, rate: 0.24, fixed: 517250 },
+    { min: 5000000, max: 10000000, rate: 0.245, fixed: 1117250 },
+    { min: 10000000, max: Infinity, rate: 0.25, fixed: 2342250 }
   ]);
   assert.equal(calculateInssGrupoA(120000), 3600);
   assert.equal(calculateBaseIrtGrupoA(120000, 3600), 116400);
-  assert.equal(calculateIrtGrupoA(116400), 2132);
+  assert.equal(calculateIrtGrupoA(116400), 0);
+  assert.equal(calculateIrtGrupoA(242500), 38900);
+});
+
+runTest("IRT 2026 fica versionado e comparável com a tabela histórica 2020/2025", () => {
+  assert.equal(calculateIRT(149999, ANGOLA_IRT_GROUP_A_BRACKETS_2026), 0);
+  assert.equal(calculateIRT(150000, ANGOLA_IRT_GROUP_A_BRACKETS_2026), 0);
+  assert.equal(calculateIRT(150001, ANGOLA_IRT_GROUP_A_BRACKETS_2026), 12500.16);
+  assert.equal(calculateIRT(242500, ANGOLA_IRT_GROUP_A_BRACKETS_2020), 22150);
+  assert.equal(calculateIRT(242500, ANGOLA_IRT_GROUP_A_BRACKETS_2026), 38900);
+  assert.equal(calculateIRT(11000000, ANGOLA_IRT_GROUP_A_BRACKETS_2026), 2592250);
 });
 
 runTest("Perfil fiscal escolhe a versao legal pela data de vigencia do mes", () => {
@@ -253,23 +280,25 @@ runTest("Perfil fiscal escolhe a versao legal pela data de vigencia do mes", () 
     ]
   };
 
+  const previousYearProfile = resolveFiscalProfileForMonth(settings, "2025-12");
   const marchProfile = resolveFiscalProfileForMonth(settings, "2026-03");
   const aprilProfile = resolveFiscalProfileForMonth(settings, "2026-04");
 
-  assert.equal(marchProfile.id, DEFAULT_SETTINGS.activeFiscalProfileId);
-  assert.equal(marchProfile.effectiveFrom, "2020-09");
+  assert.equal(previousYearProfile.id, ANGOLA_IRT_2020_PROFILE_ID);
+  assert.equal(previousYearProfile.effectiveFrom, "2020-09");
+  assert.equal(marchProfile.id, ANGOLA_IRT_2026_PROFILE_ID);
   assert.equal(marchProfile.inssEmployerRate, 8);
   assert.equal(aprilProfile.id, "ao-irt-lei-28-20-202604");
   assert.equal(aprilProfile.inssEmployeeRate, 4);
   assert.equal(aprilProfile.inssEmployerRate, 10);
 });
 
-runTest("Perfil fiscal padrao declara base legal atual sem UCF", () => {
-  const defaultProfile = DEFAULT_SETTINGS.fiscalProfiles[0];
+runTest("Perfil fiscal padrão declara base legal atual sem UCF", () => {
+  const defaultProfile = DEFAULT_SETTINGS.fiscalProfiles.find((profile) => profile.id === ANGOLA_IRT_2026_PROFILE_ID);
 
-  assert.equal(defaultProfile.effectiveFrom, "2020-09");
-  assert.match(defaultProfile.legalReference, /Lei n\.º 18\/14/i);
-  assert.match(defaultProfile.legalReference, /Lei n\.º 28\/20/i);
+  assert.equal(defaultProfile.effectiveFrom, "2026-01");
+  assert.match(defaultProfile.legalReference, /Lei n\.º 14\/25/i);
+  assert.match(defaultProfile.legalReference, /OGE 2026/i);
   assert.match(defaultProfile.notes, /3%\s*trabalhador/i);
   assert.match(defaultProfile.notes, /8%\s*entidade empregadora/i);
   assert.doesNotMatch(defaultProfile.notes, /UCF|Despacho\s*n\.?\s*1\/00|Janeiro de 2000/i);
@@ -292,7 +321,7 @@ runTest("Fontes fiscais centrais nao referenciam UCF nem a regra de Janeiro de 2
   }
 });
 
-runDbTest("DatabaseService ativa foreign keys e regista migracoes formais", () => {
+runDbTest("DatabaseService ativa foreign keys e regista migrações formais", () => {
   const basePath = makeTempDir("kwanza-db-schema-");
   const documentsPath = makeTempDir("kwanza-documents-schema-");
   const service = new DatabaseService(basePath, documentsPath);
@@ -421,6 +450,472 @@ runDbTest("DatabaseService migra base legada e preserva dados principais", () =>
   }
 });
 
+runDbTest("Organizacao empresarial cria CRUD, relatorio e bloqueia remoção em uso", () => {
+  const basePath = makeTempDir("kwanza-db-org-");
+  const documentsPath = makeTempDir("kwanza-documents-org-");
+  const service = new DatabaseService(basePath, documentsPath);
+
+  try {
+    const organization = service.getOrganizationBootstrap();
+    assert.equal(organization.companies.length, 1);
+    const companyId = organization.companies[0].id;
+
+    const branchResult = service.saveOrganizationEntity("branches", {
+      company_id: companyId,
+      name: "Luanda Centro",
+      code: "LDA-CEN",
+      address: "Luanda",
+      manager: "Gestor Operacional",
+      phone: "923000000",
+      email: "filial@example.ao",
+      active: true
+    });
+    assert.equal(branchResult.ok, true);
+
+    const departmentResult = service.saveOrganizationEntity("departments", {
+      company_id: companyId,
+      branch_id: branchResult.item.id,
+      name: "Recursos Humanos",
+      code: "RH",
+      manager: "Direcao RH",
+      active: true
+    });
+    assert.equal(departmentResult.ok, true);
+
+    const costCenterResult = service.saveOrganizationEntity("costCenters", {
+      company_id: companyId,
+      department_id: departmentResult.item.id,
+      code: "CC-RH",
+      name: "Centro RH",
+      active: true
+    });
+    assert.equal(costCenterResult.ok, true);
+
+    const positionResult = service.saveOrganizationEntity("jobPositions", {
+      company_id: companyId,
+      department_id: departmentResult.item.id,
+      name: "Tecnico de RH",
+      professional_category: "Tecnico",
+      suggested_base_salary: 250000,
+      hierarchy_level: 2,
+      active: true
+    });
+    assert.equal(positionResult.ok, true);
+
+    const employeeResult = service.saveEmployee({
+      full_name: "Ana Paula",
+      document_type: "bi",
+      bi: "123456789LA043",
+      nif: "5000000099",
+      social_security_number: "12345678901",
+      company_id: companyId,
+      branch_id: branchResult.item.id,
+      department_id: departmentResult.item.id,
+      job_position_id: positionResult.item.id,
+      cost_center_id: costCenterResult.item.id,
+      job_title: "",
+      department: "",
+      base_salary: 260000,
+      contract_type: "Indeterminado",
+      hire_date: "2025-02-01",
+      iban: buildAoIban("0040", "12345678901234567"),
+      bank_code: "BAI",
+      bank_account: "004012345678901234567",
+      status: "ativo",
+      recurring_allowances: [],
+      recurring_bonuses: [],
+      special_payments: []
+    });
+    assert.equal(employeeResult.ok, true);
+    const employee = service.listEmployees().find((item) => item.full_name === "Ana Paula");
+    assert.equal(employee.company_id, companyId);
+    assert.equal(employee.department_id, departmentResult.item.id);
+    assert.equal(employee.job_position_id, positionResult.item.id);
+    assert.equal(employee.structured_department_name, "Recursos Humanos");
+
+    const blockedDepartmentDelete = service.deleteOrganizationEntity("departments", departmentResult.item.id);
+    assert.equal(blockedDepartmentDelete.ok, false);
+    assert.match(blockedDepartmentDelete.message, /funcion[aá]rio/i);
+
+    const report = service.buildOrganizationReport();
+    assert.equal(report.ok, true);
+    assert.equal(report.summary.companies, 1);
+    assert.equal(report.summary.departments, 1);
+    assert.equal(report.summary.jobPositions, 1);
+    assert.equal(report.summary.costCenters, 1);
+
+    const exportResult = service.exportOrganizationExcel();
+    assert.equal(exportResult.ok, true);
+    assert.ok(fs.existsSync(exportResult.path));
+    assert.match(fs.readFileSync(exportResult.path, "utf8"), /Organizacao empresarial/);
+  } finally {
+    service.prepareForShutdown();
+  }
+});
+
+runDbTest("Suite empresarial gere contratos, workflows, recrutamento, desempenho, formacao, importação, versoes e mapas fiscais", () => {
+  const basePath = makeTempDir("kwanza-db-enterprise-");
+  const documentsPath = makeTempDir("kwanza-documents-enterprise-");
+  const service = new DatabaseService(basePath, documentsPath);
+
+  try {
+    const companyId = service.getOrganizationBootstrap().companies[0].id;
+    const employeeResult = service.saveEmployee({
+      full_name: "Bruno Manuel",
+      document_type: "bi",
+      bi: "123456789LA044",
+      nif: "5000000101",
+      social_security_number: "12345678901",
+      company_id: companyId,
+      job_title: "Analista",
+      department: "Operacoes",
+      base_salary: 300000,
+      contract_type: "Indeterminado",
+      hire_date: "2025-01-01",
+      iban: buildAoIban("0040", "12345678901234567"),
+      bank_code: "BAI",
+      bank_account: "004012345678901234567",
+      status: "ativo",
+      recurring_allowances: [],
+      recurring_bonuses: [],
+      special_payments: []
+    });
+    assert.equal(employeeResult.ok, true);
+    const employee = service.listEmployees().find((item) => item.full_name === "Bruno Manuel");
+
+    const contractResult = service.saveEnterpriseRecord("contracts", {
+      employee_id: employee.id,
+      contract_type: "Tempo indeterminado",
+      start_date: "2025-01-01",
+      contract_salary: 300000,
+      status: "active",
+      notes: "Contrato base"
+    }, 1);
+    assert.equal(contractResult.ok, true);
+
+    const templateResult = service.saveEnterpriseRecord("documentTemplates", {
+      template_type: "contract",
+      name: "Contrato base",
+      body: "Contrato de {{employee.full_name}} com {{company.name}}.",
+      active: true
+    }, 1);
+    assert.equal(templateResult.ok, true);
+    assert.equal(service.listDocumentTemplateVersions({ templateId: templateResult.item.id }).length, 1);
+
+    const generated = service.generateContractDocument(contractResult.item.id, templateResult.item.id);
+    assert.equal(generated.ok, true);
+    assert.match(generated.content, /Bruno Manuel/);
+    assert.ok(fs.existsSync(generated.path));
+    assert.equal(generated.generatedDocument.document_type, "contract");
+    assert.equal(generated.generatedDocument.qa_status, "passed");
+    assert.ok(fs.existsSync(`${generated.path}.qa.json`));
+    const generatedDocuments = service.listGeneratedDocuments({ employeeId: employee.id });
+    assert.equal(generatedDocuments.length, 1);
+    assert.equal(generatedDocuments[0].qaReport.checks.printable_a4_css, true);
+
+    const templateUpdate = service.saveEnterpriseRecord("documentTemplates", {
+      ...templateResult.item,
+      body: "Contrato atualizado de {{employee.full_name}}.",
+      change_reason: "Ajuste de clausula"
+    }, 1);
+    assert.equal(templateUpdate.ok, true);
+    assert.equal(service.listDocumentTemplateVersions({ templateId: templateResult.item.id }).length, 2);
+
+    const workflowResult = service.saveEnterpriseRecord("approvalWorkflows", {
+      module: "payroll",
+      name: "Aprovacao de folha",
+      steps_json: [{ role: "financeiro", action: "approve" }],
+      active: true
+    }, 1);
+    assert.equal(workflowResult.ok, true);
+
+    const approvalResult = service.saveEnterpriseRecord("approvalRequests", {
+      workflow_id: workflowResult.item.id,
+      module: "payroll",
+      entity_type: "payroll_period",
+      entity_id: 1,
+      reason: "Fecho mensal",
+      payload_json: { monthRef: "2026-04" }
+    }, 1);
+    assert.equal(approvalResult.ok, true);
+    const approvalTransition = service.transitionApprovalRequest(approvalResult.item.id, "approve", 1, "Validado nos testes");
+    assert.equal(approvalTransition.ok, true);
+    assert.equal(approvalTransition.item.status, "approved");
+    const approvalEvents = service.listApprovalRequestEvents({ requestId: approvalResult.item.id });
+    assert.equal(approvalEvents.length, 1);
+    assert.equal(approvalEvents[0].to_status, "approved");
+
+    const jobResult = service.saveEnterpriseRecord("recruitmentJobs", {
+      company_id: companyId,
+      title: "Tecnico de suporte",
+      description: "Vaga para suporte interno",
+      status: "open",
+      openings: 2,
+      opened_at: "2026-04-01"
+    }, 1);
+    assert.equal(jobResult.ok, true);
+    assert.equal(jobResult.item.status, "open");
+
+    const closedJobResult = service.saveEnterpriseRecord("recruitmentJobs", {
+      ...jobResult.item,
+      status: "closed",
+      closed_at: "2026-04-20"
+    }, 1);
+    assert.equal(closedJobResult.ok, true);
+    assert.equal(closedJobResult.item.status, "closed");
+    assert.equal(closedJobResult.item.closed_at, "2026-04-20");
+
+    const candidateResult = service.saveEnterpriseRecord("recruitmentCandidates", {
+      job_id: jobResult.item.id,
+      full_name: "Candidata Teste",
+      email: "candidata@example.ao",
+      phone: "923111111",
+      stage: "approved",
+      notes: "Entrevista marcada"
+    }, 1);
+    assert.equal(candidateResult.ok, true);
+
+    const conversionResult = service.convertCandidateToEmployee(candidateResult.item.id, {
+      bi: "123456789LA047",
+      nif: "5000000104",
+      social_security_number: "12345678904",
+      base_salary: 210000,
+      hire_date: "2026-04-15",
+      iban: buildAoIban("0040", "42345678901234567"),
+      bank_code: "BAI",
+      bank_account: "004042345678901234567",
+      contract_type: "Tempo determinado",
+      contract_end_date: "2026-10-15"
+    }, 1);
+    assert.equal(conversionResult.ok, true);
+    assert.equal(conversionResult.employee.full_name, "Candidata Teste");
+    assert.equal(conversionResult.contract.status, "active");
+    assert.equal(conversionResult.onboarding.status, "pending");
+    assert.equal(conversionResult.onboarding.employee_id, conversionResult.employee.id);
+
+    const contractAction = service.transitionContract(conversionResult.contract.id, "renew", { end_date: "2026-12-15" }, 1);
+    assert.equal(contractAction.ok, true);
+    assert.equal(contractAction.item.end_date, "2026-12-15");
+
+    const contractAlerts = service.buildContractAlerts({ referenceDate: "2026-04-01", daysAhead: 45 });
+    assert.ok(Array.isArray(contractAlerts.items));
+
+    const reviewResult = service.saveEnterpriseRecord("performanceReviews", {
+      employee_id: employee.id,
+      review_period: "2026-04",
+      review_type: "monthly",
+      score: 88,
+      feedback: "Bom desempenho",
+      improvement_plan: "Plano de crescimento",
+      status: "completed"
+    }, 1);
+    assert.equal(reviewResult.ok, true);
+
+    const courseResult = service.saveEnterpriseRecord("trainingCourses", {
+      title: "Excel para RH",
+      provider: "Interno",
+      training_type: "internal",
+      start_date: "2026-04-10",
+      end_date: "2026-04-12",
+      cost: 10000,
+      status: "planned"
+    }, 1);
+    assert.equal(courseResult.ok, true);
+
+    const participantResult = service.saveEnterpriseRecord("trainingParticipants", {
+      course_id: courseResult.item.id,
+      employee_id: employee.id,
+      attendance_status: "registered",
+      evaluation_score: 0
+    }, 1);
+    assert.equal(participantResult.ok, true);
+
+    const offboardingResult = service.saveEnterpriseRecord("offboardingProcesses", {
+      employee_id: employee.id,
+      exit_type: "rescisao",
+      status: "pending",
+      exit_date: "2026-05-31",
+      final_calculation_json: { vacationDaysDue: 3, pendingSalary: 300000 },
+      checklist_json: [{ label: "Equipamentos devolvidos", done: false }],
+      notes: "Processo de teste"
+    }, 1);
+    assert.equal(offboardingResult.ok, true);
+    assert.equal(offboardingResult.item.finalCalculation.pendingSalary, 300000);
+
+    const employeeExport = service.exportEmployeesExcel();
+    assert.equal(employeeExport.ok, true);
+    assert.equal(employeeExport.format, "xlsx");
+    assert.ok(fs.existsSync(employeeExport.path));
+    assert.equal(path.extname(employeeExport.path), ".xlsx");
+    const exportedRows = readXlsxRows(fs.readFileSync(employeeExport.path));
+    assert.equal(exportedRows[0].includes("Data de admissão"), true);
+
+    const importPath = path.join(makeTempDir("kwanza-employee-import-"), "funcionarios.csv");
+    fs.writeFileSync(
+      importPath,
+      [
+        "nome;bi;nif;inss;cargo;departamento;salario_base;tipo_contrato;data_admissao;iban;banco;conta;estado",
+        `Carla Importada;123456789LA045;5000000102;12345678902;Assistente;Operacoes;180000;Indeterminado;2025-03-01;${buildAoIban("0040", "22345678901234567")};BAI;004022345678901234567;ativo`
+      ].join("\n"),
+      "utf8"
+    );
+    const importResult = service.importEmployeesFile(importPath, 1);
+    assert.equal(importResult.ok, true);
+    assert.equal(importResult.imported, 1);
+
+    const importXlsPath = path.join(makeTempDir("kwanza-employee-import-xls-"), "funcionarios.xls");
+    fs.writeFileSync(
+      importXlsPath,
+      [
+        "<table><thead><tr>",
+        "<th>Nome</th><th>Tipo documento</th><th>BI</th><th>NIF</th><th>INSS</th><th>Cargo</th><th>Departamento</th><th>Salario base</th><th>Tipo contrato</th><th>Data admissao</th><th>IBAN</th><th>Banco</th><th>Conta</th><th>Estado</th>",
+        "</tr></thead><tbody><tr>",
+        `<td>Dario Excel</td><td>bi</td><td>123456789LA046</td><td>5000000103</td><td>12345678903</td><td>Analista</td><td>Operacoes</td><td>190000</td><td>Indeterminado</td><td>2025-04-01</td><td>${buildAoIban("0040", "32345678901234567")}</td><td>BAI</td><td>004032345678901234567</td><td>ativo</td>`,
+        "</tr></tbody></table>"
+      ].join(""),
+      "utf8"
+    );
+    const importXlsResult = service.importEmployeesFile(importXlsPath, 1);
+    assert.equal(importXlsResult.ok, true);
+    assert.equal(importXlsResult.imported, 1);
+
+    const importXlsxPath = path.join(makeTempDir("kwanza-employee-import-xlsx-"), "funcionarios.xlsx");
+    fs.writeFileSync(importXlsxPath, buildXlsxBuffer({
+      headers: ["Nome", "Tipo documento", "BI", "NIF", "INSS", "Cargo", "Departamento", "Salario base", "Tipo contrato", "Data admissao", "IBAN", "Banco", "Conta", "Estado"],
+      rows: [[
+        "Elsa XLSX",
+        "bi",
+        "123456789LA048",
+        "5000000105",
+        "12345678905",
+        "Tecnica RH",
+        "Pessoas",
+        "205000",
+        "Indeterminado",
+        "2025-05-01",
+        buildAoIban("0040", "52345678901234567"),
+        "BAI",
+        "004052345678901234567",
+        "ativo"
+      ]]
+    }));
+    const importXlsxResult = service.importEmployeesFile(importXlsxPath, 1);
+    assert.equal(importXlsxResult.ok, true);
+    assert.equal(importXlsxResult.imported, 1);
+
+    service.upsertPayrollRun({
+      month_ref: "2026-04",
+      employee_id: employee.id,
+      gross_salary: 300000,
+      allowances_total: 0,
+      bonuses_total: 0,
+      mandatory_deductions: 33000,
+      absence_deduction: 0,
+      net_salary: 267000,
+      irt_amount: 24000,
+      inss_amount: 9000,
+      summary_json: JSON.stringify({
+        grossSalary: 300000,
+        netSalary: 267000,
+        employerInssAmount: 24000,
+        payableGrossSalary: 300000,
+        fiscalProfileVersion: "test-v1",
+        fiscalProfile: { name: "Perfil teste", version: "test-v1" },
+        legalBases: { irtBaseBeforeSocialSecurity: 300000, materiaColectavel: 291000 }
+      }),
+      generated_at: new Date().toISOString()
+    });
+
+    const versionResult = service.createPayrollRunVersion("2026-04", 1, "Snapshot de teste");
+    assert.equal(versionResult.ok, true);
+    assert.equal(versionResult.versionNumber, 1);
+    service.upsertPayrollRun({
+      month_ref: "2026-04",
+      employee_id: employee.id,
+      gross_salary: 320000,
+      allowances_total: 0,
+      bonuses_total: 0,
+      mandatory_deductions: 35200,
+      absence_deduction: 0,
+      net_salary: 284800,
+      irt_amount: 25600,
+      inss_amount: 9600,
+      summary_json: JSON.stringify({
+        grossSalary: 320000,
+        netSalary: 284800,
+        employerInssAmount: 25600,
+        payableGrossSalary: 320000,
+        fiscalProfileVersion: "test-v2",
+        fiscalProfile: { name: "Perfil teste", version: "test-v2" },
+        legalBases: { irtBaseBeforeSocialSecurity: 320000, materiaColectavel: 310400 }
+      }),
+      generated_at: new Date().toISOString()
+    });
+    const versionResult2 = service.createPayrollRunVersion("2026-04", 1, "Snapshot alterado");
+    assert.equal(versionResult2.ok, true);
+    assert.equal(versionResult2.versionNumber, 2);
+    const comparison = service.comparePayrollRunVersions("2026-04");
+    assert.equal(comparison.ok, true);
+    assert.equal(comparison.totals.gross_delta, 20000);
+    assert.equal(comparison.totals.changed, 1);
+    const comparisonExport = service.exportPayrollVersionComparisonExcel({ monthRef: "2026-04" });
+    assert.equal(comparisonExport.ok, true);
+    assert.ok(fs.existsSync(comparisonExport.path));
+    assert.match(fs.readFileSync(comparisonExport.path, "utf8"), /Comparacao folha 2026-04/);
+
+    const fiscalMap = service.buildFinalFiscalMap("2026-04", "agt", 1);
+    assert.equal(fiscalMap.ok, true);
+    assert.equal(fiscalMap.map.month_ref, "2026-04");
+    assert.equal(fiscalMap.map.totals.irt, 25600);
+    const fiscalStatus = service.updateFiscalMonthlyMapStatus(fiscalMap.map.id, {
+      status: "submitted",
+      proof_reference: "AGT-TESTE-2026-04",
+      proof_path: "comprovativos/agt-2026-04.pdf"
+    }, 1);
+    assert.equal(fiscalStatus.ok, true);
+    assert.equal(fiscalStatus.map.status, "submitted");
+    assert.equal(fiscalStatus.map.proof_reference, "AGT-TESTE-2026-04");
+
+    const syncRows = service.listSyncOutbox({ limit: 20 });
+    assert.ok(syncRows.length >= 1);
+    const syncPackage = service.exportSyncOutboxPackage({ status: "pending", limit: 20 });
+    assert.equal(syncPackage.ok, true);
+    assert.ok(fs.existsSync(syncPackage.path));
+    const syncPackageContent = JSON.parse(fs.readFileSync(syncPackage.path, "utf8"));
+    assert.equal(syncPackageContent.total_events, syncPackage.count);
+    assert.match(syncPackageContent.sha256, /^[a-f0-9]{64}$/);
+    const marked = service.markSyncEvent(syncRows[0].id, "synced");
+    assert.equal(marked.ok, true);
+    const failed = service.markSyncEvent(syncRows[1]?.id || syncRows[0].id, "failed", "Falha simulada");
+    assert.equal(failed.ok, true);
+    const retried = service.retryFailedSyncEvents();
+    assert.equal(retried.ok, true);
+    assert.equal(retried.retried >= 1, true);
+
+    const modules = service.getEnterpriseModulesBootstrap();
+    assert.equal(modules.contracts.length, 2);
+    assert.ok(Array.isArray(modules.contractAlerts.items));
+    assert.equal(modules.documentTemplateVersions.length, 2);
+    assert.equal(modules.generatedDocuments.length, 1);
+    assert.equal(modules.approvalEvents.length, 1);
+    assert.equal(modules.recruitmentCandidates.length, 1);
+    assert.equal(modules.onboardingProcesses.length, 1);
+    assert.equal(modules.offboardingProcesses.length, 1);
+    assert.equal(modules.performanceReviews.length, 1);
+    assert.equal(modules.trainingParticipants.length, 1);
+    assert.equal(modules.payrollVersions.length, 2);
+    assert.equal(modules.fiscalMaps.length, 1);
+    assert.equal(modules.executiveSummary.contracts.active >= 1, true);
+    assert.equal(modules.executiveSummary.lifecycle.onboardingPending, 1);
+    const summaryExport = service.exportEnterpriseSummaryExcel();
+    assert.equal(summaryExport.ok, true);
+    assert.ok(fs.existsSync(summaryExport.path));
+    assert.match(fs.readFileSync(summaryExport.path, "utf8"), /Resumo executivo Suite RH/);
+  } finally {
+    service.prepareForShutdown();
+  }
+});
+
 runDbTest("DatabaseService recupera automaticamente quando a base runtime esta corrompida", () => {
   const basePath = makeTempDir("kwanza-db-corrupted-");
   const documentsPath = makeTempDir("kwanza-documents-corrupted-");
@@ -521,6 +1016,58 @@ runDbTest("Repositorio documental guarda anexos, sinaliza validade e remove fich
   }
 });
 
+runDbTest("RH 360 persiste workflows com anexo e exportação Excel", () => {
+  const basePath = makeTempDir("kwanza-db-hr-suite-");
+  const documentsPath = makeTempDir("kwanza-hr-suite-documents-");
+  const service = new DatabaseService(basePath, documentsPath);
+
+  try {
+    assert.equal(CURRENT_SCHEMA_VERSION >= 6, true);
+
+    const sourceDir = makeTempDir("kwanza-hr-source-");
+    const sourceFile = path.join(sourceDir, "parecer-juridico.pdf");
+    fs.writeFileSync(sourceFile, "parecer de teste", "utf8");
+
+    const saveResult = service.saveHrSuiteItem({
+      area: "compliance",
+      title: "Validacao juridica dos documentos",
+      owner: "Juridico",
+      status: "in_progress",
+      priority: "high",
+      due_date: "2026-06-30",
+      workflow_stage: "Parecer externo",
+      approval_role: "Administracao",
+      notes: "Validar recibos e minutas laborais.",
+      attachment_file_path: sourceFile
+    }, null);
+
+    assert.equal(saveResult.ok, true);
+    assert.equal(saveResult.items.length, 1);
+    assert.equal(saveResult.item.area, "compliance");
+    assert.equal(saveResult.item.attachment_exists, true);
+    assert.match(saveResult.item.attachment_path, /RH 360/i);
+
+    const updateResult = service.saveHrSuiteItem({
+      ...saveResult.item,
+      status: "done",
+      attachment_file_path: ""
+    }, null);
+    assert.equal(updateResult.ok, true);
+    assert.equal(updateResult.item.status, "done");
+
+    const exportResult = service.exportHrSuiteExcel({});
+    assert.equal(exportResult.ok, true);
+    assert.equal(fs.existsSync(exportResult.path), true);
+
+    const storedPath = updateResult.item.attachment_path;
+    const deleteResult = service.deleteHrSuiteItem(updateResult.item.id);
+    assert.equal(deleteResult.ok, true);
+    assert.equal(fs.existsSync(storedPath), false);
+  } finally {
+    service.prepareForShutdown();
+  }
+});
+
 runTest("Subsídios obrigatórios por evento usam o salário base integral", () => {
   const result = calculatePayrollRunForEmployee(
     {
@@ -551,23 +1098,29 @@ runTest("Subsídios obrigatórios por evento usam o salário base integral", () 
   );
 });
 
-runTest("Permissoes separam operacao do dia a dia de acoes criticas", () => {
+runTest("Permissoes deixam operador operar tudo exceto configuracoes", () => {
   const admin = { role: "admin" };
   const operator = { role: "operador" };
 
   assert.equal(hasPermission(admin, "employees.manage"), true);
   assert.equal(hasPermission(operator, "employees.view"), true);
+  assert.equal(hasPermission(operator, "employees.manage"), true);
   assert.equal(hasPermission(operator, "events.manage"), true);
   assert.equal(hasPermission(operator, "attendance.manage"), true);
   assert.equal(hasPermission(operator, "vacation.manage"), true);
-  assert.equal(hasPermission(operator, "employees.manage"), false);
-  assert.equal(hasPermission(operator, "financial.manage"), false);
-  assert.equal(hasPermission(operator, "vacation.balance.manage"), false);
-  assert.equal(hasPermission(operator, "payroll.process"), false);
-  assert.equal(getPermissionDeniedMessage("payroll.process"), "O seu perfil nao tem permissao para processar a folha salarial.");
+  assert.equal(hasPermission(operator, "financial.manage"), true);
+  assert.equal(hasPermission(operator, "vacation.balance.manage"), true);
+  assert.equal(hasPermission(operator, "hr.view"), true);
+  assert.equal(hasPermission(operator, "hr.manage"), true);
+  assert.equal(hasPermission(operator, "payroll.process"), true);
+  assert.equal(hasPermission(operator, "payroll.period.manage"), true);
+  assert.equal(hasPermission(operator, "users.manage"), true);
+  assert.equal(hasPermission(operator, "audit.view"), true);
+  assert.equal(hasPermission(operator, "settings.manage"), false);
+  assert.equal(getPermissionDeniedMessage("settings.manage"), "O seu perfil não tem permissão para alterar configurações do sistema.");
 });
 
-runTest("Configuracoes criam nova versao fiscal com o mes de vigencia escolhido", () => {
+runTest("Configurações criam nova versao fiscal com o mes de vigencia escolhido", () => {
   const result = DatabaseService.prototype.buildVersionedFiscalSettings.call({}, DEFAULT_SETTINGS, {
     inssEmployeeRate: 4,
     inssEmployerRate: 9,
@@ -717,7 +1270,7 @@ runTest("Faltas e licenças usam salário base dividido por 30", () => {
   assert.equal(result.attendanceDeduction, 30000);
 });
 
-runTest("Folha separa base bruta das bases legais e calcula horas extra depois da remuneraÃ§Ã£o", () => {
+runTest("Folha separa base bruta das bases legais e calcula horas extra depois da remuneração", () => {
   const employee = {
     id: 1,
     full_name: "Carlos Silva",
@@ -748,11 +1301,11 @@ runTest("Folha separa base bruta das bases legais e calcula horas extra depois d
   assert.equal(result.legalBases.irtBaseBeforeSocialSecurity, 242935.6);
   assert.equal(result.legalBases.materiaColectavel, 235647.53);
   assert.equal(result.inssAmount, 7288.07);
-  assert.equal(result.irtAmount, 20916.56);
+  assert.equal(result.irtAmount, 37666.56);
   assert.equal(result.absenceDeduction, 6666.67);
-  assert.equal(result.mandatoryDeductions, 33204.63);
-  assert.equal(result.totalDeductions, 39871.3);
-  assert.equal(result.netSalary, 209730.97);
+  assert.equal(result.mandatoryDeductions, 49954.63);
+  assert.equal(result.totalDeductions, 56621.3);
+  assert.equal(result.netSalary, 192980.97);
   assert.equal(result.employerCost, 262370.45);
 });
 
@@ -762,7 +1315,7 @@ runTest("Encargos legais explicitam a base do INSS e do IRT", () => {
   assert.equal(result.irtBaseBeforeSocialSecurity, 350000);
   assert.equal(result.segurancaSocial, 10500);
   assert.equal(result.materiaColectavel, 339500);
-  assert.equal(result.irt, 40005);
+  assert.equal(result.irt, 56755);
   assert.equal(result.employerInssAmount, 28000);
 });
 
@@ -790,11 +1343,11 @@ runTest("Folha fiscal respeita a classificacao por verba e reduz a base por falt
   assert.equal(result.legalBases.irtBaseBeforeSocialSecurity, 223333.33);
   assert.equal(result.legalBases.materiaColectavel, 216933.33);
   assert.equal(result.inssAmount, 6400);
-  assert.equal(result.irtAmount, 17548);
-  assert.equal(result.netSalary, 204385.33);
+  assert.equal(result.irtAmount, 34298);
+  assert.equal(result.netSalary, 187635.33);
   assert.deepEqual(
     result.fiscalBreakdown.irtBaseItems.map((item) => item.label),
-    ["Salario base", "Alimentacao", "Bonus Comercial", "Reducao por faltas sem vencimento"]
+    ["Salário base", "Alimentacao", "Bonus Comercial", "Reducao por faltas sem vencimento"]
   );
 });
 
@@ -863,8 +1416,8 @@ runTest("Folha inclui empréstimos e adiantamentos no total de descontos", () =>
   );
 
   assert.equal(result.financialDeductions, 10000);
-  assert.equal(result.totalDeductions, 29540);
-  assert.equal(result.netSalary, 170460);
+  assert.equal(result.totalDeductions, 35540);
+  assert.equal(result.netSalary, 164460);
 });
 
 runTest("Validação de registo financeiro rejeita prestações incoerentes", () => {
@@ -1222,18 +1775,22 @@ runTest("Planos comerciais declaram preços e limites de funcionários/dispositi
     code: plan.code,
     name: plan.name,
     price: plan.price,
+    annualPrice: plan.annualPrice,
     maxEmployees: plan.maxEmployees,
     maxDevices: plan.maxDevices
   }));
 
   assert.deepEqual(snapshot, [
-    { code: "starter", name: "Starter", price: 7500, maxEmployees: 10, maxDevices: 1 },
-    { code: "basico", name: "Básico", price: 12500, maxEmployees: 25, maxDevices: 2 },
-    { code: "profissional", name: "Profissional", price: 15000, maxEmployees: 50, maxDevices: 3 },
-    { code: "empresa", name: "Empresa", price: 28000, maxEmployees: 100, maxDevices: 4 },
-    { code: "business", name: "Business", price: 48500, maxEmployees: 200, maxDevices: 6 }
+    { code: "starter", name: "Starter", price: 7500, annualPrice: 90000, maxEmployees: 10, maxDevices: 1 },
+    { code: "basico", name: "Básico", price: 12500, annualPrice: 150000, maxEmployees: 25, maxDevices: 2 },
+    { code: "profissional", name: "Profissional", price: 15000, annualPrice: 180000, maxEmployees: 50, maxDevices: 3 },
+    { code: "empresa", name: "Empresa", price: 28000, annualPrice: 336000, maxEmployees: 100, maxDevices: 4 },
+    { code: "business", name: "Business", price: 48500, annualPrice: 582000, maxEmployees: 200, maxDevices: 6 }
   ]);
 
+  assert.equal(resolvePlanBilling(DEFAULT_LICENSE_PLAN, "monthly").price, 15000);
+  assert.equal(resolvePlanBilling(DEFAULT_LICENSE_PLAN, "annual").price, 180000);
+  assert.equal(resolvePlanBilling(DEFAULT_LICENSE_PLAN, "annual").periodDays, 365);
   assert.equal(DEFAULT_LICENSE_PLAN.code, "profissional");
 });
 
@@ -1319,7 +1876,7 @@ runTest("Licença local cifrada valida token assinado e expiração offline", ()
   assert.equal(status.plan, DEFAULT_LICENSE_PLAN.name);
 });
 
-runTest("App sem licenca local entra no fluxo de ativacao", () => {
+runTest("App sem licença local entra no fluxo gratuito inicial", () => {
   const service = new LicensingService({
     app: { isPackaged: false },
     userDataPath: makeTempDir("kwanza-license-missing-"),
@@ -1328,12 +1885,25 @@ runTest("App sem licenca local entra no fluxo de ativacao", () => {
   });
 
   const status = service.getLicenseStatus(true);
-  assert.equal(status.canUseApp, false);
-  assert.equal(status.requiresLicense, true);
-  assert.equal(status.status, "missing");
+  assert.equal(status.canUseApp, true);
+  assert.equal(status.requiresLicense, false);
+  assert.equal(status.status, "setup_required");
+  assert.equal(status.trialDaysTotal, 15);
+  assert.match(status.message, /per[ií]odo gratuito/i);
 });
 
-runTest("Compra de licenca gera referencia com plano normalizado", async () => {
+runTest("Erro ABI do SQLite nao aciona recuperacao nem quarentena de base de dados", () => {
+  const error = new Error(
+    "The module 'better_sqlite3.node' was compiled against a different Node.js version using NODE_MODULE_VERSION 115. This version of Node.js requires NODE_MODULE_VERSION 133."
+  );
+
+  assert.equal(startupErrors.isNativeSqliteAbiError(error), true);
+  assert.equal(startupErrors.isRecoverableDatabaseStartupError(error), false);
+  assert.equal(startupErrors.isDatabaseStartupError(error), false);
+  assert.match(startupErrors.resolveStartupFailureMessage(error), /compatibilidade dos m[oó]dulos SQLite/i);
+});
+
+runTest("Compra de licença gera referencia com plano normalizado", async () => {
   const service = new LicensingService({
     app: { isPackaged: false },
     userDataPath: makeTempDir("kwanza-license-payment-create-"),
@@ -1343,18 +1913,21 @@ runTest("Compra de licenca gera referencia com plano normalizado", async () => {
   let captured = null;
   service.apiRequest = async (route, payload) => {
     captured = { route, payload };
-    return { ok: true, reference: "123456789012", amount: 15000, plan: payload.plan };
+    return { ok: true, reference: "123456789012", amount: payload.amount, plan: payload.plan, billing_cycle: payload.billing_cycle };
   };
 
-  const result = await service.createPaymentReference({ empresa: "Empresa", email: "cliente@empresa.ao", plan: "PROFISSIONAL" });
+  const result = await service.createPaymentReference({ empresa: "Empresa", email: "cliente@empresa.ao", plan: "PROFISSIONAL", billingCycle: "annual" });
 
   assert.equal(result.ok, true);
   assert.equal(result.reference, "123456789012");
+  assert.equal(result.amount, 180000);
   assert.equal(captured.route, "/payment/create");
   assert.equal(captured.payload.plan, "profissional");
+  assert.equal(captured.payload.billing_cycle, "annual");
+  assert.equal(captured.payload.period_days, 365);
 });
 
-runTest("Pagamento confirmado devolve serial_key para ativacao local", async () => {
+runTest("Pagamento confirmado devolve serial_key para ativação local", async () => {
   const service = new LicensingService({
     app: { isPackaged: false },
     userDataPath: makeTempDir("kwanza-license-payment-status-"),
@@ -1380,7 +1953,7 @@ runTest("Pagamento confirmado devolve serial_key para ativacao local", async () 
   assert.equal(result.serial_key, "KWZ-F533-EC81-93D9-DB09");
 });
 
-runTest("Licenciamento ativa localmente apos receber serial_key e valida offline no reinicio", async () => {
+runTest("Licenciamento ativa localmente após receber serial_key e valida offline no reinicio", async () => {
   const userDataPath = makeTempDir("kwanza-license-activate-offline-");
   const service = new LicensingService({
     app: { isPackaged: false },
@@ -1425,7 +1998,7 @@ runTest("Licenciamento ativa localmente apos receber serial_key e valida offline
   });
   restartedService.getPublicKey = () => signed.publicKey;
   restartedService.apiRequest = async () => {
-    throw new Error("Servidor nao deve ser chamado para validacao offline.");
+    throw new Error("Servidor nao deve ser chamado para validação offline.");
   };
 
   const offlineStatus = restartedService.getLicenseStatus(true);
@@ -1455,6 +2028,43 @@ runTest("Licenca expirada bloqueia acesso offline", () => {
   assert.equal(status.canUseApp, false);
 });
 
+runTest("Atualizacao por cima preserva trial ativo mesmo com licença local expirada", () => {
+  const service = new LicensingService({
+    app: { isPackaged: true },
+    userDataPath: makeTempDir("kwanza-license-update-over-trial-"),
+    currentVersion: "1.0.8",
+    productName: "Kwanza Folha",
+    database: {
+      getLicenseTrialContext() {
+        return {
+          setupRequired: false,
+          trialStartedAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+          companyName: "Empresa Trial",
+          companyEmail: "trial@empresa.ao",
+          companyPhone: "923000000",
+          companyNif: "5000000000",
+          adminEmail: "admin@empresa.ao"
+        };
+      }
+    }
+  });
+  const signed = createSignedLicenseToken(service, {
+    expire_date: "2000-01-01"
+  });
+  service.saveLocalLicense({
+    license_token: signed.token,
+    serial_key: signed.payload.serial_key,
+    integrity: service.buildRuntimeIntegrity()
+  });
+
+  const status = service.getLicenseStatus(true);
+  assert.equal(status.status, "trial_active");
+  assert.equal(status.canUseApp, true);
+  assert.equal(status.requiresLicense, false);
+  assert.equal(status.licenseIssue.status, "expired");
+  assert.ok(status.trialDaysRemaining > 0);
+});
+
 runTest("Licenca assinada por chave diferente mostra erro de assinatura claro", () => {
   const service = new LicensingService({
     app: { isPackaged: false },
@@ -1481,7 +2091,7 @@ runTest("Licenca assinada por chave diferente mostra erro de assinatura claro", 
   assert.match(status.message, /chave privada do servidor/i);
 });
 
-runTest("Licenca recusada quando o dispositivo nao corresponde a ativacao", () => {
+runTest("Licenca recusada quando o dispositivo nao corresponde a ativação", () => {
   const service = new LicensingService({
     app: { isPackaged: false },
     userDataPath: makeTempDir("kwanza-license-device-mismatch-"),
@@ -1503,7 +2113,7 @@ runTest("Licenca recusada quando o dispositivo nao corresponde a ativacao", () =
   assert.match(status.message, /outro dispositivo/i);
 });
 
-runTest("Integridade de runtime nao bloqueia ativacao quando app.asar esta indisponivel", () => {
+runTest("Integridade de runtime nao bloqueia ativação quando app.asar esta indisponivel", () => {
   const service = new LicensingService({
     app: { isPackaged: true },
     userDataPath: makeTempDir("kwanza-license-missing-asar-"),
@@ -1519,7 +2129,7 @@ runTest("Integridade de runtime nao bloqueia ativacao quando app.asar esta indis
   assert.equal(typeof integrity.appChecksum, "string");
 });
 
-runTest("Falha de gravacao local durante ativacao mostra erro claro", async () => {
+runTest("Falha de gravacao local durante ativação mostra erro claro", async () => {
   const service = new LicensingService({
     app: { isPackaged: false },
     userDataPath: makeTempDir("kwanza-license-storage-failure-"),
@@ -1554,7 +2164,7 @@ runTest("Falha de gravacao local durante ativacao mostra erro claro", async () =
 
   assert.equal(result.ok, false);
   assert.equal(result.status, "local_storage_failed");
-  assert.match(result.message, /gravar a licenca local/i);
+  assert.match(result.message, /gravar a licen[cç]a local/i);
 });
 
 runTest("Licenciamento permite o registo inicial antes da compra da licença", () => {
@@ -1636,6 +2246,51 @@ runTest("Licenciamento bloqueia o aplicativo quando os 15 dias gratuitos termina
   assert.equal(status.status, "trial_expired");
   assert.equal(status.canUseApp, false);
   assert.match(status.message, /15 dias/i);
+});
+
+runTest("Instalador unsigned permite arrancar o trial quando a assinatura estrita esta desativada", () => {
+  const userDataPath = makeTempDir("kwanza-install-unsigned-trial-");
+  const executablePath = path.join(userDataPath, "Kwanza Folha.exe");
+  fs.writeFileSync(executablePath, "unsigned-test-binary");
+
+  const service = new InstallationIdentityService({
+    userDataPath,
+    programDataPath: path.join(userDataPath, "programData"),
+    secureStorage: null
+  });
+  service.runPowerShell = () => JSON.stringify({ status: "NotSigned", thumbprint: "", subject: "" });
+
+  const result = service.verifyExecutableSignature(executablePath, "ABCDEF", {
+    developmentMode: false,
+    allowedThumbprints: ["ABCDEF"],
+    requireSignedExecutable: false
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.warning, true);
+  assert.equal(result.code, "unsigned_trial_startup_allowed");
+});
+
+runTest("Assinatura estrita continua a bloquear executavel unsigned", () => {
+  const userDataPath = makeTempDir("kwanza-install-unsigned-strict-");
+  const executablePath = path.join(userDataPath, "Kwanza Folha.exe");
+  fs.writeFileSync(executablePath, "unsigned-test-binary");
+
+  const service = new InstallationIdentityService({
+    userDataPath,
+    programDataPath: path.join(userDataPath, "programData"),
+    secureStorage: null
+  });
+  service.runPowerShell = () => JSON.stringify({ status: "NotSigned", thumbprint: "", subject: "" });
+
+  const result = service.verifyExecutableSignature(executablePath, "ABCDEF", {
+    developmentMode: false,
+    allowedThumbprints: ["ABCDEF"],
+    requireSignedExecutable: true
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "unsigned");
 });
 
 runTest("Licenciamento tecnico de desenvolvimento libera a edicao local por 1 ano", () => {
@@ -2038,7 +2693,7 @@ runTest("Confirmacao de pagamento retoma entrega pendente sem duplicar a confirm
   assert.equal(result.invoice_number, "FT-20260406-0001");
 });
 
-runTest("E-mail de licenca inclui cliente, pagamento, serial e fatura anexada", async () => {
+runTest("E-mail de licença inclui cliente, pagamento, serial e fatura anexada", async () => {
   const nodemailer = require("nodemailer");
   const originalCreateTransport = nodemailer.createTransport;
   let capturedMail = null;
@@ -2059,10 +2714,10 @@ runTest("E-mail de licenca inclui cliente, pagamento, serial e fatura anexada", 
         host: "smtp.example.ao",
         port: 587,
         secure: false,
-        user: "licencas@example.ao",
+        user: "licenças@example.ao",
         password: "segredo",
         fromName: "Kwanza Folha",
-        fromEmail: "licencas@example.ao"
+        fromEmail: "licenças@example.ao"
       }
     },
     getSmtpConfig: LicensingServer.prototype.getSmtpConfig
@@ -2111,9 +2766,9 @@ runTest("E-mail de licenca inclui cliente, pagamento, serial e fatura anexada", 
   }
 });
 
-runDbTest("Admin remove licenca comprada com palavra-passe e preserva fatura/pagamento", () => {
+runDbTest("Admin remove licença comprada com palavra-passe e preserva fatura/pagamento", () => {
   if (!LicensingServer) {
-    console.log("INFO licensing-server ausente; teste de remocao admin ignorado.");
+    console.log("INFO licensing-server ausente; teste de remoção admin ignorado.");
     return;
   }
 
@@ -2179,7 +2834,7 @@ runDbTest("Admin remove licenca comprada com palavra-passe e preserva fatura/pag
 
 runDbTest("Admin remove maquina registada com palavra-passe", () => {
   if (!LicensingServer) {
-    console.log("INFO licensing-server ausente; teste de remocao de maquina ignorado.");
+    console.log("INFO licensing-server ausente; teste de remoção de maquina ignorado.");
     return;
   }
 
@@ -2355,7 +3010,7 @@ runTest("SupportDiagnostics exporta bundle com logs e manifest", () => {
     level: "warn",
     category: "licensing",
     event: "licensing.activate.failed",
-    message: "Falha de ativacao",
+    message: "Falha de ativação",
     details: { code: "invalid_license" }
   });
 
@@ -2368,7 +3023,7 @@ runTest("SupportDiagnostics exporta bundle com logs e manifest", () => {
   assert.ok(manifest.files.includes("operations-events.jsonl"));
 });
 
-runTest("ValidaÃ§Ã£o avanÃ§ada de funcionÃ¡rio rejeita BI, NIF, IBAN e datas invÃ¡lidas", () => {
+runTest("Validação avançada de funcionário rejeita BI, NIF, IBAN e datas inválidas", () => {
   const validation = DatabaseService.prototype.validateEmployeePayload({
     full_name: "Jo",
     bi: "ABC",
@@ -2399,7 +3054,7 @@ runTest("ValidaÃ§Ã£o avanÃ§ada de funcionÃ¡rio rejeita BI, NIF, IBAN e d
   assert.match(ibanValidation.message, /IBAN/i);
 });
 
-runTest("ValidaÃ§Ã£o avanÃ§ada aceita dados fortes e datas coerentes", () => {
+runTest("Validação avançada aceita dados fortes e datas coerentes", () => {
   const validation = DatabaseService.prototype.validateEmployeePayload({
     full_name: "Maria Fernandes",
     bi: "123456789LA042",
@@ -2848,9 +3503,9 @@ runTest("Folha usa a assiduidade aprovada para reforçar faltas, licenças e atr
   assert.equal(result.leaveDeduction, 10000);
 });
 
-runTest("PayrollService bloqueia processamento em perÃ­odo fechado", () => {
+runTest("PayrollService bloqueia processamento em período fechado", () => {
   const database = {
-    ensurePeriodOpen: () => ({ ok: false, message: "O perÃ­odo 2026-05 estÃ¡ fechado e nÃ£o pode ser alterado." }),
+    ensurePeriodOpen: () => ({ ok: false, message: "O período 2026-05 está fechado e não pode ser alterado." }),
     validateEmployeesForPayroll: () => ({ ok: true }),
     getSystemSettings: () => DEFAULT_SETTINGS,
     listEmployees: () => [],
@@ -2881,7 +3536,7 @@ runTest("PayrollService exige a assiduidade mensal fechada antes do processament
   assert.match(result.message, /assiduidade/i);
 });
 
-runTest("PayrollService bloqueia processamento quando a validaÃ§Ã£o dos funcionÃ¡rios falha", () => {
+runTest("PayrollService bloqueia processamento quando a validação dos funcionários falha", () => {
   const database = {
     ensurePeriodOpen: () => ({ ok: true }),
     ensureAttendancePeriodClosed: () => ({ ok: true }),
@@ -2983,7 +3638,7 @@ runTest("PayrollService reprocessa o mes aberto e grava a versao fiscal aplicada
   assert.equal(savedSummary.fiscalProfileVersion, result.fiscalProfile.version);
 });
 
-runTest("PayrollService exige autorizacao para reprocessar periodo fechado", () => {
+runTest("PayrollService exige autorizacao para reprocessar período fechado", () => {
   const settings = {
     ...DEFAULT_SETTINGS,
     fiscalProfiles: [
@@ -2998,7 +3653,7 @@ runTest("PayrollService exige autorizacao para reprocessar periodo fechado", () 
     ],
     activeFiscalProfileId: "ao-irt-lei-28-20-202604"
   };
-  const historicalSummary = {
+  const históricalSummary = {
     baseSalary: 200000,
     grossSalary: 200000,
     netSalary: 180000,
@@ -3046,7 +3701,7 @@ runTest("PayrollService exige autorizacao para reprocessar periodo fechado", () 
         gross_salary: 200000,
         net_salary: 180000,
         absence_deduction: 0,
-        summary_json: historicalSummary
+        summary_json: históricalSummary
       }
     ],
     savePayrollRunsSnapshot() {
@@ -3083,7 +3738,7 @@ runTest("PayrollService nao persiste folha parcial quando um calculo falha", () 
       }
     ],
     listEvents() {
-      throw new Error("Falha controlada ao preparar os eventos do periodo.");
+      throw new Error("Falha controlada ao preparar os eventos do período.");
     },
     listLeaveRequests: () => [],
     listVacationRequests: () => [],
@@ -3256,7 +3911,7 @@ runTest("Auditoria de calculo da folha exporta artefactos JSON e CSV rastreaveis
   assert.match(csvContent, /agt20260401/);
 });
 
-runTest("GestÃ£o de utilizadores cria e remove utilizador com resposta contextual", () => {
+runTest("Gestão de utilizadores cria e remove utilizador com resposta contextual", () => {
   const users = [{ id: 1, full_name: "Administrador", username: "admin", role: "admin", active: 1, must_change_password: 0 }];
   const runRecorder = [];
   const service = {
@@ -3288,7 +3943,7 @@ runTest("GestÃ£o de utilizadores cria e remove utilizador com resposta context
             }
           };
         }
-        throw new Error(`SQL nÃ£o suportado no teste: ${sql}`);
+        throw new Error(`SQL não suportado no teste: ${sql}`);
       }
     },
     countActiveAdmins() {
@@ -3359,7 +4014,7 @@ runTest("Exportação bancária gera CSV quando existe folha processada", () => 
                 nif: "50014781",
                 bi: "123456789LA042",
                 department: "RH",
-                job_title: "TÃ©cnica",
+                job_title: "Técnica",
                 contract_type: "Indeterminado"
               }
             ];
@@ -3420,7 +4075,7 @@ runTest("Lista de salários inclui dados bancários atuais do funcionário", () 
   assert.equal(rows[0].bank_account, "00000123456789311");
 });
 
-runTest("Updater devolve mensagem clara quando a configuraÃ§Ã£o estÃ¡ incompleta", () => {
+runTest("Updater devolve mensagem clara quando a configuração está incompleta", () => {
   const updater = new UpdaterService({
     app: { quit() {} },
     shell: { openPath() {} },
@@ -3434,7 +4089,7 @@ runTest("Updater devolve mensagem clara quando a configuraÃ§Ã£o estÃ¡ inco
   assert.match(result.message, /GitHub/i);
 });
 
-runTest("Updater avisa quando nÃ£o existe atualizaÃ§Ã£o descarregada", () => {
+runTest("Updater avisa quando não existe atualização descarregada", () => {
   const updater = new UpdaterService({
     app: { quit() {} },
     shell: { openPath() {} },
@@ -3661,7 +4316,7 @@ runTest("Validacao de release interpreta argumentos de CLI", () => {
   assert.equal(parsed.distDir, "dist-electron");
 });
 
-runTest("Validacao preflight de release exige documentacao e scripts obrigatorios", () => {
+runTest("Validacao preflight de release exige documentacao e scripts obrigatórios", () => {
   const rootDir = path.resolve(__dirname, "..");
   const result = validateReleaseReadiness({
     rootDir,
@@ -3767,7 +4422,7 @@ runTest("PdfService bloqueia relatórios sem salários processados", async () =>
 
   const presenceResult = await service.generateReport({ type: "presencas", monthRef: "2026-04" });
   assert.equal(presenceResult.ok, false);
-  assert.match(presenceResult.message, /presenças/i);
+  assert.match(presenceResult.message, /presen/i);
 
   const shiftWorkerResult = await service.generateReport({ type: "turnos-trabalhador", monthRef: "2026-04" });
   assert.equal(shiftWorkerResult.ok, false);
@@ -3894,13 +4549,15 @@ runTest("PdfService gera relatórios tabulares com layout padronizado", async ()
     }
   });
 
-  const types = ["descontos", "faltas", "presencas", "turnos-trabalhador", "turnos-departamento", "mapa-docente"];
+  const types = ["descontos", "faltas", "presenças", "turnos-trabalhador", "turnos-departamento", "mapa-docente"];
   for (const type of types) {
     const result = await service.generateReport({ type, monthRef: "2026-04" });
     assert.equal(result?.ok, true, `Relatório ${type} deveria ser gerado com sucesso.`);
     assert.ok(fs.existsSync(result.path), `Relatório ${type} deveria existir em disco.`);
     const header = fs.readFileSync(result.path).subarray(0, 4).toString("utf8");
     assert.equal(header, "%PDF", `Relatório ${type} deveria ser um PDF válido.`);
+    assert.equal(result.qaReport.ok, true, `Relatório ${type} deveria passar no QA automatizado.`);
+    assert.ok(fs.existsSync(`${result.path}.qa.json`), `Relatório ${type} deveria gerar artefacto de QA.`);
   }
 });
 
@@ -4104,7 +4761,7 @@ runTest("Exportações Excel geram ficheiros compatíveis para folha, Estado, as
   assert.ok(fs.existsSync(absencesResult.path));
   assert.match(fs.readFileSync(absencesResult.path, "utf8"), /Relatório de faltas 2026-04/);
 
-  const presencesResult = DatabaseService.prototype.exportAttendanceExcel.call(service, "2026-04", "presencas");
+  const presencesResult = DatabaseService.prototype.exportAttendanceExcel.call(service, "2026-04", "presenças");
   assert.equal(presencesResult.ok, true);
   assert.ok(fs.existsSync(presencesResult.path));
   assert.match(fs.readFileSync(presencesResult.path, "utf8"), /Relatório de presenças 2026-04/);
@@ -4248,19 +4905,11 @@ runTest("Security scan bloqueia ficheiros sensiveis e permite templates", () => 
 runTest("Release validate faz fallback para filesystem quando git falha", () => {
   const rootDir = makeTempDir("kwanza-release-validate-");
 
-  const requiredDocs = [
-    "README.md",
-    "SECURITY.md",
-    "RELEASE-POLICY.md",
-    "RELEASE-CHECKLIST.md",
-    "RELEASE_PROCESS.md",
-    "RELEASE_NOTES_TEMPLATE.md",
-    "COMPLIANCE_GAP_REPORT.md",
-    "SUPPORT_RUNBOOK.md",
-    "INCIDENT_RESPONSE.md",
-    "LICENSING_OPERATIONS.md"
-  ];
-  requiredDocs.forEach((name) => fs.writeFileSync(path.join(rootDir, name), ""));
+  PRECHECK_REQUIRED_DOCS.forEach((name) => {
+    const docPath = path.join(rootDir, name);
+    fs.mkdirSync(path.dirname(docPath), { recursive: true });
+    fs.writeFileSync(docPath, "");
+  });
 
   fs.mkdirSync(path.join(rootDir, "electron", "config"), { recursive: true });
   fs.writeFileSync(

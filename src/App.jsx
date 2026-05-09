@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AppShell from "./app-shell/AppShell";
 import { pageMeta } from "./app-shell/pageMeta";
 import LicenseScreen from "./components/LicenseScreen";
@@ -7,7 +7,10 @@ import AuditSection from "./components/sections/AuditSection";
 import DashboardSection from "./components/sections/DashboardSection";
 import EmployeesSection from "./components/sections/EmployeesSection";
 import EventsSection from "./components/sections/EventsSection";
+import EnterpriseSuiteSection from "./components/sections/EnterpriseSuiteSection";
 import HistorySection from "./components/sections/HistorySection";
+import HrSuiteSection from "./components/sections/HrSuiteSection";
+import OrganizationSection from "./components/sections/OrganizationSection";
 import ProcessingSection from "./components/sections/ProcessingSection";
 import SettingsSection from "./components/sections/SettingsSection";
 import UserSection from "./components/sections/UserSection";
@@ -41,6 +44,7 @@ import {
   initialLicenseActivationForm,
   initialLicensePurchaseForm,
   initialLeaveRequest,
+  initialOrganizationForms,
   initialVacationBalance,
   initialVacationRequest,
   initialSalaryScale,
@@ -53,6 +57,18 @@ import {
   parseCommaList,
   todayMonth
 } from "./utils/payroll";
+
+function buildOrganizationForms(organization = {}) {
+  const companyId = String(organization.companies?.[0]?.id || "");
+  return {
+    __initial: initialOrganizationForms,
+    companies: { ...initialOrganizationForms.companies },
+    branches: { ...initialOrganizationForms.branches, company_id: companyId },
+    departments: { ...initialOrganizationForms.departments, company_id: companyId },
+    jobPositions: { ...initialOrganizationForms.jobPositions, company_id: companyId },
+    costCenters: { ...initialOrganizationForms.costCenters, company_id: companyId }
+  };
+}
 
 function buildAgtSubmissionForm(monthRef, submission = {}) {
   return {
@@ -131,10 +147,13 @@ function normalizeBootstrapData(data = {}) {
     vacationRequests: Array.isArray(data?.vacationRequests) ? data.vacationRequests : [],
     financialObligations: Array.isArray(data?.financialObligations) ? data.financialObligations : [],
     salaryScales: Array.isArray(data?.salaryScales) ? data.salaryScales : [],
+    organization: data?.organization || { companies: [], branches: [], departments: [], jobPositions: [], costCenters: [] },
+    enterpriseModules: data?.enterpriseModules || {},
     payrollRuns: Array.isArray(data?.payrollRuns) ? data.payrollRuns : [],
     payrollPeriods: Array.isArray(data?.payrollPeriods) ? data.payrollPeriods : [],
     payrollFiscalStatuses: Array.isArray(data?.payrollFiscalStatuses) ? data.payrollFiscalStatuses : [],
     documentAlerts: Array.isArray(data?.documentAlerts) ? data.documentAlerts : [],
+    hrSuiteItems: Array.isArray(data?.hrSuiteItems) ? data.hrSuiteItems : [],
     agtMonthlySubmissions: Array.isArray(data?.agtMonthlySubmissions) ? data.agtMonthlySubmissions : [],
     users: Array.isArray(data?.users) ? data.users : [],
     auditLogs: Array.isArray(data?.auditLogs) ? data.auditLogs : [],
@@ -149,9 +168,11 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [licenseState, setLicenseState] = useState({
-    status: "missing",
-    canUseApp: false,
-    message: "Ative o Kwanza Folha para continuar."
+    status: "setup_required",
+    canUseApp: true,
+    requiresLicense: false,
+    setupRequired: true,
+    message: "Conclua o registo inicial para iniciar o período gratuito."
   });
   const [licensePlans, setLicensePlans] = useState([]);
   const [licenseMode, setLicenseMode] = useState("activate");
@@ -164,6 +185,7 @@ export default function App() {
     amount: 0,
     validUntil: "",
     planName: "",
+    billingCycle: "monthly",
     serialKey: "",
     paymentInstructions: null
   });
@@ -191,6 +213,7 @@ export default function App() {
   const [vacationBalanceForm, setVacationBalanceForm] = useState(initialVacationBalance);
   const [vacationForm, setVacationForm] = useState(initialVacationRequest);
   const [companyForm, setCompanyForm] = useState(initialCompany);
+  const [organizationForms, setOrganizationForms] = useState(() => buildOrganizationForms());
   const [settingsForm, setSettingsForm] = useState(initialSettings);
   const [runtimeFlags, setRuntimeFlags] = useState({ payrollRuleEditingLocked: false });
   const [salaryScaleForm, setSalaryScaleForm] = useState(initialSalaryScale);
@@ -204,6 +227,7 @@ export default function App() {
   const [attendanceImportLogs, setAttendanceImportLogs] = useState([]);
   const [financialObligations, setFinancialObligations] = useState([]);
   const [employeeDocuments, setEmployeeDocuments] = useState([]);
+  const [hrSuiteItems, setHrSuiteItems] = useState([]);
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [vacationBalances, setVacationBalances] = useState([]);
   const [vacationRequests, setVacationRequests] = useState([]);
@@ -300,7 +324,7 @@ export default function App() {
   }, [monthRef, stateFilters.preset]);
 
   useEffect(() => {
-    if (!boot || !user || user.role !== "admin") {
+    if (!boot || !user) {
       setReprocessPreviewState({ loading: false, monthRef, data: null });
       return;
     }
@@ -318,7 +342,7 @@ export default function App() {
 
   useEffect(() => {
     if (!user) return;
-    if (!isAdmin && ["utilizador", "configuracoes", "auditoria"].includes(tab)) {
+    if (!isAdmin && tab === "configuracoes") {
       setTab("dashboard");
     }
   }, [isAdmin, tab, user]);
@@ -496,7 +520,7 @@ export default function App() {
       telefone: normalizedState.company?.phone || current.telefone
     }));
     setAuthMode((current) => {
-      if (normalizedState.setupRequired) return "register";
+      if (normalizedState.setupRequired && !normalizedState.hasUsers) return "register";
       return current === "register" ? "login" : current;
     });
     setRegistrationForm((current) => ({
@@ -520,9 +544,11 @@ export default function App() {
     ]);
 
     const nextStatus = statusResult || {
-      status: "missing",
-      canUseApp: false,
-      message: "Ative o Kwanza Folha para continuar."
+      status: "setup_required",
+      canUseApp: true,
+      requiresLicense: false,
+      setupRequired: true,
+      message: "Conclua o registo inicial para iniciar o período gratuito."
     };
 
     setLicenseState(nextStatus);
@@ -559,10 +585,10 @@ export default function App() {
     try {
       const state = await refreshAuthState();
       const license = await refreshLicenseState();
-      if (!license?.canUseApp) {
+      if (!license?.canUseApp && !state?.hasUsers) {
         return;
       }
-      if (state?.setupRequired) {
+      if (state?.setupRequired && !state?.hasUsers) {
         return;
       }
       const session = await window.payrollAPI.restoreSession();
@@ -583,7 +609,7 @@ export default function App() {
       setUser(null);
       setBoot(null);
       setFeedback(
-        `Nao foi possivel abrir o sistema corretamente. ${error?.message || "Reinicie a aplicacao e tente novamente."}`
+        `Não foi possível abrir o sistema corretamente. ${error?.message || "Reinicie a aplicação e tente novamente."}`
       );
     } finally {
       setAuthChecked(true);
@@ -593,7 +619,7 @@ export default function App() {
   async function loadBootstrap() {
     const result = await window.payrollAPI.getBootstrap();
     if (!result || result.ok === false) {
-      throw new Error(result?.message || "O bootstrap do sistema nao respondeu com dados validos.");
+      throw new Error(result?.message || "O arranque do sistema não respondeu com dados válidos.");
     }
 
     const data = normalizeBootstrapData(result);
@@ -604,7 +630,9 @@ export default function App() {
     setRuntimeFlags(data.runtime || { payrollRuleEditingLocked: false });
     setAttendanceImports(data.attendanceImports || []);
     setAttendanceImportLogs(data.attendanceImportLogs || []);
+    setHrSuiteItems(data.hrSuiteItems || []);
     setCompanyForm(data.company || initialCompany);
+    setOrganizationForms(buildOrganizationForms(data.organization));
     setSelectedBankCode(data.company?.origin_bank_code || "ATLANTICO");
     setSettingsForm({
       ...data.settings,
@@ -648,6 +676,7 @@ export default function App() {
       setAttendanceRecords([]);
       setFinancialObligations([]);
       setEmployeeDocuments([]);
+      setHrSuiteItems([]);
       setEvents([]);
       setLeaveRequests([]);
       setVacationBalances([]);
@@ -971,7 +1000,7 @@ export default function App() {
 
   async function handleLogin(event) {
     event.preventDefault();
-    if (accessState.setupRequired) {
+    if (accessState.setupRequired && !accessState.hasUsers) {
       setFeedback("Conclua primeiro o registo inicial da empresa e do administrador.");
       setAuthMode("register");
       return;
@@ -983,6 +1012,7 @@ export default function App() {
     }
 
     const nextLicenseState = await refreshLicenseState();
+    setUser(result.user);
     if (!nextLicenseState?.canUseApp) {
       setFeedback(nextLicenseState?.message || "A licença do Kwanza Folha precisa de atenção antes de continuar.");
       return;
@@ -1000,7 +1030,6 @@ export default function App() {
             )} de ${nextLicenseState.trialDaysTotal || 30}.`
           : ""
     );
-    setUser(result.user);
     if (!boot) await loadBootstrap();
     if (result.mustChangePassword && result.user?.role === "admin") {
       setTab("utilizador");
@@ -1066,7 +1095,7 @@ export default function App() {
         contextualizeFeedback(
           "Recuperação de acesso",
           result?.message,
-          "Nao foi possivel enviar o codigo de redefinicao por e-mail."
+          "Não foi possível enviar o código de redefinição por e-mail."
         )
       );
       return;
@@ -1097,7 +1126,7 @@ export default function App() {
       return;
     }
     if (forgotPasswordForm.newPassword !== forgotPasswordForm.confirmPassword) {
-      setFeedback("A confirmacao da nova palavra-passe nao coincide.");
+      setFeedback("A confirmação da nova palavra-passe não coincide.");
       return;
     }
 
@@ -1111,7 +1140,7 @@ export default function App() {
         contextualizeFeedback(
           "Recuperação de acesso",
           result?.message,
-          "Nao foi possivel concluir a redefinicao da palavra-passe."
+          "Não foi possível concluir a redefinição da palavra-passe."
         )
       );
       return;
@@ -1260,6 +1289,7 @@ export default function App() {
       amount: result.amount,
       validUntil: result.valid_until,
       planName: result.plan,
+      billingCycle: result.billing_cycle || result.billingCycle || payload.billingCycle || "monthly",
       serialKey: result.serial_key || payload.serial_key || "",
       paymentInstructions: result.payment_instructions || null
     });
@@ -1408,6 +1438,7 @@ export default function App() {
     setAttendanceImportLogs([]);
     setFinancialObligations([]);
     setEmployeeDocuments([]);
+    setHrSuiteItems([]);
     setEvents([]);
     setLeaveRequests([]);
     setVacationBalances([]);
@@ -1455,27 +1486,27 @@ export default function App() {
       await loadBootstrap();
       setFeedback("Configurações guardadas.");
     } catch {
-      setFeedback("Tabela de IRT inválida. Reveja o JSON antes de guardar.");
+      setFeedback("Tabela de IRT inválida. Reveja a configuração fiscal antes de guardar.");
     }
   }
 
   async function saveLicenseApiBaseUrl(event) {
     event.preventDefault();
     if (typeof window.payrollAPI?.setLicenseApiBaseUrl !== "function") {
-      setFeedback("Esta versão ainda não suporta a configuração do servidor de licenças.");
+      setFeedback("Esta versão ainda não suporta a configuração técnica de licenciamento.");
       return;
     }
 
     const result = await window.payrollAPI.setLicenseApiBaseUrl(licenseApiUrlForm);
     if (!result?.ok) {
-      setFeedback(contextualizeFeedback("Servidor de licenças", result?.message, "Não foi possível guardar o servidor de licenças."));
+      setFeedback(contextualizeFeedback("Licenciamento", result?.message, "Não foi possível guardar a configuração de licenciamento."));
       return;
     }
     const refreshed = await window.payrollAPI.getLicenseApiBaseUrl().catch(() => null);
     if (refreshed) {
       setLicenseApiState(refreshed);
     }
-    setFeedback("Servidor de licenças guardado. Tente novamente a compra/ativação.");
+    setFeedback("Configuração de licenciamento guardada. Tente novamente a compra/ativação.");
   }
 
   async function saveSalaryScale(event) {
@@ -1615,8 +1646,18 @@ export default function App() {
         personal_phone: employeeForm.personal_phone.trim(),
         personal_email: employeeForm.personal_email.trim(),
         address: employeeForm.address.trim(),
+        company_id:
+          employeeForm.company_id ||
+          boot?.organization?.companies?.find((company) => company.active !== false)?.id ||
+          null,
+        branch_id: employeeForm.branch_id || null,
+        department_id: employeeForm.department_id || null,
+        job_position_id: employeeForm.job_position_id || null,
+        cost_center_id: employeeForm.cost_center_id || null,
+        supervisor_id: employeeForm.supervisor_id || null,
         job_title: employeeForm.job_title.trim(),
           department: employeeForm.department.trim(),
+          professional_category: String(employeeForm.professional_category || "").trim(),
           contract_type: employeeForm.contract_type.trim(),
           shift_id: employeeForm.shift_id ? Number(employeeForm.shift_id) : null,
           iban: employeeForm.iban.trim(),
@@ -1681,6 +1722,13 @@ export default function App() {
       personal_phone: employee.personal_phone || "",
       personal_email: employee.personal_email || "",
       address: employee.address || "",
+      company_id: String(employee.company_id || ""),
+      branch_id: String(employee.branch_id || ""),
+      department_id: String(employee.department_id || ""),
+      job_position_id: String(employee.job_position_id || ""),
+      cost_center_id: String(employee.cost_center_id || ""),
+      supervisor_id: String(employee.supervisor_id || ""),
+      professional_category: employee.professional_category || "",
       shift_id: String(employee.shift_id || ""),
       bank_account: employee.bank_account || "",
       notes: employee.notes || "",
@@ -1785,7 +1833,7 @@ export default function App() {
 
     const result = await window.payrollAPI.saveEmployeeDocument(payload);
     if (!result?.ok) {
-      setFeedback(contextualizeFeedback("Documentos", result?.message, "Nao foi possivel guardar o documento laboral."));
+      setFeedback(contextualizeFeedback("Documentos", result?.message, "Não foi possível guardar o documento laboral."));
       return;
     }
 
@@ -1801,7 +1849,7 @@ export default function App() {
   async function openEmployeeDocument(documentId) {
     const result = await window.payrollAPI.openEmployeeDocument(documentId);
     if (!result?.ok) {
-      setFeedback(contextualizeFeedback("Documentos", result?.message, "Nao foi possivel abrir o documento laboral."));
+      setFeedback(contextualizeFeedback("Documentos", result?.message, "Não foi possível abrir o documento laboral."));
       return;
     }
 
@@ -1815,7 +1863,7 @@ export default function App() {
 
     const result = await window.payrollAPI.deleteEmployeeDocument(documentId);
     if (!result?.ok) {
-      setFeedback(contextualizeFeedback("Documentos", result?.message, "Nao foi possivel eliminar o documento laboral."));
+      setFeedback(contextualizeFeedback("Documentos", result?.message, "Não foi possível eliminar o documento laboral."));
       return;
     }
 
@@ -1827,6 +1875,307 @@ export default function App() {
         : current
     );
     setFeedback("Documento laboral eliminado.");
+  }
+
+  async function refreshHrSuiteItems(filters = {}) {
+    const result = await window.payrollAPI.listHrSuiteItems(filters);
+    const items = result?.items || [];
+    setHrSuiteItems(items);
+    setBoot((current) => (current ? { ...current, hrSuiteItems: items } : current));
+    return items;
+  }
+
+  async function chooseHrSuiteAttachment() {
+    const filePath = await window.payrollAPI.selectHrSuiteAttachment();
+    return filePath || "";
+  }
+
+  async function saveHrSuiteItem(payload) {
+    const result = await window.payrollAPI.saveHrSuiteItem(payload);
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("RH 360", result?.message, "Não foi possível guardar o registo RH."));
+      return result;
+    }
+
+    const items = result.items || [];
+    setHrSuiteItems(items);
+    setBoot((current) => (current ? { ...current, hrSuiteItems: items } : current));
+    setFeedback("Registo RH 360 guardado com sucesso.");
+    return result;
+  }
+
+  async function deleteHrSuiteItem(itemId) {
+    if (!window.confirm("Tem a certeza de que pretende eliminar este registo RH 360?")) {
+      return;
+    }
+
+    const result = await window.payrollAPI.deleteHrSuiteItem(itemId);
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("RH 360", result?.message, "Não foi possível eliminar o registo RH."));
+      return;
+    }
+
+    const items = result.items || [];
+    setHrSuiteItems(items);
+    setBoot((current) => (current ? { ...current, hrSuiteItems: items } : current));
+    setFeedback("Registo RH 360 eliminado.");
+  }
+
+  async function openHrSuiteAttachment(itemId) {
+    const result = await window.payrollAPI.openHrSuiteAttachment(itemId);
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("RH 360", result?.message, "Não foi possível abrir o anexo RH."));
+      return;
+    }
+
+    setFeedback(`Anexo RH aberto a partir de ${result.path}`);
+  }
+
+  async function exportHrSuiteExcel(filters = {}) {
+    const result = await window.payrollAPI.exportHrSuiteExcel(filters);
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("RH 360", result?.message, "Não foi possível exportar o RH 360."));
+      return;
+    }
+
+    setFeedback(`Relatério RH 360 exportado em ${result.path}`);
+  }
+
+  async function refreshOrganization() {
+    const result = await window.payrollAPI.listOrganization({});
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("Organização", result?.message, "Não foi possível carregar a estrutura empresarial."));
+      return null;
+    }
+    setBoot((current) => (current ? { ...current, organization: result.organization || current.organization } : current));
+    return result.organization || null;
+  }
+
+  async function saveOrganizationEntity(entityType, item) {
+    const result = await window.payrollAPI.saveOrganizationEntity({ entityType, item });
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("Organização", result?.message, "Não foi possível guardar o registo empresarial."));
+      return result;
+    }
+    setBoot((current) => (current ? { ...current, organization: result.organization || current.organization } : current));
+    setOrganizationForms(buildOrganizationForms(result.organization || boot?.organization || {}));
+    setFeedback("Estrutura empresarial guardada com sucesso.");
+    return result;
+  }
+
+  async function deleteOrganizationEntity(entityType, id) {
+    if (!window.confirm("Tem a certeza de que pretende remover este registo? Se estiver em uso, o sistema irá bloquear a remoção.")) {
+      return;
+    }
+    const result = await window.payrollAPI.deleteOrganizationEntity({ entityType, id });
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("Organização", result?.message, "Não foi possível remover o registo empresarial."));
+      return;
+    }
+    setBoot((current) => (current ? { ...current, organization: result.organization || current.organization } : current));
+    setOrganizationForms(buildOrganizationForms(result.organization || boot?.organization || {}));
+    setFeedback("Registo empresarial removido ou inativado.");
+  }
+
+  async function exportOrganizationExcel() {
+    const result = await window.payrollAPI.exportOrganizationExcel({});
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("Organização", result?.message, "Não foi possível exportar a estrutura empresarial."));
+      return;
+    }
+    setFeedback(`Relatório de organização exportado em ${result.path}`);
+  }
+
+  async function refreshEnterpriseModules() {
+    const result = await window.payrollAPI.listEnterpriseModules({});
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("Suite empresarial", result?.message, "Não foi possível carregar os módulos empresariais."));
+      return null;
+    }
+    setBoot((current) => (current ? { ...current, enterpriseModules: result.modules || current.enterpriseModules } : current));
+    return result.modules || null;
+  }
+
+  async function exportEnterpriseExecutiveSummary() {
+    const result = await window.payrollAPI.exportEnterpriseSummaryExcel({});
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("Suite empresarial", result?.message, "Não foi possível exportar o resumo executivo."));
+      return;
+    }
+    setFeedback(`Resumo executivo exportado em ${result.path}`);
+  }
+
+  async function saveEnterpriseRecord(type, item) {
+    let payload = item;
+    if (["steps_json", "checklist_json"].some((field) => Object.prototype.hasOwnProperty.call(item || {}, field))) {
+      try {
+        payload = { ...payload };
+        ["steps_json", "checklist_json"].forEach((field) => {
+          if (typeof item[field] === "string") payload[field] = JSON.parse(item[field]);
+        });
+      } catch {}
+    }
+    if (["payload_json", "goals_json", "criteria_json", "final_calculation_json"].some((field) => Object.prototype.hasOwnProperty.call(item || {}, field))) {
+      payload = { ...payload };
+      ["payload_json", "goals_json", "criteria_json", "final_calculation_json"].forEach((field) => {
+        if (typeof payload[field] === "string") {
+          try {
+            payload[field] = JSON.parse(payload[field]);
+          } catch {}
+        }
+      });
+    }
+    const result = await window.payrollAPI.saveEnterpriseRecord({ type, item: payload });
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("Suite empresarial", result?.message, "Não foi possível guardar o registo."));
+      return result;
+    }
+    setBoot((current) => (current ? { ...current, enterpriseModules: result.modules || current.enterpriseModules } : current));
+    setFeedback("Registo empresarial guardado.");
+    return result;
+  }
+
+  async function deleteEnterpriseRecord(type, id) {
+    if (!window.confirm("Tem a certeza de que pretende remover este registo empresarial?")) return;
+    const result = await window.payrollAPI.deleteEnterpriseRecord({ type, id });
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("Suite empresarial", result?.message, "Não foi possível remover o registo."));
+      return;
+    }
+    setBoot((current) => (current ? { ...current, enterpriseModules: result.modules || current.enterpriseModules } : current));
+    setFeedback("Registo empresarial removido.");
+  }
+
+  async function generateEnterpriseContract(contractId, templateId) {
+    const result = await window.payrollAPI.generateContractDocument({ contractId, templateId });
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("Contratos", result?.message, "Não foi possível gerar o contrato."));
+      return;
+    }
+    setFeedback(`Contrato gerado em ${result.path}`);
+  }
+
+  async function transitionEnterpriseContract(id, action, payload = {}) {
+    const result = await window.payrollAPI.transitionContract({ id, action, ...payload });
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("Contratos", result?.message, "Não foi possível atualizar o contrato."));
+      return;
+    }
+    setBoot((current) => (current ? { ...current, enterpriseModules: result.modules || current.enterpriseModules } : current));
+    const labels = { renew: "renovado", terminate: "terminado", expire: "expirado", activate: "ativado" };
+    setFeedback(`Contrato ${labels[action] || "atualizado"}.`);
+  }
+
+  async function createEnterprisePayrollVersion(targetMonthRef = monthRef) {
+    const result = await window.payrollAPI.createPayrollVersion({ monthRef: targetMonthRef, reason: "Snapshot manual pela Suite Empresarial" });
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("Versão da folha", result?.message, "Não foi possível criar a versão."));
+      return;
+    }
+    await refreshEnterpriseModules();
+    setFeedback(`Versão ${result.versionNumber} da folha criada para ${targetMonthRef}.`);
+  }
+
+  async function exportEnterprisePayrollVersionComparison(targetMonthRef = monthRef) {
+    const result = await window.payrollAPI.exportPayrollVersionComparison({ monthRef: targetMonthRef });
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("Versões da folha", result?.message, "Não foi possível comparar as versões da folha."));
+      return;
+    }
+    setFeedback(`Comparação de versões exportada em ${result.path}`);
+  }
+
+  async function buildEnterpriseFiscalMap(targetMonthRef = monthRef, mapType = "agt") {
+    const result = await window.payrollAPI.buildFinalFiscalMap({ monthRef: targetMonthRef, mapType });
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("Mapa fiscal", result?.message, "Não foi possível gerar o mapa fiscal final."));
+      return;
+    }
+    await refreshEnterpriseModules();
+    setFeedback(`Mapa fiscal ${mapType.toUpperCase()} preparado para ${targetMonthRef}.`);
+  }
+
+  async function updateEnterpriseFiscalMapStatus(id, status, payload = {}) {
+    const result = await window.payrollAPI.updateFiscalMapStatus({ id, status, ...payload });
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("Mapa fiscal", result?.message, "Não foi possível atualizar o estado do mapa fiscal."));
+      return;
+    }
+    setBoot((current) => (current ? { ...current, enterpriseModules: result.modules || current.enterpriseModules } : current));
+    setFeedback(`Mapa fiscal marcado como ${status}.`);
+  }
+
+  async function markEnterpriseSyncEvent(id, status) {
+    const result = await window.payrollAPI.markSyncEvent({ id, status });
+    if (!result?.ok) {
+      setFeedback("Não foi possível atualizar o estado de sincronização.");
+      return;
+    }
+    await refreshEnterpriseModules();
+    setFeedback("Evento de sincronização atualizado.");
+  }
+
+  async function retryEnterpriseFailedSyncEvents() {
+    const result = await window.payrollAPI.retryFailedSyncEvents();
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("Sincronização", result?.message, "Não foi possível reabrir os eventos falhados."));
+      return;
+    }
+    await refreshEnterpriseModules();
+    setFeedback(`${result.retried || 0} evento(s) falhado(s) voltaram à fila pendente.`);
+  }
+
+  async function exportEnterpriseSyncPackage(status = "pending") {
+    const result = await window.payrollAPI.exportSyncPackage({ status, limit: 500 });
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("Sincronização", result?.message, "Não foi possível exportar o pacote de sincronização."));
+      return;
+    }
+    setFeedback(`Pacote de sincronização exportado em ${result.path}`);
+  }
+
+  async function transitionEnterpriseApproval(id, action, notes = "") {
+    const result = await window.payrollAPI.transitionApprovalRequest({ id, action, notes });
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("Aprovação", result?.message, "Não foi possível atualizar o pedido de aprovação."));
+      return;
+    }
+    setBoot((current) => (current ? { ...current, enterpriseModules: result.modules || current.enterpriseModules } : current));
+    const labels = { approve: "aprovado", reject: "rejeitado", cancel: "cancelado", reopen: "reaberto" };
+    setFeedback(`Pedido de aprovação ${labels[action] || "atualizado"}.`);
+  }
+
+  async function convertEnterpriseCandidate(candidateId, employeePayload) {
+    const result = await window.payrollAPI.convertCandidateToEmployee({ candidateId, employee: employeePayload });
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("Recrutamento", result?.message, "Não foi possível converter o candidato em funcionário."));
+      return;
+    }
+    await loadBootstrap();
+    setFeedback(`${result.employee?.full_name || "Candidato"} convertido em funcionário.`);
+  }
+
+  async function chooseEnterpriseEmployeeImportFile() {
+    return (await window.payrollAPI.selectEmployeeImportFile()) || "";
+  }
+
+  async function importEnterpriseEmployees(filePath) {
+    const result = await window.payrollAPI.importEmployeesFile({ filePath });
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("Importação de funcionários", result?.message, "Não foi possível importar todos os funcionários."));
+      return;
+    }
+    await loadBootstrap();
+    setFeedback(`${result.imported} funcionário(s) importado(s).`);
+  }
+
+  async function exportEnterpriseEmployeesExcel() {
+    const result = await window.payrollAPI.exportEmployeesExcel({});
+    if (!result?.ok) {
+      setFeedback(contextualizeFeedback("Exportação de funcionários", result?.message, "Não foi possível exportar os funcionários."));
+      return;
+    }
+    setFeedback(`Funcionários exportados em ${result.path}`);
   }
 
   async function handleDashboardAlertAction(alert) {
@@ -2371,7 +2720,7 @@ export default function App() {
   }
 
   async function deleteVacationRequest(id) {
-    if (!window.confirm("Tem a certeza de que pretende eliminar este pedido de férias?")) return;
+    if (!window.confirm("Tem a certeza de que pretende eliminar este pedido de fériasó")) return;
     const result = await window.payrollAPI.deleteVacationRequest(id);
     if (!result?.ok) {
       setFeedback(contextualizeFeedback("Plano de férias", result?.message, "Não foi possível eliminar o pedido de férias."));
@@ -2544,7 +2893,7 @@ export default function App() {
     const filters = buildReportRequestFilters(reportFilters, monthRef);
     const normalizedType = String(type || "").toLowerCase();
     const annualReportTypes = ["anual", "irt-anual", "inss-anual"];
-    const attendanceReportTypes = ["faltas", "presencas"];
+    const attendanceReportTypes = ["faltas", "presenças"];
     const shiftReportTypes = ["turnos-trabalhador", "turnos-departamento", "mapa-docente"];
     const hasRunsForPeriod = (boot?.payrollRuns || []).some((run) =>
       matchesMonthRange(run.month_ref, filters) &&
@@ -2622,12 +2971,12 @@ export default function App() {
       (!filters.employeeId || String(run.employee_id) === String(filters.employeeId))
     );
     if (!hasRunsForPeriod) {
-      setFeedback("Nao existem salarios processados no periodo selecionado para exportar o mapa mensal AGT.");
+      setFeedback("Não existem salários processados no período selecionado para exportar o mapa mensal AGT.");
       return;
     }
     const result = await window.payrollAPI.exportAgtMonthlyRemunerationExcel(filters);
     if (!result?.ok) {
-      setFeedback(result?.message || "Nao foi possivel exportar o mapa mensal de remuneracoes AGT.");
+      setFeedback(result?.message || "Não foi possível exportar o mapa mensal de remunerações AGT.");
       return;
     }
     setFeedback(`Mapa mensal AGT criado em ${result.path}`);
@@ -2635,7 +2984,7 @@ export default function App() {
 
   async function saveAgtSubmission() {
     if (typeof window.payrollAPI?.saveAgtSubmission !== "function") {
-      setFeedback("Esta versao da aplicacao ainda nao suporta o registo operacional da submissao AGT.");
+      setFeedback("Esta versão da aplicação ainda não suporta o registo operacional da submissão AGT.");
       return;
     }
 
@@ -2857,6 +3206,19 @@ export default function App() {
       const message = "Falha ao abrir o instalador descarregado.";
       setUpdateState((current) => ({ ...current, installing: false, message }));
       setFeedback(message);
+    }
+  }
+
+  async function downloadClientManual() {
+    try {
+      const result = await window.payrollAPI.downloadClientManual();
+      if (!result?.ok) {
+        setFeedback(contextualizeFeedback("Manual do Cliente", result?.message, "Não foi possível baixar o Manual do Cliente."));
+        return;
+      }
+      setFeedback(result.message || "Manual do Cliente baixado com sucesso.");
+    } catch (error) {
+      setFeedback(contextualizeFeedback("Manual do Cliente", error?.message, "Não foi possível baixar o Manual do Cliente."));
     }
   }
 
@@ -3315,7 +3677,7 @@ export default function App() {
     return <div className="splash-screen">A carregar o sistema salarial...</div>;
   }
 
-  if (!licenseState.canUseApp) {
+  if (!licenseState.canUseApp && user) {
     return (
       <LicenseScreen
         licenseState={licenseState}
@@ -3423,9 +3785,6 @@ export default function App() {
             <button type="button" className="secondary-btn" onClick={() => setTab("configuracoes")}>
               Configurações
             </button>
-            <button type="button" className="secondary-btn" onClick={logout}>
-              Sair
-            </button>
           </div>
         </>
       )
@@ -3440,11 +3799,11 @@ export default function App() {
       setSidebarCollapsed={setSidebarCollapsed}
       monthRef={monthRef}
       setMonthRef={setMonthRef}
-      runPayroll={runPayroll}
       updateState={updateState}
       licenseBanner={licenseBanner}
       theme={theme}
       setTheme={setTheme}
+      logout={logout}
       pageMeta={pageMeta}
       pageActions={pageActions}
     >
@@ -3489,6 +3848,58 @@ export default function App() {
             formatMoney={formatMoney}
             editEmployee={editEmployee}
             deleteEmployee={deleteEmployee}
+          />
+        )}
+
+        {tab === "organizacao" && (
+          <OrganizationSection
+            organization={boot?.organization}
+            organizationForms={organizationForms}
+            setOrganizationForms={setOrganizationForms}
+            saveOrganizationEntity={saveOrganizationEntity}
+            deleteOrganizationEntity={deleteOrganizationEntity}
+            exportOrganizationExcel={exportOrganizationExcel}
+            formatMoney={formatMoney}
+          />
+        )}
+
+        {tab === "empresarial" && (
+          <EnterpriseSuiteSection
+            modules={boot?.enterpriseModules || {}}
+            employees={boot?.employees || []}
+            monthRef={monthRef}
+            exportExecutiveSummary={exportEnterpriseExecutiveSummary}
+            saveRecord={saveEnterpriseRecord}
+            deleteRecord={deleteEnterpriseRecord}
+            refreshModules={refreshEnterpriseModules}
+            generateContractDocument={generateEnterpriseContract}
+            transitionContract={transitionEnterpriseContract}
+            createPayrollVersion={createEnterprisePayrollVersion}
+            exportPayrollVersionComparison={exportEnterprisePayrollVersionComparison}
+            buildFinalFiscalMap={buildEnterpriseFiscalMap}
+            updateFiscalMapStatus={updateEnterpriseFiscalMapStatus}
+            transitionApprovalRequest={transitionEnterpriseApproval}
+            convertCandidateToEmployee={convertEnterpriseCandidate}
+            markSyncEvent={markEnterpriseSyncEvent}
+            retryFailedSyncEvents={retryEnterpriseFailedSyncEvents}
+            exportSyncPackage={exportEnterpriseSyncPackage}
+            chooseEmployeeImportFile={chooseEnterpriseEmployeeImportFile}
+            importEmployeesFile={importEnterpriseEmployees}
+            exportEmployeesExcel={exportEnterpriseEmployeesExcel}
+          />
+        )}
+
+        {tab === "rh360" && (
+          <HrSuiteSection
+            employees={boot?.employees || []}
+            items={hrSuiteItems}
+            monthRef={monthRef}
+            saveItem={saveHrSuiteItem}
+            deleteItem={deleteHrSuiteItem}
+            openAttachment={openHrSuiteAttachment}
+            chooseAttachment={chooseHrSuiteAttachment}
+            exportExcel={exportHrSuiteExcel}
+            refreshItems={refreshHrSuiteItems}
           />
         )}
 
@@ -3617,6 +4028,7 @@ export default function App() {
             payrollRuns={filteredPayrollRuns}
             monthRef={monthRef}
             formatMoney={formatMoney}
+            runPayroll={runPayroll}
             generatePayslip={generatePayslip}
             deletePayrollRun={deletePayrollRun}
             deletePayrollMonth={deletePayrollMonth}
@@ -3681,7 +4093,7 @@ export default function App() {
           />
         )}
 
-        {tab === "utilizador" && isAdmin && (
+        {tab === "utilizador" && (
           <UserSection
             user={user}
             company={boot.company}
@@ -3702,18 +4114,10 @@ export default function App() {
             initialUserForm={initialUserForm}
             editUserRow={editUserRow}
             removeUser={removeUser}
-            licenseState={licenseState}
-            licensePlans={licensePlans}
-            licenseBanner={licenseBanner}
-            openLicenseCenter={openLicenseCenter}
-            updateState={updateState}
-            checkForUpdates={checkForUpdates}
-            downloadUpdate={downloadUpdate}
-            installUpdate={installUpdate}
           />
         )}
 
-        {tab === "auditoria" && user.role === "admin" && (
+        {tab === "auditoria" && (
           <AuditSection
             auditLogs={boot.auditLogs || []}
             auditFilters={auditFilters}
@@ -3747,6 +4151,15 @@ export default function App() {
             runtimeFlags={runtimeFlags}
             generateBackup={generateBackup}
             restoreBackup={restoreBackup}
+            licenseState={licenseState}
+            licensePlans={licensePlans}
+            licenseBanner={licenseBanner}
+            openLicenseCenter={openLicenseCenter}
+            updateState={updateState}
+            checkForUpdates={checkForUpdates}
+            downloadUpdate={downloadUpdate}
+            installUpdate={installUpdate}
+            downloadClientManual={downloadClientManual}
           />
         )}
 

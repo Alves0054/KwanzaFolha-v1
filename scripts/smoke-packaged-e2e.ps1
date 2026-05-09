@@ -36,7 +36,7 @@ function Assert-ValidSignature {
 
   $status = [string]$signature.Status
   if ($status -eq "NotSigned" -or $status -eq "HashMismatch") {
-    throw "Smoke E2E falhou: assinatura invalida para '$PathToFile'. Estado: $status."
+    throw "Smoke E2E falhou: assinatura inválida para '$PathToFile'. Estado: $status."
   }
   if (-not $signature.TimeStamperCertificate) {
     throw "Smoke E2E falhou: '$PathToFile' esta assinado sem timestamp."

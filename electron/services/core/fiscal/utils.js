@@ -8,7 +8,7 @@ function parseNonNegativeNumber(value, fieldName) {
     throw new TypeError(`O campo ${fieldName} deve ser numerico.`);
   }
   if (numericValue < 0) {
-    throw new RangeError(`O campo ${fieldName} nao pode ser negativo.`);
+    throw new RangeError(`O campo ${fieldName} não pode ser negativo.`);
   }
   return roundCurrency(numericValue);
 }

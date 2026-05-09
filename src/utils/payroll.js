@@ -14,6 +14,7 @@ export {
   initialLicenseActivationForm,
   initialLicensePurchaseForm,
   initialLeaveRequest,
+  initialOrganizationForms,
   initialPasswordForm,
   initialRegistrationForm,
   initialResetPasswordForm,
